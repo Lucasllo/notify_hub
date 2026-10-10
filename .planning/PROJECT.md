@@ -20,7 +20,7 @@ Uma notificação aceita pela API nunca se perde em silêncio. Ela é entregue (
 - [ ] `notify-api`: `GET /notifications/{id}` retorna a notificação com o histórico de tentativas
 - [ ] `notify-api`: `GET /notifications?status=&channel=` paginado
 - [ ] `notify-api`: `POST /admin/dlq/{canal}/reprocess?max=N` move mensagens da DLQ de volta à fila principal e zera as tentativas, protegido por API key em header
-- [ ] Topologia RabbitMQ declarada em código: topic exchange, uma fila por canal (email, sms, webhook), filas de delay com TTL fixo por nível (ex.: 5s → 30s → 2m) usando dead-letter de volta à fila principal, e DLQ final por canal
+- [ ] Topologia RabbitMQ declarada em código: topic exchange, uma fila por canal (email, sms, webhook), filas de delay com TTL fixo por nível (backoff exponencial de fator 5: 5s → 25s → 125s) usando dead-letter de volta à fila principal, e DLQ final por canal
 - [ ] `notify-worker`: consome as filas por canal, renderiza o template Mustache, envia pelo adapter simulado e atualiza status e histórico
 - [ ] Classificação de falhas: transitórias (timeout/5xx simulado, circuit breaker aberto, bulkhead cheio) passam por retry; permanentes (destinatário inválido, template ausente ou variável faltando) vão direto para FAILED/DLQ
 - [ ] Adapters simulados por canal com taxa de falha aleatória e latência configuráveis
@@ -73,6 +73,12 @@ Uma notificação aceita pela API nunca se perde em silêncio. Ela é entregue (
 | Reprocessamento da DLQ na API, por canal + limite, com API key | Controle operacional mínimo e seguro o suficiente para a demo | — Pending |
 | Falhas transitórias vs permanentes | Retry só onde faz sentido; permanentes não gastam tentativas | — Pending |
 | Prometheus + Grafana no compose | Visual forte para a demo do portfólio | — Pending |
+| Backoff de fator 5 (5s/25s/125s) com profile demo curto | Exponencial de verdade; demo e testes rápidos | — Pending |
+| `Idempotency-Key` no POST na v1 | Torna seguro o retry do cliente após 503 | — Pending |
+| Estados terminais FAILED (permanente) e DEAD_LETTERED (retries esgotados) | Clareza na demo e no histórico | — Pending |
+| Publish falho → 503 + PUBLISH_FAILED + republish admin | Fecha a lacuna da ausência de outbox | — Pending |
+| Spring Boot 3.5.16 (fim do suporte OSS em 06/2026) | Restrição 3.x; migração para 4.x registrada como evolução | — Pending |
+| Contador de tentativas pela aplicação (header + Mongo), sem `x-death` | `x-death` mudou de comportamento no RabbitMQ 3.13+/4.x | — Pending |
 
 ## Evolution
 
