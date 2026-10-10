@@ -66,7 +66,7 @@ None — discussion stayed within phase scope.
 
 ## Resumo
 
-A Fase 1 é greenfield e densa (19 requisitos). O desenho já está definido em `.planning/research/ARCHITECTURE.md` (Padrões 1, 3, 4 e 5) e nas decisões D-01..D-10. Esta pesquisa li o **código-fonte das versões exatas** que o BOM do Boot 3.5.16 gerencia (Boot v3.5.16, Spring AMQP v3.2.12, Spring Data MongoDB 4.5.13, JMustache 1.16 e a imagem Docker oficial do RabbitMQ 4.3) para fechar os pontos que o planner precisa acertar de primeira.
+A Fase 1 é greenfield e densa (19 requisitos). O desenho já está definido em `.planning/research/ARCHITECTURE.md` (Padrões 1, 3, 4 e 5) e nas decisões D-01..D-10. Esta pesquisa leu o **código-fonte das versões exatas** que o BOM do Boot 3.5.16 gerencia (Boot v3.5.16, Spring AMQP v3.2.12, Spring Data MongoDB 4.5.13, JMustache 1.16 e a imagem Docker oficial do RabbitMQ 4.3) para fechar os pontos que o planner precisa acertar de primeira.
 
 Achados novos que mudam o plano:
 1. **Os runners rodam depois que os listeners já subiram.** `SpringApplication` chama `refreshContext` (que inicia os containers `@RabbitListener`) antes de `callRunners`. Como D-08 exige um `ApplicationRunner` para o seed, o worker precisa de `spring.rabbitmq.listener.simple.auto-startup=false` e de um runner final que inicie os containers **depois** de criar os índices e aplicar o seed. Sem isso, uma fila com backlog no primeiro boot manda mensagens para a DLQ por "template inexistente".
