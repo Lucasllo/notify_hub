@@ -126,13 +126,63 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (preenchido pelo roadmap) | | |
+| FND-01 | Phase 1 | Pending |
+| FND-02 | Phase 1 | Pending |
+| FND-03 | Phase 1 | Pending |
+| FND-04 | Phase 1 | Pending |
+| MSG-01 | Phase 1 | Pending |
+| MSG-02 | Phase 1 | Pending |
+| MSG-03 | Phase 1 | Pending |
+| MSG-04 | Phase 1 | Pending |
+| MSG-05 | Phase 1 | Pending |
+| API-01 | Phase 1 | Pending |
+| API-02 | Phase 1 | Pending |
+| API-03 | Phase 3 | Pending |
+| API-04 | Phase 1 | Pending |
+| API-05 | Phase 3 | Pending |
+| API-06 | Phase 1 | Pending |
+| API-07 | Phase 3 | Pending |
+| API-08 | Phase 3 | Pending |
+| WRK-01 | Phase 1 | Pending |
+| WRK-02 | Phase 1 | Pending |
+| WRK-03 | Phase 2 | Pending |
+| WRK-04 | Phase 1 | Pending |
+| WRK-05 | Phase 1 | Pending |
+| TPL-01 | Phase 1 | Pending |
+| TPL-02 | Phase 2 | Pending |
+| TPL-03 | Phase 2 | Pending |
+| DLV-01 | Phase 1 | Pending |
+| DLV-02 | Phase 2 | Pending |
+| DLV-03 | Phase 2 | Pending |
+| DLV-04 | Phase 2 | Pending |
+| DLV-05 | Phase 2 | Pending |
+| DLV-06 | Phase 2 | Pending |
+| RES-01 | Phase 2 | Pending |
+| RES-02 | Phase 2 | Pending |
+| ADM-01 | Phase 3 | Pending |
+| ADM-02 | Phase 3 | Pending |
+| ADM-03 | Phase 3 | Pending |
+| ADM-04 | Phase 3 | Pending |
+| OBS-01 | Phase 2 | Pending |
+| OBS-02 | Phase 4 | Pending |
+| OBS-03 | Phase 4 | Pending |
+| TST-01 | Phase 2 | Pending |
+| TST-02 | Phase 3 | Pending |
+| TST-03 | Phase 3 | Pending |
+| TST-04 | Phase 3 | Pending |
+| DEM-01 | Phase 4 | Pending |
+| DEM-02 | Phase 4 | Pending |
+| DEM-03 | Phase 4 | Pending |
+| DOC-01 | Phase 4 | Pending |
+| DOC-02 | Phase 4 | Pending |
+| DOC-03 | Phase 4 | Pending |
+| DOC-04 | Phase 4 | Pending |
 
 **Coverage:**
 - v1 requirements: 51 total
-- Mapped to phases: 0
-- Unmapped: 51 ⚠️
+- Mapped to phases: 51
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-10-09*
-*Last updated: 2026-10-09 after initial definition*
+*Last updated: 2026-10-09 after roadmap creation (traceability mapped)*
