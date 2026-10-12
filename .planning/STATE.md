@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: Entrega ponta a ponta no caminho feliz
 status: executing
-stopped_at: Completed 01-02-PLAN.md
-last_updated: "2026-10-12T18:53:01.830Z"
+stopped_at: Completed 01-03-PLAN.md
+last_updated: "2026-10-12T19:02:39.680Z"
 last_activity: 2026-10-12
 last_activity_desc: Phase 01 execution started
-state_head: 81702b370d7563a1c7e07b742955841ec7112f09
+state_head: 13cad8e843c27882850fcc7a444beb8092633f2d
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 6
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-09)
 ## Current Position
 
 Phase: 01 (Entrega ponta a ponta no caminho feliz) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
 Last activity: 2026-10-12 — Phase 01 execution started
 
@@ -59,6 +59,7 @@ Progress: [░░░░░░░░░░] 0%
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 01 P02 | 6min | 2 tasks | 12 files |
+| Phase 01 P03 | 7min | 3 tasks | 18 files |
 
 ## Accumulated Context
 
@@ -74,6 +75,8 @@ Recent decisions affecting current work:
 - [Projeto]: Estados terminais FAILED (permanente) e DEAD_LETTERED (retries esgotados)
 - [Phase 01]: 01-02: MessageConverter injeta o ObjectMapper do Boot sem fallback; spring-web só em escopo de teste no notify-common
 - [Phase 01]: 01-02: TopologyProperties exige níveis entre 1ms e Integer.MAX_VALUE ms, estritamente crescentes e com rótulos distintos
+- [Phase 01]: 01-03: TemplateSeeder expõe seed(List) além de seed(); findAndReplace que casa 0 documentos conta como unchanged (outro processo mudou a versão)
+- [Phase 01]: 01-03: loadSeed() falha rápido com seed sem id/variantes ou ilegível; worker não sobe com seed quebrado
 
 ### Pending Todos
 
@@ -98,6 +101,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-12T18:53:01.800Z
-Stopped at: Completed 01-02-PLAN.md
+Last session: 2026-10-12T19:02:39.643Z
+Stopped at: Completed 01-03-PLAN.md
 Resume file: None
