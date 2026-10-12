@@ -1,0 +1,5 @@
+# Profile da demo: escada de retry curta (1s, 5s, 25s). O worker usa os mesmos níveis (plano 01-05);
+# se divergirem, surgem filas de delay extras no broker.
+notify:
+  topology:
+    retry-levels: 1s,5s,25s

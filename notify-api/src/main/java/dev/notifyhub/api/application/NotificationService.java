@@ -89,4 +89,9 @@ public class NotificationService {
         return Optional.ofNullable(mongoTemplate.findById(id, NotificationDocument.class))
                 .map(NotificationView::from);
     }
+
+    /** Como {@link #find(String)}, mas id inexistente vira {@link NotificationNotFoundException} (404). */
+    public NotificationView get(String id) {
+        return find(id).orElseThrow(() -> new NotificationNotFoundException(id));
+    }
 }
