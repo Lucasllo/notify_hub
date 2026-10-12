@@ -8,10 +8,13 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.jayway.jsonpath.JsonPath;
+import com.mongodb.client.result.UpdateResult;
 import dev.notifyhub.api.application.NotificationService;
 import dev.notifyhub.api.messaging.NotificationPublisher;
 import dev.notifyhub.api.messaging.PublishProperties;
@@ -33,6 +36,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -119,6 +124,30 @@ class NotificationApiFlowTest {
         Message processed = mpp.getValue().postProcessMessage(new Message(new byte[0], new MessageProperties()));
         assertThat(processed.getMessageProperties().getMessageId()).isEqualTo(id);
         assertThat((Object) processed.getMessageProperties().getHeader("notify-retry-count")).isEqualTo(0);
+    }
+
+    @Test
+    void nackedPublishAnswers503ProblemWithRetryAfter() throws Exception {
+        brokerAnswers(false, "simulated nack");
+        when(mongoTemplate.updateFirst(any(Query.class), any(Update.class), eq(NotificationDocument.class)))
+                .thenReturn(UpdateResult.acknowledged(1, 1L, null));
+
+        MvcResult result = mvc.perform(post("/notifications")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_BODY))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(header().string("Retry-After", "5"))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value("urn:notify-hub:problem:publish-failed"))
+                .andExpect(jsonPath("$.status").value(503))
+                .andExpect(jsonPath("$.instance").value("/notifications"))
+                .andReturn();
+
+        ArgumentCaptor<NotificationDocument> doc = ArgumentCaptor.forClass(NotificationDocument.class);
+        org.mockito.Mockito.verify(mongoTemplate).insert(doc.capture());
+        String detail = JsonPath.read(result.getResponse().getContentAsString(), "$.detail");
+        assertThat(detail).contains(doc.getValue().id());
+        assertThat(result.getResponse().getContentAsString()).doesNotContain("simulated nack");
     }
 
     @Test
