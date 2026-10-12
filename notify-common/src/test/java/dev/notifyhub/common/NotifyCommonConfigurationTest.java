@@ -1,7 +1,9 @@
 package dev.notifyhub.common;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
+import dev.notifyhub.common.persistence.MongoIndexInitializer;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.core.Declarables;
@@ -12,11 +14,13 @@ import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.ApplicationContext;
+import org.springframework.data.mongodb.core.MongoTemplate;
 
 class NotifyCommonConfigurationTest {
 
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(JacksonAutoConfiguration.class))
+            .withBean(MongoTemplate.class, () -> mock(MongoTemplate.class))
             .withUserConfiguration(NotifyCommonConfiguration.class);
 
     private static List<String> queueNames(ApplicationContext context) {
@@ -71,5 +75,10 @@ class NotifyCommonConfigurationTest {
             assertThat(context).hasSingleBean(MessageConverter.class);
             assertThat(context.getBean(MessageConverter.class)).isInstanceOf(Jackson2JsonMessageConverter.class);
         });
+    }
+
+    @Test
+    void exposesMongoIndexInitializer() {
+        runner.run(context -> assertThat(context).hasNotFailed().hasSingleBean(MongoIndexInitializer.class));
     }
 }
