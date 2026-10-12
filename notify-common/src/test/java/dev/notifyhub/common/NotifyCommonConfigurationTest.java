@@ -56,7 +56,13 @@ class NotifyCommonConfigurationTest {
     @Test
     void nonIncreasingLevelsFailStartup() {
         runner.withPropertyValues("notify.topology.retry-levels=25s,5s")
-                .run(context -> assertThat(context).hasFailed());
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context).getFailure()
+                            .rootCause()
+                            .isInstanceOf(IllegalArgumentException.class)
+                            .hasMessageContaining("estritamente crescente");
+                });
     }
 
     @Test

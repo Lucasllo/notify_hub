@@ -47,5 +47,12 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Só para testes: o JacksonAutoConfiguration só cria o ObjectMapper com Jackson2ObjectMapperBuilder
+             (spring-web) no classpath, como acontece na API e no worker (spring-boot-starter-web). -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-web</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 </project>
