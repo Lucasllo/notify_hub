@@ -1,0 +1,17 @@
+{
+  "id": "order-shipped",
+  "version": 1,
+  "requiredVariables": ["name", "orderId"],
+  "variants": {
+    "EMAIL": {
+      "subject": "Seu pedido {{orderId}} foi enviado",
+      "body": "<p>Olá, {{name}}!</p><p>Seu pedido <strong>{{orderId}}</strong> saiu para entrega.</p>"
+    },
+    "SMS": {
+      "body": "{{name}}, seu pedido {{orderId}} saiu para entrega."
+    },
+    "WEBHOOK": {
+      "body": "{\"event\":\"order.shipped\",\"notificationId\":\"{{_notificationId}}\",\"data\":{\"name\":\"{{name}}\",\"orderId\":\"{{orderId}}\"}}"
+    }
+  }
+}
