@@ -1,0 +1,5 @@
+# Profile da demo: escada de retry curta (1s, 5s, 25s), a mesma da API (MSG-05).
+# Se os níveis divergirem entre API e worker, surgem filas de delay extras no broker.
+notify:
+  topology:
+    retry-levels: 1s,5s,25s

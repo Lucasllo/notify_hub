@@ -35,4 +35,20 @@ public class ChannelListeners {
                         @Header(name = NotifyHeaders.RETRY_COUNT, required = false) Object retryCount) {
         processor.process(Channel.EMAIL, message, RetryHeaders.parse(retryCount));
     }
+
+    @RabbitListener(id = "listener-sms",
+            queues = "#{T(dev.notifyhub.common.domain.Channel).SMS.queue()}",
+            concurrency = "${notify.worker.channels.sms.concurrency:10}")
+    public void onSms(NotificationMessage message,
+                      @Header(name = NotifyHeaders.RETRY_COUNT, required = false) Object retryCount) {
+        processor.process(Channel.SMS, message, RetryHeaders.parse(retryCount));
+    }
+
+    @RabbitListener(id = "listener-webhook",
+            queues = "#{T(dev.notifyhub.common.domain.Channel).WEBHOOK.queue()}",
+            concurrency = "${notify.worker.channels.webhook.concurrency:10}")
+    public void onWebhook(NotificationMessage message,
+                          @Header(name = NotifyHeaders.RETRY_COUNT, required = false) Object retryCount) {
+        processor.process(Channel.WEBHOOK, message, RetryHeaders.parse(retryCount));
+    }
 }
