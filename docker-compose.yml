@@ -1,0 +1,40 @@
+name: notify-hub
+
+services:
+  rabbitmq:
+    image: rabbitmq:4.3.6-management
+    # Hostname fixo: o RabbitMQ guarda os dados por nome de nó (rabbit@<hostname>).
+    # Sem ele, um container recriado "perde" as filas do volume.
+    hostname: notify-rabbit
+    environment:
+      RABBITMQ_DEFAULT_USER: notify
+      RABBITMQ_DEFAULT_PASS: notify
+    ports:
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+      - "127.0.0.1:15692:15692"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 10s
+      timeout: 10s
+      retries: 6
+      start_period: 30s
+
+  mongo:
+    image: mongo:8.0.32
+    ports:
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+volumes:
+  rabbitmq-data:
+  mongo-data:
