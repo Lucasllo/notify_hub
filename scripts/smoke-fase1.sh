@@ -5,13 +5,15 @@
 # e confere o esqueleto inteiro contra o broker e o banco de verdade:
 #   - topologia no RabbitMQ (exchanges, filas principais, filas de delay por nível e DLQs);
 #   - índices nomeados e seed de templates no MongoDB;
-#   - POST → 202 + Location → SENT, renderizado em pt-BR e processado em virtual thread.
+#   - POST → 202 + Location → SENT, renderizado em pt-BR e processado em virtual thread;
+#   - caminhos de falha: 400 sem persistir, 503 PUBLISH_FAILED, duplicata sem reenvio, DLQ sem loop.
 #
 # Uso (a partir de qualquer diretório; o script faz cd para a raiz do repositório):
 #   bash scripts/smoke-fase1.sh [--sem-build] [--perfil-demo]
 #
 #   --sem-build    não roda o ./mvnw package (usa os jars que já estão em */target)
-#   --perfil-demo  sobe API e worker com --spring.profiles.active=demo (níveis de delay 1s/5s/25s)
+#   --perfil-demo  sobe API e worker com --spring.profiles.active=demo e confere só a topologia
+#                  com os níveis 1s/5s/25s, índices/seed e o caminho feliz EMAIL
 #
 # Pré-requisitos: Docker Desktop ligado, JDK 21 no PATH, curl. Nada pode estar ouvindo em 8080 nem 8081.
 # Logs das apps e respostas HTTP ficam em target/smoke/.
@@ -31,7 +33,8 @@ RABBIT_API_URL="http://localhost:15672/api"
 RABBIT_CRED="notify:notify"
 
 uso() {
-  sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  # Imprime o bloco de comentários do topo do arquivo.
+  awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "${BASH_SOURCE[0]}"
 }
 
 SEM_BUILD=false
@@ -163,9 +166,30 @@ parar_processo() {
   echo "-- $nome encerrado (pid $pid${winpid:+, winpid $winpid})"
 }
 
+# Recria o binding notify.exchange → notify.email (idempotente). Usado no passo 11 e no trap de saída,
+# para que o ambiente nunca fique sem o binding se o script falhar no meio do cenário 503.
+BINDING_REMOVIDO=false
+restaurar_binding() {
+  curl -sf -u "$RABBIT_CRED" -X POST -H 'Content-Type: application/json' \
+    --data '{"routing_key":"notification.email","arguments":{}}' \
+    "$RABBIT_API_URL/bindings/%2F/e/notify.exchange/q/notify.email" >/dev/null
+}
+
+# Quantidade de mensagens de uma fila segundo a API de gerenciamento (estatística atualizada a cada ~5s).
+mensagens_na_fila() {
+  rabbit_api "queues/%2F/$1?columns=messages" | grep -o '"messages":[0-9]*' | head -n 1 | cut -d: -f2
+}
+
 encerrar() {
   local codigo=$?
   set +e
+  if $BINDING_REMOVIDO; then
+    if restaurar_binding; then
+      echo "-- binding notify.exchange → notify.email restaurado no trap de saída"
+    else
+      echo "AVISO: não consegui restaurar o binding notify.exchange → notify.email; reinicie a notify-api para redeclarar" >&2
+    fi
+  fi
   parar_processo "$API_PID" "notify-api"
   parar_processo "$WORKER_PID" "notify-worker"
   exit "$codigo"
@@ -298,21 +322,23 @@ caminho_feliz EMAIL \
   'Boas-vindas ao Notify Hub, Ana!'
 EMAIL_ID=$ULTIMO_ID
 
-caminho_feliz SMS \
-  '{"channel":"SMS","recipient":"+5511999998888","templateCode":"order-shipped","variables":{"name":"Ana","orderId":"PED-123"}}' \
-  'PED-123'
-SMS_ID=$ULTIMO_ID
+if ! $PERFIL_DEMO; then
+  caminho_feliz SMS \
+    '{"channel":"SMS","recipient":"+5511999998888","templateCode":"order-shipped","variables":{"name":"Ana","orderId":"PED-123"}}' \
+    'PED-123'
+  SMS_ID=$ULTIMO_ID
 
-caminho_feliz WEBHOOK \
-  '{"channel":"WEBHOOK","recipient":"https://example.test/hooks/notify","templateCode":"password-reset","variables":{"name":"Ana","resetCode":"789012"}}' \
-  'password.reset' '789012'
-WEBHOOK_ID=$ULTIMO_ID
-# Envelope de evento (D-09): o worker injeta o próprio id em notificationId.
-grep -qF "\\\"notificationId\\\":\\\"$WEBHOOK_ID\\\"" <<<"$NOTIFICACAO" \
-  || falhou "envelope WEBHOOK sem notificationId = $WEBHOOK_ID: $NOTIFICACAO"
-grep -qF '\"event\":\"password.reset\"' <<<"$NOTIFICACAO" || falhou "envelope WEBHOOK sem event: $NOTIFICACAO"
-grep -qF '\"data\":{' <<<"$NOTIFICACAO" || falhou "envelope WEBHOOK sem data: $NOTIFICACAO"
-ok "WEBHOOK com envelope event/notificationId/data"
+  caminho_feliz WEBHOOK \
+    '{"channel":"WEBHOOK","recipient":"https://example.test/hooks/notify","templateCode":"password-reset","variables":{"name":"Ana","resetCode":"789012"}}' \
+    'password.reset' '789012'
+  WEBHOOK_ID=$ULTIMO_ID
+  # Envelope de evento (D-09): o worker injeta o próprio id em notificationId.
+  grep -qF "\\\"notificationId\\\":\\\"$WEBHOOK_ID\\\"" <<<"$NOTIFICACAO" \
+    || falhou "envelope WEBHOOK sem notificationId = $WEBHOOK_ID: $NOTIFICACAO"
+  grep -qF '\"event\":\"password.reset\"' <<<"$NOTIFICACAO" || falhou "envelope WEBHOOK sem event: $NOTIFICACAO"
+  grep -qF '\"data\":{' <<<"$NOTIFICACAO" || falhou "envelope WEBHOOK sem data: $NOTIFICACAO"
+  ok "WEBHOOK com envelope event/notificationId/data"
+fi
 
 # ---------------------------------------------------------------------------------------------
 # 8. Logs (WRK-05, MSG-01)
@@ -328,7 +354,129 @@ for log in worker api; do
 done
 ok "worker em VirtualThread, sem 'Consumer failed to start' e sem PRECONDITION_FAILED nos logs"
 
-info "notificações criadas: EMAIL $EMAIL_ID, SMS $SMS_ID, WEBHOOK $WEBHOOK_ID"
+if $PERFIL_DEMO; then
+  # 14. Profile demo (MSG-05): topologia 1s/5s/25s (passo 5) e caminho feliz EMAIL (passo 7) já conferidos.
+  ok "profile demo: filas retry.1s/5s/25s nos três canais e EMAIL até SENT, sem mudança de código"
+  info "notificação criada: EMAIL $EMAIL_ID"
+else
+
+# ---------------------------------------------------------------------------------------------
+# 10. 400 sem persistir (API-06)
+# ---------------------------------------------------------------------------------------------
+contagem_antes=$(mongo_eval "db.notifications.countDocuments()") || falhou "mongosh não respondeu"
+
+# POST inválido → 400 application/problem+json com o campo esperado em errors[].
+espera_400() {
+  local caso=$1 json=$2 campo=$3
+  local status tipo
+  status=$(post_notificacao "$json")
+  [ "$status" = "400" ] || falhou "$caso respondeu $status (esperado 400): $(corpo_resposta)"
+  tipo=$(header_resposta Content-Type)
+  [[ "$tipo" == *application/problem+json* ]] || falhou "$caso com Content-Type '$tipo' (esperado application/problem+json)"
+  grep -qF "\"field\":\"$campo\"" "$SMOKE_DIR/resposta.json" \
+    || falhou "$caso sem \"field\":\"$campo\" em errors[]: $(corpo_resposta)"
+  ok "$caso → 400 problem+json, errors[].field = $campo"
+}
+
+espera_400 "canal desconhecido (PUSH)" \
+  '{"channel":"PUSH","recipient":"ana@exemplo.com","templateCode":"welcome","variables":{"name":"Ana"}}' channel
+espera_400 "destinatário ausente" \
+  '{"channel":"EMAIL","templateCode":"welcome","variables":{"name":"Ana"}}' recipient
+espera_400 "SMS fora do E.164" \
+  '{"channel":"SMS","recipient":"123","templateCode":"order-shipped","variables":{"name":"Ana","orderId":"PED-123"}}' recipient
+espera_400 "chave de variável com ponto" \
+  '{"channel":"EMAIL","recipient":"ana@exemplo.com","templateCode":"welcome","variables":{"a.b":"x"}}' variables
+
+contagem_depois=$(mongo_eval "db.notifications.countDocuments()") || falhou "mongosh não respondeu"
+[ "$contagem_antes" = "$contagem_depois" ] \
+  || falhou "os 400 gravaram documentos: notifications tinha $contagem_antes e agora tem $contagem_depois"
+ok "nenhum 400 gravou no Mongo (notifications continua com $contagem_depois documentos)"
+
+# ---------------------------------------------------------------------------------------------
+# 11. 503 PUBLISH_FAILED (API-02)
+# ---------------------------------------------------------------------------------------------
+binding=$(rabbit_api "bindings/%2F/e/notify.exchange/q/notify.email") || falhou "não consegui ler o binding notify.exchange → notify.email"
+chave=$(grep -o '"properties_key":"[^"]*"' <<<"$binding" | head -n 1 | cut -d'"' -f4 || true)
+[ -n "$chave" ] || falhou "binding notify.exchange → notify.email não existe: $binding"
+BINDING_REMOVIDO=true
+curl -sf -u "$RABBIT_CRED" -X DELETE "$RABBIT_API_URL/bindings/%2F/e/notify.exchange/q/notify.email/$chave" >/dev/null \
+  || falhou "não consegui remover o binding notify.exchange → notify.email ($chave)"
+ok "binding notify.exchange → notify.email ($chave) removido"
+
+status=$(post_notificacao '{"channel":"EMAIL","recipient":"ana@exemplo.com","templateCode":"welcome","variables":{"name":"Ana"}}')
+[ "$status" = "503" ] || falhou "POST EMAIL sem binding respondeu $status (esperado 503): $(corpo_resposta)"
+retry_after=$(header_resposta Retry-After)
+[ "$retry_after" = "5" ] || falhou "503 com Retry-After '$retry_after' (esperado 5)"
+grep -qF 'publish-failed' "$SMOKE_DIR/resposta.json" || falhou "503 sem Problem Detail publish-failed: $(corpo_resposta)"
+falho_id=$(grep -o '"notificationId":"[^"]*"' "$SMOKE_DIR/resposta.json" | head -n 1 | cut -d'"' -f4 || true)
+[ -n "$falho_id" ] || falhou "503 sem notificationId no corpo: $(corpo_resposta)"
+ok "POST EMAIL sem rota → 503, Retry-After: 5, publish-failed ($falho_id)"
+esperar_status "$falho_id" PUBLISH_FAILED
+ok "GET $falho_id mostra PUBLISH_FAILED"
+
+restaurar_binding || falhou "não consegui restaurar o binding notify.exchange → notify.email"
+BINDING_REMOVIDO=false
+rabbit_api "bindings/%2F/e/notify.exchange/q/notify.email" | grep -qF '"routing_key":"notification.email"' \
+  || falhou "binding notify.exchange → notify.email não voltou"
+ok "binding notify.exchange → notify.email restaurado"
+
+caminho_feliz EMAIL \
+  '{"channel":"EMAIL","recipient":"ana@exemplo.com","templateCode":"welcome","variables":{"name":"Ana"}}' \
+  'Boas-vindas ao Notify Hub, Ana!'
+ok "com o binding de volta, o POST EMAIL chega a SENT de novo"
+
+# ---------------------------------------------------------------------------------------------
+# 12. Duplicata (WRK-02)
+# ---------------------------------------------------------------------------------------------
+agora=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+publicacao=$(curl -sf -u "$RABBIT_CRED" -X POST -H 'Content-Type: application/json' \
+  --data "{\"properties\":{\"content_type\":\"application/json\",\"headers\":{\"notify-retry-count\":0}},\"routing_key\":\"notification.email\",\"payload\":\"{\\\"notificationId\\\":\\\"$EMAIL_ID\\\",\\\"channel\\\":\\\"EMAIL\\\",\\\"templateCode\\\":\\\"welcome\\\",\\\"createdAt\\\":\\\"$agora\\\"}\",\"payload_encoding\":\"string\"}" \
+  "$RABBIT_API_URL/exchanges/%2F/notify.exchange/publish") || falhou "a publicação pela API de gerenciamento falhou"
+grep -qF '"routed":true' <<<"$publicacao" || falhou "mensagem duplicada não foi roteada: $publicacao"
+ok "mensagem duplicada de $EMAIL_ID publicada em notify.exchange (routed)"
+
+limite=$((SECONDS + 10))
+until grep -qF "duplicada/obsoleta descartada id=$EMAIL_ID" "$SMOKE_DIR/worker.log"; do
+  ((SECONDS < limite)) || falhou "worker.log não registrou 'duplicada/obsoleta' para $EMAIL_ID em 10s"
+  sleep 0.5
+done
+view=$(get_notificacao "$EMAIL_ID")
+tentativas=$(grep -o '"number":' <<<"$view" | wc -l | tr -d ' ' || true)
+[ "$tentativas" = "1" ] || falhou "$EMAIL_ID tem $tentativas tentativas depois da duplicata (esperado 1): $view"
+grep -qF '"status":"SENT"' <<<"$view" || falhou "$EMAIL_ID saiu de SENT depois da duplicata: $view"
+ok "duplicata descartada (log 'duplicada/obsoleta'), $EMAIL_ID continua SENT com 1 tentativa"
+
+# ---------------------------------------------------------------------------------------------
+# 13. DLQ sem loop (MSG-04, critério 4)
+# ---------------------------------------------------------------------------------------------
+dlq_antes=$(mensagens_na_fila notify.email.dlq) || falhou "não consegui ler notify.email.dlq"
+status=$(post_notificacao '{"channel":"EMAIL","recipient":"ana@exemplo.com","templateCode":"nao-existe","variables":{"name":"Ana"}}')
+[ "$status" = "202" ] || falhou "POST com template inexistente respondeu $status (esperado 202): $(corpo_resposta)"
+dlq_location=$(header_resposta Location)
+dlq_id=${dlq_location#/notifications/}
+ok "POST EMAIL com templateCode nao-existe → 202 ($dlq_id)"
+
+dlq_esperado=$((dlq_antes + 1))
+dlq_agora=$dlq_antes
+limite=$((SECONDS + 15))
+while ((SECONDS < limite)); do
+  dlq_agora=$(mensagens_na_fila notify.email.dlq || echo "$dlq_antes")
+  [ "$dlq_agora" = "$dlq_esperado" ] && break
+  sleep 1
+done
+[ "$dlq_agora" = "$dlq_esperado" ] \
+  || falhou "notify.email.dlq tem $dlq_agora mensagens depois de 15s (esperado $dlq_esperado)"
+sleep 3
+dlq_final=$(mensagens_na_fila notify.email.dlq) || falhou "não consegui ler notify.email.dlq"
+principal=$(mensagens_na_fila notify.email) || falhou "não consegui ler notify.email"
+[ "$dlq_final" = "$dlq_esperado" ] || falhou "notify.email.dlq mudou de $dlq_esperado para $dlq_final: rejeição em loop?"
+[ "$principal" = "0" ] || falhou "notify.email tem $principal mensagens (esperado 0): rejeição em loop?"
+ok "rejeição sem loop: notify.email.dlq com exatamente uma mensagem a mais ($dlq_final) e notify.email vazia"
+status_dlq=$(get_notificacao "$dlq_id" | grep -o '"status":"[A-Z_]*"' | head -n 1 | cut -d'"' -f4 || true)
+info "status atual de $dlq_id: ${status_dlq:-desconhecido} (PROCESSING é a lacuna conhecida, fechada na Fase 2)"
+
+info "notificações criadas: EMAIL $EMAIL_ID, SMS $SMS_ID, WEBHOOK $WEBHOOK_ID, PUBLISH_FAILED $falho_id, DLQ $dlq_id"
+fi
 
 # Encerra as apps antes da linha final, para que "SMOKE FASE 1: OK" seja a última linha da saída.
 # A infra continua no ar para inspeção.
