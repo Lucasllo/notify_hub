@@ -18,6 +18,12 @@ import org.springframework.stereotype.Component;
  *
  * <p>O corpo é desserializado para o tipo concreto {@link NotificationMessage} (T-01-25). Exceções
  * sobem para o container, que rejeita sem requeue e a mensagem vai para a DLQ do canal.
+ *
+ * <p>O header de tentativas é recebido como {@code String}: o conversor do Spring transforma o
+ * inteiro publicado pela API em texto, e a string do painel chega como está; {@link RetryHeaders}
+ * valida os dois. Nunca declare esse parâmetro como {@code Object}: o Spring AMQP entrega os
+ * "argumentos fornecidos" (a {@code Message} AMQP e o {@code Channel}) a qualquer parâmetro cujo
+ * tipo os aceite antes de consultar {@code @Header}, e o listener receberia a mensagem inteira.
  */
 @Component
 public class ChannelListeners {
@@ -32,7 +38,7 @@ public class ChannelListeners {
             queues = "#{T(dev.notifyhub.common.domain.Channel).EMAIL.queue()}",
             concurrency = "${notify.worker.channels.email.concurrency:10}")
     public void onEmail(NotificationMessage message,
-                        @Header(name = NotifyHeaders.RETRY_COUNT, required = false) Object retryCount) {
+                        @Header(name = NotifyHeaders.RETRY_COUNT, required = false) String retryCount) {
         processor.process(Channel.EMAIL, message, RetryHeaders.parse(retryCount));
     }
 
@@ -40,7 +46,7 @@ public class ChannelListeners {
             queues = "#{T(dev.notifyhub.common.domain.Channel).SMS.queue()}",
             concurrency = "${notify.worker.channels.sms.concurrency:10}")
     public void onSms(NotificationMessage message,
-                      @Header(name = NotifyHeaders.RETRY_COUNT, required = false) Object retryCount) {
+                      @Header(name = NotifyHeaders.RETRY_COUNT, required = false) String retryCount) {
         processor.process(Channel.SMS, message, RetryHeaders.parse(retryCount));
     }
 
@@ -48,7 +54,7 @@ public class ChannelListeners {
             queues = "#{T(dev.notifyhub.common.domain.Channel).WEBHOOK.queue()}",
             concurrency = "${notify.worker.channels.webhook.concurrency:10}")
     public void onWebhook(NotificationMessage message,
-                          @Header(name = NotifyHeaders.RETRY_COUNT, required = false) Object retryCount) {
+                          @Header(name = NotifyHeaders.RETRY_COUNT, required = false) String retryCount) {
         processor.process(Channel.WEBHOOK, message, RetryHeaders.parse(retryCount));
     }
 }

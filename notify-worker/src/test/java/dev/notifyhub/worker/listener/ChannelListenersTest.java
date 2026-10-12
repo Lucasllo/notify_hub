@@ -107,7 +107,7 @@ class ChannelListenersTest {
     void emailListenerPassesNumericHeader() {
         NotificationMessage message = new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW);
 
-        listeners.onEmail(message, 2);
+        listeners.onEmail(message, "2");
 
         verify(processor).process(Channel.EMAIL, message, 2);
     }
@@ -115,7 +115,7 @@ class ChannelListenersTest {
     @Test
     void listenerMethodsTakeTheConcreteMessageType() throws NoSuchMethodException {
         for (String name : List.of("onEmail", "onSms", "onWebhook")) {
-            Method method = ChannelListeners.class.getMethod(name, NotificationMessage.class, Object.class);
+            Method method = ChannelListeners.class.getMethod(name, NotificationMessage.class, String.class);
             assertThat(method.getParameterTypes()[0]).isEqualTo(NotificationMessage.class);
         }
     }
