@@ -76,6 +76,61 @@ class SeedTemplatesTest {
                 .hasMessageContaining("nao-existe");
     }
 
+    @Test
+    void seedContainsExactlyTheThreeEcommerceTemplates() {
+        assertThat(seeder.loadSeed())
+                .extracting(TemplateDocument::id)
+                .containsExactlyInAnyOrder("welcome", "order-shipped", "password-reset");
+    }
+
+    @Test
+    void everySeedTemplateHasAllChannelsAndClientVariablesOnly() {
+        for (TemplateDocument template : seeder.loadSeed()) {
+            assertThat(template.variants())
+                    .as(template.id())
+                    .containsOnlyKeys(Channel.EMAIL, Channel.SMS, Channel.WEBHOOK);
+            assertThat(template.variants().get(Channel.EMAIL).subject()).as(template.id()).isNotBlank();
+            assertThat(template.version()).as(template.id()).isPositive();
+            assertThat(template.requiredVariables())
+                    .as(template.id())
+                    .isNotEmpty()
+                    .doesNotContain(TemplateRenderer.NOTIFICATION_ID_VARIABLE);
+        }
+    }
+
+    @Test
+    void seedRequiredVariablesMatchTheContract() {
+        Map<String, List<String>> required = new java.util.HashMap<>();
+        seeder.loadSeed().forEach(t -> required.put(t.id(), t.requiredVariables()));
+
+        assertThat(required.get("welcome")).containsExactly("name");
+        assertThat(required.get("order-shipped")).containsExactly("name", "orderId");
+        assertThat(required.get("password-reset")).containsExactly("name", "resetCode");
+    }
+
+    @Test
+    void allNineSeedVariantsRenderAndEveryWebhookIsAValidEnvelope() throws Exception {
+        for (TemplateDocument template : seeder.loadSeed()) {
+            Map<String, Object> variables = new java.util.HashMap<>();
+            template.requiredVariables().forEach(name -> variables.put(name, "valor-" + name));
+
+            for (Channel channel : Channel.values()) {
+                RenderedContent content = renderer.render(template, channel, variables, "n-42");
+                assertThat(content.body()).as(template.id() + "/" + channel).isNotBlank();
+            }
+
+            RenderedContent webhook = renderer.render(template, Channel.WEBHOOK, variables, "n-42");
+            JsonNode envelope = json.readTree(webhook.body());
+            assertThat(envelope.path("event").asText())
+                    .as(template.id())
+                    .isIn("user.welcome", "order.shipped", "password.reset");
+            assertThat(envelope.path("notificationId").asText()).isEqualTo("n-42");
+            for (String name : template.requiredVariables()) {
+                assertThat(envelope.path("data").path(name).asText()).isEqualTo("valor-" + name);
+            }
+        }
+    }
+
     /** Roda o seed contra um banco vazio e devolve o documento {@code welcome} inserido. */
     private TemplateDocument seededWelcome() {
         when(mongo.findById(any(), eq(TemplateDocument.class))).thenReturn(null);
