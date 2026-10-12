@@ -7,47 +7,47 @@
 
 ### Fundação (FND)
 
-- [ ] **FND-01**: O projeto compila como Maven multi-módulo (parent POM + `notify-common`, `notify-api`, `notify-worker`) com Maven Wrapper, Java 21 e Spring Boot 3.5.16
-- [ ] **FND-02**: `notify-common` define o contrato compartilhado: enums de canal e status, tabela de transições permitidas, record da mensagem AMQP (id, canal, templateCode), nomes de headers e constantes de topologia
-- [ ] **FND-03**: `docker compose up` sobe RabbitMQ 4.3 (management + prometheus plugin) e MongoDB 8.0 com healthchecks e tags de imagem pinadas
-- [ ] **FND-04**: Os índices do MongoDB são criados explicitamente na inicialização (não dependem de `auto-index-creation`)
+- [x] **FND-01**: O projeto compila como Maven multi-módulo (parent POM + `notify-common`, `notify-api`, `notify-worker`) com Maven Wrapper, Java 21 e Spring Boot 3.5.16
+- [x] **FND-02**: `notify-common` define o contrato compartilhado: enums de canal e status, tabela de transições permitidas, record da mensagem AMQP (id, canal, templateCode), nomes de headers e constantes de topologia
+- [x] **FND-03**: `docker compose up` sobe RabbitMQ 4.3 (management + prometheus plugin) e MongoDB 8.0 com healthchecks e tags de imagem pinadas
+- [x] **FND-04**: Os índices do MongoDB são criados explicitamente na inicialização (não dependem de `auto-index-creation`)
 
 ### Topologia de mensageria (MSG)
 
-- [ ] **MSG-01**: A topologia é declarada em código num único bean `Declarables`: topic exchange principal (`notify.exchange`), exchange de retry (`notify.retry`) e exchange de dead-letter (`notify.dlx`)
-- [ ] **MSG-02**: Existe uma fila principal por canal (email, sms, webhook) ligada à topic exchange por `notification.<canal>`
-- [ ] **MSG-03**: Cada canal tem 3 filas de delay com TTL fixo por fila e backoff exponencial de fator 5 (5s → 25s → 125s). O TTL vai no nome da fila e cada fila faz dead-letter de volta à fila principal com routing key explícita
-- [ ] **MSG-04**: Cada canal tem uma DLQ final. A fila principal faz dead-letter para ela, então rejeitar uma mensagem a estaciona na DLQ
-- [ ] **MSG-05**: Os níveis de delay são configuráveis por propriedade: profile `demo` curto (ex.: 1s/5s/25s) e TTLs de milissegundos nos testes
+- [x] **MSG-01**: A topologia é declarada em código num único bean `Declarables`: topic exchange principal (`notify.exchange`), exchange de retry (`notify.retry`) e exchange de dead-letter (`notify.dlx`)
+- [x] **MSG-02**: Existe uma fila principal por canal (email, sms, webhook) ligada à topic exchange por `notification.<canal>`
+- [x] **MSG-03**: Cada canal tem 3 filas de delay com TTL fixo por fila e backoff exponencial de fator 5 (5s → 25s → 125s). O TTL vai no nome da fila e cada fila faz dead-letter de volta à fila principal com routing key explícita
+- [x] **MSG-04**: Cada canal tem uma DLQ final. A fila principal faz dead-letter para ela, então rejeitar uma mensagem a estaciona na DLQ
+- [x] **MSG-05**: Os níveis de delay são configuráveis por propriedade: profile `demo` curto (ex.: 1s/5s/25s) e TTLs de milissegundos nos testes
 
 ### API (API)
 
-- [ ] **API-01**: O cliente pode criar uma notificação via `POST /notifications` (canal, destinatário, templateCode, variáveis) e recebe 202 + `Location`. A notificação é persistida como PENDING antes do publish
-- [ ] **API-02**: A API publica com publisher confirms correlacionados + `mandatory`/returns. Confirm negativo, timeout ou mensagem devolvida grava PUBLISH_FAILED (update condicional) e responde 503 com Problem Detail + `Retry-After`
+- [x] **API-01**: O cliente pode criar uma notificação via `POST /notifications` (canal, destinatário, templateCode, variáveis) e recebe 202 + `Location`. A notificação é persistida como PENDING antes do publish
+- [x] **API-02**: A API publica com publisher confirms correlacionados + `mandatory`/returns. Confirm negativo, timeout ou mensagem devolvida grava PUBLISH_FAILED (update condicional) e responde 503 com Problem Detail + `Retry-After`
 - [ ] **API-03**: O cliente pode enviar o header `Idempotency-Key`. A mesma chave com o mesmo payload devolve a notificação original; a mesma chave com payload diferente devolve 422
-- [ ] **API-04**: O cliente pode consultar `GET /notifications/{id}` com status, histórico de tentativas embutido e último erro
+- [x] **API-04**: O cliente pode consultar `GET /notifications/{id}` com status, histórico de tentativas embutido e último erro
 - [ ] **API-05**: O cliente pode listar `GET /notifications?status=&channel=` com paginação e ordenação por data de criação decrescente
-- [ ] **API-06**: Erros de validação estrutural (canal inválido, campos ausentes, formato de destinatário por canal) retornam 400 com Problem Details (RFC 9457)
+- [x] **API-06**: Erros de validação estrutural (canal inválido, campos ausentes, formato de destinatário por canal) retornam 400 com Problem Details (RFC 9457)
 - [ ] **API-07**: O cliente pode consultar `GET /notifications/stats` com contagens agregadas por status e canal
 - [ ] **API-08**: A API expõe Swagger UI (springdoc 2.8.x) documentando todos os endpoints
 
 ### Worker (WRK)
 
-- [ ] **WRK-01**: O worker consome uma fila por canal (um container de listener por canal), com `default-requeue-rejected=false`, retry interno do Spring desativado e prefetch baixo
-- [ ] **WRK-02**: O worker reivindica cada mensagem com um `findAndModify` condicional (PENDING/RETRYING → PROCESSING, cercado pelo contador de tentativas). Mensagens duplicadas ou obsoletas são descartadas sem novo envio
+- [x] **WRK-01**: O worker consome uma fila por canal (um container de listener por canal), com `default-requeue-rejected=false`, retry interno do Spring desativado e prefetch baixo
+- [x] **WRK-02**: O worker reivindica cada mensagem com um `findAndModify` condicional (PENDING/RETRYING → PROCESSING, cercado pelo contador de tentativas). Mensagens duplicadas ou obsoletas são descartadas sem novo envio
 - [ ] **WRK-03**: Notificações presas em PROCESSING (ex.: worker morreu antes do ack) são recuperáveis na redelivery, via flag `redelivered` ou lease expirado
-- [ ] **WRK-04**: Cada resultado (SENT, RETRYING, FAILED, DEAD_LETTERED) é gravado numa única atualização atômica (`$set` status + `$push` tentativa com timestamp, duração, erro e classe da falha)
-- [ ] **WRK-05**: Virtual threads estão habilitadas no worker (`spring.threads.virtual.enabled=true`), com concorrência de listener configurável
+- [x] **WRK-04**: Cada resultado (SENT, RETRYING, FAILED, DEAD_LETTERED) é gravado numa única atualização atômica (`$set` status + `$push` tentativa com timestamp, duração, erro e classe da falha)
+- [x] **WRK-05**: Virtual threads estão habilitadas no worker (`spring.threads.virtual.enabled=true`), com concorrência de listener configurável
 
 ### Templates (TPL)
 
-- [ ] **TPL-01**: Templates Mustache ficam na coleção `templates` (um documento por template, com variantes por canal e `requiredVariables`) e são populados por seed idempotente na inicialização
+- [x] **TPL-01**: Templates Mustache ficam na coleção `templates` (um documento por template, com variantes por canal e `requiredVariables`) e são populados por seed idempotente na inicialização
 - [ ] **TPL-02**: O renderizador é estrito: variável obrigatória ausente ou template inexistente gera falha permanente
 - [ ] **TPL-03**: O escape é por canal: HTML no e-mail, sem escape HTML no SMS e valores escapados como JSON no webhook
 
 ### Entrega e falhas (DLV)
 
-- [ ] **DLV-01**: Há um adapter simulado por canal, com latência bloqueante e taxa de falha aleatória configuráveis
+- [x] **DLV-01**: Há um adapter simulado por canal, com latência bloqueante e taxa de falha aleatória configuráveis
 - [ ] **DLV-02**: Destinatários "mágicos" injetam falhas determinísticas: sempre transitória, sempre permanente e "falha N vezes e depois sucede"
 - [ ] **DLV-03**: Um classificador exaustivo separa falhas transitórias (timeout/5xx simulado, circuit breaker aberto, bulkhead cheio, timeout do Mongo) de permanentes (destinatário inválido, template ausente, variável faltando). Exceção desconhecida vai para a DLQ
 - [ ] **DLV-04**: Uma falha transitória com níveis restantes é republicada na fila de delay do próximo nível com o header `notify-retry-count` (sem depender de `x-death`), aguardando confirm antes do ack da original. O status vira RETRYING
@@ -126,32 +126,32 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FND-01 | Phase 1 | Pending |
-| FND-02 | Phase 1 | Pending |
-| FND-03 | Phase 1 | Pending |
-| FND-04 | Phase 1 | Pending |
-| MSG-01 | Phase 1 | Pending |
-| MSG-02 | Phase 1 | Pending |
-| MSG-03 | Phase 1 | Pending |
-| MSG-04 | Phase 1 | Pending |
-| MSG-05 | Phase 1 | Pending |
-| API-01 | Phase 1 | Pending |
-| API-02 | Phase 1 | Pending |
+| FND-01 | Phase 1 | Complete |
+| FND-02 | Phase 1 | Complete |
+| FND-03 | Phase 1 | Complete |
+| FND-04 | Phase 1 | Complete |
+| MSG-01 | Phase 1 | Complete |
+| MSG-02 | Phase 1 | Complete |
+| MSG-03 | Phase 1 | Complete |
+| MSG-04 | Phase 1 | Complete |
+| MSG-05 | Phase 1 | Complete |
+| API-01 | Phase 1 | Complete |
+| API-02 | Phase 1 | Complete |
 | API-03 | Phase 3 | Pending |
-| API-04 | Phase 1 | Pending |
+| API-04 | Phase 1 | Complete |
 | API-05 | Phase 3 | Pending |
-| API-06 | Phase 1 | Pending |
+| API-06 | Phase 1 | Complete |
 | API-07 | Phase 3 | Pending |
 | API-08 | Phase 3 | Pending |
-| WRK-01 | Phase 1 | Pending |
-| WRK-02 | Phase 1 | Pending |
+| WRK-01 | Phase 1 | Complete |
+| WRK-02 | Phase 1 | Complete |
 | WRK-03 | Phase 2 | Pending |
-| WRK-04 | Phase 1 | Pending |
-| WRK-05 | Phase 1 | Pending |
-| TPL-01 | Phase 1 | Pending |
+| WRK-04 | Phase 1 | Complete |
+| WRK-05 | Phase 1 | Complete |
+| TPL-01 | Phase 1 | Complete |
 | TPL-02 | Phase 2 | Pending |
 | TPL-03 | Phase 2 | Pending |
-| DLV-01 | Phase 1 | Pending |
+| DLV-01 | Phase 1 | Complete |
 | DLV-02 | Phase 2 | Pending |
 | DLV-03 | Phase 2 | Pending |
 | DLV-04 | Phase 2 | Pending |
@@ -179,6 +179,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DOC-04 | Phase 4 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 51 total
 - Mapped to phases: 51
 - Unmapped: 0 ✓
