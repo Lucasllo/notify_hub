@@ -1,0 +1,66 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: notify-worker
+  threads:
+    virtual:
+      # Listeners, @Async e Tomcat em virtual threads (WRK-05). O benchmark da Fase 4 só muda isto.
+      enabled: ${VIRTUAL_THREADS:true}
+  data:
+    mongodb:
+      uri: ${MONGODB_URI:mongodb://localhost:27017/notify}
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:notify}
+    password: ${RABBITMQ_PASS:notify}
+    # A Fase 2 republica nas filas de delay com confirm; já fica igual à API
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+    listener:
+      simple:
+        # Iniciado pelo runner depois dos índices e do seed (Armadilha 1)
+        auto-startup: false
+        acknowledge-mode: auto
+        prefetch: 10
+        # Exceção no listener = reject sem requeue = DLQ do canal, nunca loop (WRK-01)
+        default-requeue-rejected: false
+        retry:
+          # Explícito: retry só pelas filas de delay (Fase 2), nunca em memória
+          enabled: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+notify:
+  worker:
+    # Um container por canal. 10 consumidores, acima das 8 CPUs de propósito (Armadilha 6)
+    channels:
+      email:
+        concurrency: 10
+      sms:
+        concurrency: 10
+      webhook:
+        concurrency: 10
+    # Lease gravado no claim; a recuperação de PROCESSING preso é da Fase 2 (WRK-03)
+    lease: 5m
+  simulation:
+    email:
+      latency-min: 50ms
+      latency-max: 200ms
+      failure-rate: 0.0
+    sms:
+      latency-min: 50ms
+      latency-max: 200ms
+      failure-rate: 0.0
+    webhook:
+      latency-min: 50ms
+      latency-max: 200ms
+      failure-rate: 0.0
