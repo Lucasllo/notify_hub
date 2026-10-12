@@ -6,7 +6,7 @@
     {
       "number": "1",
       "name": "Entrega ponta a ponta no caminho feliz",
-      "status": "pending"
+      "status": "in_progress"
     },
     {
       "number": "2",
@@ -29,5 +29,5 @@
     "label": "Advance to the next step",
     "reason": "Phase 01 of 4 · 0% · executing"
   },
-  "updated_at": "2026-10-12T18:03:21.028Z"
+  "updated_at": "2026-10-12T18:52:58.287Z"
 }

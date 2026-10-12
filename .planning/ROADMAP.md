@@ -37,7 +37,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: TBD
 
 - [x] 01-01-PLAN.md
-- [ ] 01-02-PLAN.md
+- [x] 01-02-PLAN.md
 - [ ] 01-03-PLAN.md
 - [ ] 01-04-PLAN.md
 - [ ] 01-05-PLAN.md
@@ -102,7 +102,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Entrega ponta a ponta no caminho feliz | 1/6 | In Progress|  |
+| 1. Entrega ponta a ponta no caminho feliz | 2/6 | In Progress|  |
 | 2. Falhas, retry com backoff e resiliência | 0/TBD | Not started | - |
 | 3. Reprocessamento, API operacional e testes de integração | 0/TBD | Not started | - |
 | 4. Observabilidade, demo e documentação | 0/TBD | Not started | - |
