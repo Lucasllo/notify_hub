@@ -1,0 +1,17 @@
+{
+  "id": "welcome",
+  "version": 1,
+  "requiredVariables": ["name"],
+  "variants": {
+    "EMAIL": {
+      "subject": "Boas-vindas ao Notify Hub, {{name}}!",
+      "body": "<p>Olá, {{name}}!</p><p>Sua conta no Notify Hub foi criada com sucesso.</p>"
+    },
+    "SMS": {
+      "body": "Olá, {{name}}! Sua conta no Notify Hub foi criada com sucesso."
+    },
+    "WEBHOOK": {
+      "body": "{\"event\":\"user.welcome\",\"notificationId\":\"{{_notificationId}}\",\"data\":{\"name\":\"{{name}}\"}}"
+    }
+  }
+}
