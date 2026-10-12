@@ -1,0 +1,39 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: notify-api
+  threads:
+    virtual:
+      enabled: ${VIRTUAL_THREADS:true}
+  data:
+    mongodb:
+      uri: ${MONGODB_URI:mongodb://localhost:27017/notify}
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:notify}
+    password: ${RABBITMQ_PASS:notify}
+    # Confirm correlacionado + mandatory: a API só responde 202 depois do ack do broker (D-04)
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+    cache:
+      channel:
+        # Vários publishers concorrentes em virtual threads
+        size: 50
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+notify:
+  publish:
+    # Quanto tempo a API espera o publisher confirm antes de gravar PUBLISH_FAILED
+    confirm-timeout: 5s
+    # Valor do header Retry-After no 503
+    retry-after: 5s
