@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: Entrega ponta a ponta no caminho feliz
 status: executing
-stopped_at: Completed 01-04-PLAN.md
-last_updated: "2026-10-12T19:17:59.860Z"
+stopped_at: Completed 01-05-PLAN.md
+last_updated: "2026-10-12T19:35:17.910Z"
 last_activity: 2026-10-12
 last_activity_desc: Phase 01 execution started
-state_head: beaf0b8fa2da52dc4debf1361d6f554d07c3dc11
+state_head: 3b62acc8671f9a10b5231fdc56658b8d313be126
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 6
-  completed_plans: 4
+  completed_plans: 5
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-09)
 ## Current Position
 
 Phase: 01 (Entrega ponta a ponta no caminho feliz) — EXECUTING
-Plan: 4 of 6
+Plan: 5 of 6
 Status: Ready to execute
 Last activity: 2026-10-12 — Phase 01 execution started
 
@@ -61,6 +61,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P02 | 6min | 2 tasks | 12 files |
 | Phase 01 P03 | 7min | 3 tasks | 18 files |
 | Phase 01 P04 | 11min | 3 tasks | 20 files |
+| Phase 01 P05 | 14min | 3 tasks | 16 files |
 
 ## Accumulated Context
 
@@ -81,6 +82,9 @@ Recent decisions affecting current work:
 - [Phase 01]: 01-04: PublishResult usa acked() como fábrica de sucesso; ok() fica só como boolean de instância (conflito de assinatura em Java)
 - [Phase 01]: 01-04: 503 de publish cita só id e errorCode; motivo do nack/devolução fica em lastError do documento
 - [Phase 01]: 01-04: validador por canal instanciado pelo controller via @InitBinder (não é bean); >50 variáveis gera um único erro
+- [Phase 01]: 01-05: header notify-retry-count recebido como String no @RabbitListener; com Object o Spring AMQP entrega a Message AMQP inteira
+- [Phase 01]: 01-05: DeliveryProcessor falha ao subir sem um adapter por canal; mensagem sem notificationId vai para a DLQ
+- [Phase 01]: 01-05: VT + SMLC com concorrência 10 > 8 CPUs sobe sem Consumer failed to start (A3 confirmada no smoke real)
 
 ### Pending Todos
 
@@ -105,6 +109,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-12T19:17:59.823Z
-Stopped at: Completed 01-04-PLAN.md
+Last session: 2026-10-12T19:35:06.329Z
+Stopped at: Completed 01-05-PLAN.md
 Resume file: None
