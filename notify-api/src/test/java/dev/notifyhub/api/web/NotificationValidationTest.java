@@ -106,6 +106,16 @@ class NotificationValidationTest {
         return mvc.perform(post("/notifications").contentType(MediaType.APPLICATION_JSON).content(json));
     }
 
+    /** O RabbitTemplate mockado confirma (ack) todo publish na hora. */
+    private void brokerAcksEveryPublish() {
+        doAnswer(invocation -> {
+            CorrelationData cd = invocation.getArgument(4);
+            cd.getFuture().complete(new CorrelationData.Confirm(true, null));
+            return null;
+        }).when(rabbitTemplate).convertAndSend(any(String.class), any(String.class), any(Object.class),
+                any(MessagePostProcessor.class), any(CorrelationData.class));
+    }
+
     private static void expectValidationProblem(ResultActions result) throws Exception {
         result.andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
@@ -139,6 +149,32 @@ class NotificationValidationTest {
                 .andExpect(jsonPath("$.errors[0].message").value("valores aceitos: EMAIL, SMS, WEBHOOK"));
     }
 
+    /**
+     * Ordinais do enum não são canal (D-01): o destinatário é válido para o canal que o ordinal
+     * produziria, então sem binding estrito a requisição passaria pela validação e seria gravada.
+     */
+    static Stream<Arguments> numericChannels() {
+        return Stream.of(
+                Arguments.of("ordinal 1 (seria SMS)", 1, "+5511999998888"));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("numericChannels")
+    void numericChannelIs400WithOnlyChannelErrorAndNoWrite(String name, Object channel, String recipient)
+            throws Exception {
+        // Broker saudável: se o ordinal virasse canal, a resposta seria 202, nunca um 400 de outra origem
+        brokerAcksEveryPublish();
+
+        ResultActions result = postJson(
+                JSON.writeValueAsString(body(channel, recipient, "welcome", Map.of("name", "Ana"))));
+
+        expectValidationProblem(result);
+        result.andExpect(jsonPath("$.errors.length()").value(1))
+                .andExpect(jsonPath("$.errors[0].field").value("channel"))
+                .andExpect(jsonPath("$.errors[0].message").value("valores aceitos: EMAIL, SMS, WEBHOOK"));
+        verifyNoInteractions(mongoTemplate, rabbitTemplate);
+    }
+
     @Test
     void malformedJsonIs400Problem() throws Exception {
         ResultActions result = postJson("{\"channel\": \"EMAIL\", ");
@@ -159,12 +195,7 @@ class NotificationValidationTest {
     @ParameterizedTest(name = "{0} {1}")
     @MethodSource("magicRecipients")
     void magicRecipientsAreAccepted(String channel, String recipient) throws Exception {
-        doAnswer(invocation -> {
-            CorrelationData cd = invocation.getArgument(4);
-            cd.getFuture().complete(new CorrelationData.Confirm(true, null));
-            return null;
-        }).when(rabbitTemplate).convertAndSend(any(String.class), any(String.class), any(Object.class),
-                any(MessagePostProcessor.class), any(CorrelationData.class));
+        brokerAcksEveryPublish();
 
         postJson(JSON.writeValueAsString(body(channel, recipient, "welcome", Map.of("name", "Ana"))))
                 .andExpect(status().isAccepted());
