@@ -7,6 +7,11 @@ spring:
   threads:
     virtual:
       enabled: ${VIRTUAL_THREADS:true}
+  jackson:
+    deserialization:
+      # O canal público é o nome (D-01, API-06): 1 ou "2" viram 400. Aceitar o ordinal prenderia
+      # o roteamento à ordem de declaração do enum
+      fail-on-numbers-for-enums: true
   data:
     mongodb:
       uri: ${MONGODB_URI:mongodb://localhost:27017/notify}
