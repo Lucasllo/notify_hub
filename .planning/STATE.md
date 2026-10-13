@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 01
 current_phase_name: Entrega ponta a ponta no caminho feliz
 status: executing
-stopped_at: Completed 01-06-PLAN.md
-last_updated: "2026-10-13T00:36:19.545Z"
+stopped_at: Completed 01-07-PLAN.md
+last_updated: "2026-10-13T00:46:14.594Z"
 last_activity: 2026-10-12
 last_activity_desc: Phase 01 execution started
-state_head: 6e23529444dc8e939610b8d552579d838374fb5e
+state_head: c2e0976a03ba0559a699ef7ccb42c3aa2d0d4643
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 7
-  completed_plans: 6
+  completed_plans: 7
   percent: 0
 ---
 
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-10-09)
 
 ## Current Position
 
-Phase: 01 (Entrega ponta a ponta no caminho feliz) — READY TO EXECUTE
-Plan: 6 of 6
+Phase: 01 (Entrega ponta a ponta no caminho feliz) — EXECUTING
+Plan: 2 of 7
 Status: Ready to execute
 Last activity: 2026-10-12 — Phase 01 execution started
 
@@ -63,6 +63,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P04 | 11min | 3 tasks | 20 files |
 | Phase 01 P05 | 14min | 3 tasks | 16 files |
 | Phase 01 P06 | 10min | 2 tasks | 1 files |
+| Phase 01 P07 | 7min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -88,6 +89,8 @@ Recent decisions affecting current work:
 - [Phase 01]: 01-05: VT + SMLC com concorrência 10 > 8 CPUs sobe sem Consumer failed to start (A3 confirmada no smoke real)
 - [Phase 01]: 01-06: smoke de fase em bash portável para Git Bash (curl/grep, sem jq); porta livre = curl exit 7 com timeout 10s, porque no Windows a recusa leva ~2s
 - [Phase 01]: 01-06: binding removido no cenário 503 é restaurado no fluxo e no trap de saída; apps encerradas antes da linha final SMOKE FASE 1: OK
+- [Phase 01]: 01-07: canal numérico rejeitado só pela flag spring.jackson.deserialization.fail-on-numbers-for-enums; ApiExceptionHandler/CreateNotificationRequest/Channel inalterados
+- [Phase 01]: 01-07: teste de canal numérico simula broker que confirma, para o RED falhar por asserção (202) e não por NPE do mock
 
 ### Pending Todos
 
@@ -112,6 +115,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-12T19:49:06.218Z
-Stopped at: Completed 01-06-PLAN.md
+Last session: 2026-10-13T00:46:14.539Z
+Stopped at: Completed 01-07-PLAN.md
 Resume file: None

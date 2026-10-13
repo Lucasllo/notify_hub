@@ -38,7 +38,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Wave 1**
 
 - [x] 01-01-PLAN.md
-- [ ] 01-07-PLAN.md — gap closure SC3/API-06: canal numérico (`1`, `"2"`) → 400 Problem Details
+- [x] 01-07-PLAN.md — gap closure SC3/API-06: canal numérico (`1`, `"2"`) → 400 Problem Details
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -113,7 +113,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Entrega ponta a ponta no caminho feliz | 6/6 | In Progress|  |
+| 1. Entrega ponta a ponta no caminho feliz | 7/7 | In Progress|  |
 | 2. Falhas, retry com backoff e resiliência | 0/TBD | Not started | - |
 | 3. Reprocessamento, API operacional e testes de integração | 0/TBD | Not started | - |
 | 4. Observabilidade, demo e documentação | 0/TBD | Not started | - |
