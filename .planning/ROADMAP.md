@@ -35,12 +35,23 @@ Decimal phases appear between their surrounding integers in numeric order.
   5. Subindo com o profile `demo`, as filas de delay aparecem com TTLs curtos (ex.: 1s/5s/25s) sem mudança de código, e o worker processa as mensagens em virtual threads
 
 **Plans**: TBD
+**Wave 1**
 
 - [x] 01-01-PLAN.md
+- [ ] 01-07-PLAN.md — gap closure SC3/API-06: canal numérico (`1`, `"2"`) → 400 Problem Details
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [x] 01-02-PLAN.md
 - [x] 01-03-PLAN.md
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [x] 01-04-PLAN.md
 - [x] 01-05-PLAN.md
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [x] 01-06-PLAN.md
 
 **Notas de build order**: a topologia inteira (incluindo filas de delay e DLQs) entra já nesta fase porque mudar argumentos de fila depois causa 406 PRECONDITION_FAILED; os níveis de TTL configuráveis (MSG-05) também, porque os ITs da Fase 3 dependem de TTLs em milissegundos. A atualização atômica de resultado (WRK-04) nasce aqui no SENT e é reutilizada pelos resultados da Fase 2.
