@@ -155,7 +155,8 @@ class NotificationValidationTest {
      */
     static Stream<Arguments> numericChannels() {
         return Stream.of(
-                Arguments.of("ordinal 1 (seria SMS)", 1, "+5511999998888"));
+                Arguments.of("ordinal 1 (seria SMS)", 1, "+5511999998888"),
+                Arguments.of("ordinal em string 2 (seria WEBHOOK)", "2", "https://example.test/hooks/notify"));
     }
 
     @ParameterizedTest(name = "{0}")

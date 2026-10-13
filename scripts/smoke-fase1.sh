@@ -380,6 +380,12 @@ espera_400() {
 
 espera_400 "canal desconhecido (PUSH)" \
   '{"channel":"PUSH","recipient":"ana@exemplo.com","templateCode":"welcome","variables":{"name":"Ana"}}' channel
+# Ordinal do enum não é canal (D-01): os payloads são válidos para o canal que o ordinal produziria,
+# então sem binding estrito estes POSTs responderiam 202.
+espera_400 "canal numérico 1 (ordinal de SMS)" \
+  '{"channel":1,"recipient":"+5511999998888","templateCode":"order-shipped","variables":{"name":"Ana","orderId":"PED-123"}}' channel
+espera_400 "canal numérico em string 2 (ordinal de WEBHOOK)" \
+  '{"channel":"2","recipient":"https://example.test/hooks/notify","templateCode":"password-reset","variables":{"name":"Ana","resetCode":"789012"}}' channel
 espera_400 "destinatário ausente" \
   '{"channel":"EMAIL","templateCode":"welcome","variables":{"name":"Ana"}}' recipient
 espera_400 "SMS fora do E.164" \
