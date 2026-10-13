@@ -1,8 +1,8 @@
 ---
 phase: 01-entrega-ponta-a-ponta-no-caminho-feliz
-verified: 2026-10-12T23:06:00Z
-status: gaps_found
-score: 4/5 roadmap success criteria verified (18/19 requirements satisfied; SC3/API-06 partially failed)
+verified: 2026-10-13T00:51:07Z
+status: human_needed
+score: 5/5 roadmap success criteria verified (19/19 requirements satisfied)
 covered_files:
   - .planning/REQUIREMENTS.md
   - .planning/phases/01-entrega-ponta-a-ponta-no-caminho-feliz/01-01-PLAN.md
@@ -17,6 +17,8 @@ covered_files:
   - .planning/phases/01-entrega-ponta-a-ponta-no-caminho-feliz/01-05-SUMMARY.md
   - .planning/phases/01-entrega-ponta-a-ponta-no-caminho-feliz/01-06-PLAN.md
   - .planning/phases/01-entrega-ponta-a-ponta-no-caminho-feliz/01-06-SUMMARY.md
+  - .planning/phases/01-entrega-ponta-a-ponta-no-caminho-feliz/01-07-PLAN.md
+  - .planning/phases/01-entrega-ponta-a-ponta-no-caminho-feliz/01-07-SUMMARY.md
   - docker-compose.yml
   - notify-api/pom.xml
   - notify-api/src/main/java/dev/notifyhub/api/NotifyApiApplication.java
@@ -36,6 +38,7 @@ covered_files:
   - notify-api/src/main/java/dev/notifyhub/api/web/validation/CreateNotificationRequestValidator.java
   - notify-api/src/main/resources/application-demo.yml
   - notify-api/src/main/resources/application.yml
+  - notify-api/src/test/java/dev/notifyhub/api/web/NotificationValidationTest.java
   - notify-common/pom.xml
   - notify-common/src/main/java/dev/notifyhub/common/NotifyCommonConfiguration.java
   - notify-common/src/main/java/dev/notifyhub/common/domain/AttemptOutcome.java
@@ -79,59 +82,46 @@ covered_files:
   - notify-worker/src/main/resources/seed/templates/welcome.json
   - pom.xml
   - scripts/smoke-fase1.sh
-covered_digest: "v1:sha256:3ab97fec6b55a083fbc32767cb3a75136330afd6705f79d18cbe5ef6f98c0c18"
+covered_digest: "v1:sha256:0d36295d0373654f52f52ee3ee61d8e816ddbc8cde6d9cce8fa8c48e725df6b3"
 behavior_unverified: 0
 overrides_applied: 0
-gaps:
-  - truth: "SC3 / API-06: Payload inválido (canal desconhecido, campo ausente, destinatário fora do formato do canal) recebe 400 com Problem Details"
-    status: partial
-    reason: >-
-      O campo `channel` aceita ordinais do enum. Verificado ao vivo contra a API empacotada:
-      `{"channel":1,...}` → 202 (vira SMS) e `{"channel":"2",...}` → 202 (vira WEBHOOK), enquanto
-      `{"channel":"email",...}` → 400. O contrato público (D-01) é a string EMAIL|SMS|WEBHOOK; um valor
-      numérico não é um canal válido e deveria ser 400. Além de violar API-06, o roteamento passa a
-      depender da ordem de declaração do enum (inserir uma constante redireciona clientes em silêncio).
-      Mesmo achado que o WR-01 do 01-REVIEW.md.
-    artifacts:
-      - path: "notify-api/src/main/resources/application.yml"
-        issue: "sem `spring.jackson.deserialization.fail-on-numbers-for-enums: true`"
-      - path: "notify-api/src/main/java/dev/notifyhub/api/web/dto/CreateNotificationRequest.java"
-        issue: "`Channel channel` vinculado pelo desserializador padrão do Jackson, que aceita ordinais"
-      - path: "notify-api/src/test/java/dev/notifyhub/api/web/NotificationValidationTest.java"
-        issue: "nenhum caso para canal numérico (`1` e `\"2\"`)"
-    missing:
-      - "Habilitar `spring.jackson.deserialization.fail-on-numbers-for-enums: true` no application.yml da API (o `ApiExceptionHandler.invalidChannel` já transforma o `InvalidFormatException` em 400 com errors[].field=channel)"
-      - "Teste WebMvc: `\"channel\":1` e `\"channel\":\"2\"` → 400 application/problem+json, errors[].field = channel, nenhum insert no Mongo"
-      - "Opcional: caso equivalente no scripts/smoke-fase1.sh"
+re_verification:
+  previous_status: gaps_found
+  previous_score: 4/5
+  gaps_closed:
+    - "SC3 / API-06: Payload inválido (canal desconhecido, campo ausente, destinatário fora do formato do canal) recebe 400 com Problem Details. Canal numérico (1 e \"2\") agora responde 400 problem+json com errors[].field = channel e nada é gravado no Mongo"
+  gaps_remaining: []
+  regressions: []
+advisory: []
 human_verification:
   - test: "Abrir http://localhost:15672 (notify/notify) com API e worker no ar e conferir Exchanges e Queues"
     expected: "notify.exchange (topic), notify.retry e notify.dlx (direct); por canal a fila principal com DLX, retry.5s/25s/125s com TTL e a DLQ; notify.email.dlq com as mensagens rejeitadas pelo smoke"
-    why_human: "O SC1 fala em 'visíveis no painel'. A API de gerenciamento (mesma fonte do painel) foi conferida automaticamente; a renderização visual da UI não."
-  - test: "Com API no ar, abrir no navegador GET http://localhost:8080/notifications/{id} de uma notificação EMAIL entregue"
+    why_human: "O SC1 fala em 'visíveis no painel'. A API de gerenciamento (mesma fonte do painel) foi conferida automaticamente pelo smoke; a renderização visual da UI não."
+  - test: "Com API no ar, abrir no navegador GET http://localhost:8080/notifications/{id} de uma notificação EMAIL entregue (por exemplo e37a6216-7353-4c1c-9c70-e04f2078d380, desta execução)"
     expected: "JSON com status SENT, rendered.subject/body em pt-BR, attempts[0] com startedAt, durationMs e thread VirtualThread"
-    why_human: "Item adiado do plano 01-06; o mesmo conteúdo foi conferido por curl no smoke, falta só a leitura humana do JSON."
+    why_human: "Item adiado do plano 01-06. O mesmo conteúdo foi conferido por curl no smoke; falta só a leitura humana do JSON."
 ---
 
 # Phase 1: Entrega ponta a ponta no caminho feliz — Verification Report
 
 **Phase Goal:** Um cliente cria uma notificação via `POST /notifications` e o worker a entrega pelo adapter simulado até SENT, sobre um contrato compartilhado e uma topologia RabbitMQ completa (filas principais, de delay e DLQs) já declarados e visíveis no painel.
-**Verified:** 2026-10-12T23:06:00Z
-**Status:** gaps_found
-**Re-verification:** No — initial verification
+**Verified:** 2026-10-13T00:51:07Z
+**Status:** human_needed
+**Re-verification:** Yes, after gap closure (plan 01-07)
 
-The happy path, the topology, idempotency, DLQ parking, demo-profile TTLs and virtual threads all work. I checked them by running the build and both smoke variants myself, not by trusting the SUMMARYs. One input-validation gap stops a clean pass: a numeric `channel` is accepted with 202 instead of 400 (API-06 / SC3). The fix is one line plus a test.
+The only gap from the previous report (SC3 / API-06, numeric `channel` accepted with 202) is closed. I confirmed it against the packaged jar, not just from the SUMMARY: running `bash scripts/smoke-fase1.sh --sem-build` myself, `"channel":1` and `"channel":"2"` each got 400 `application/problem+json` with `errors[].field = channel`, and the Mongo `notifications` count did not change across the 400 block (32 → 32). The other four success criteria showed no regression in the same run or in the demo-profile run.
 
-Note on MVP mode: ROADMAP marks this phase `mode: mvp`, but the goal is not in "As a …, I want to …, so that …." form. I did not refuse to verify. The User Flow Coverage table below uses the client's flow (create → follow Location → SENT) as the outcome clause.
+All automated checks pass. The status is `human_needed` only because the two visual UAT items from plan 01-06 are still open: the management UI and reading the JSON in a browser.
 
 ## User Flow Coverage
 
-| Step | Expected | Evidence | Status |
-|------|----------|----------|--------|
+| Step | Expected | Evidence (this run) | Status |
+|------|----------|---------------------|--------|
 | Client POSTs a notification | 202 + `Location` + PENDING | smoke: EMAIL/SMS/WEBHOOK → 202, `Location /notifications/{id}`, PENDING | VERIFIED |
-| Doc persisted before publish | PENDING insert, then publish with confirm | `NotificationService.create`: `insert` → `publisher.publish` (correlated confirm + mandatory) | VERIFIED |
-| Worker consumes per channel | One listener container per channel | `ChannelListeners` (listener-email/sms/webhook); smoke: notify.email has 10 consumers | VERIFIED |
-| Worker renders + sends (simulated) | Seed template rendered, adapter called | smoke: `rendered` in pt-BR, WEBHOOK envelope event/notificationId/data | VERIFIED |
-| Client follows Location and sees SENT | SENT with 1 attempt (timestamp, durationMs) | smoke: all 3 channels SENT, attempt 1 on VirtualThread | VERIFIED |
+| Doc persisted before publish | PENDING insert, then publish with confirm | Code unchanged since the initial verification; the 503 path still produces PUBLISH_FAILED (smoke) | VERIFIED |
+| Worker consumes per channel | One listener container per channel | smoke: `notify.email` has 10 consumers; all 3 channels reached SENT | VERIFIED |
+| Worker renders + sends (simulated) | Seed template rendered, adapter called | smoke: rendered content present, WEBHOOK envelope event/notificationId/data | VERIFIED |
+| Client follows Location and sees SENT | SENT with 1 attempt (timestamp, durationMs) | smoke: e37a6216 (EMAIL), 288415d8 (SMS), 1e08a37e (WEBHOOK) are SENT, attempt 1 on a VirtualThread | VERIFIED |
 
 ## Goal Achievement
 
@@ -139,53 +129,41 @@ Note on MVP mode: ROADMAP marks this phase `mode: mvp`, but the goal is not in "
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | `docker compose up` brings up healthy RabbitMQ 4.3 + Mongo 8.0; `./mvnw verify` builds all 3 modules; on start the broker has notify.exchange/retry/dlx and, per channel, main queue + 3 delay queues with TTL in the name (5s/25s/125s) + DLQ; Mongo indexes exist | ✓ VERIFIED | `./mvnw -q verify` EXIT=0, 182 tests, 0 failures/errors/skips (24 surefire reports). Compose is pinned to `rabbitmq:4.3.6-management` and `mongo:8.0.32` with healthchecks; both report healthy. Management API: `notify.email` has `x-dead-letter-exchange=notify.dlx` and `x-dead-letter-routing-key=email.dlq`; each `retry.*` queue has `x-message-ttl` 5000/25000/125000 and dead-letters to `notify.exchange`/`notification.email`. Indexes: `status_channel_createdAt`, `channel_createdAt`, `createdAt`. Plugins enabled: rabbitmq_management + rabbitmq_prometheus (:15692/metrics → 200). |
-| 2 | POST → 202 + Location; following Location, PENDING → SENT, rendered from the seed template, one attempt with timestamp and duration | ✓ VERIFIED | Smoke (default and demo): all 3 channels go 202 → SENT, `rendered` is set, `attempts[0]` has timestamp, durationMs and a VirtualThread. Code: `NotificationStateService.markSent` is a single `updateFirst` ($set + $unset + $inc + $push $each/$slice -50) behind a PROCESSING/retryCount fence. |
-| 3 | Invalid payload (unknown channel, missing field, recipient wrong for the channel) → 400 Problem Details; unconfirmed/unroutable publish → 503 Problem Detail + Retry-After and PUBLISH_FAILED | ✗ FAILED (partial) | 503 part VERIFIED: with the binding removed, POST → 503, `Retry-After: 5`, `publish-failed`, and GET shows PUBLISH_FAILED. Named-string 400s VERIFIED (PUSH, missing recipient, non-E.164, dotted key; no Mongo writes). **FAILED:** live probe of the packaged API gave `"channel":1` → **202** (SMS) and `"channel":"2"` → **202** (WEBHOOK), while `"channel":"email"` → 400. Jackson's default enum binding accepts ordinals and there is no `fail-on-numbers-for-enums`. |
-| 4 | A duplicate message produces no second send; a message the worker rejects goes to the channel DLQ, not back to the queue in a loop | ✓ VERIFIED | Smoke: a duplicate published through the management API is discarded (log `duplicada/obsoleta`) and attempts stays at 1. An unknown templateCode puts exactly one more message in `notify.email.dlq` and leaves `notify.email` empty. Code: conditional `findAndModify` claim; `default-requeue-rejected: false`; in-memory retry disabled. |
-| 5 | `demo` profile → short-TTL delay queues (1s/5s/25s) with no code change; worker processes on virtual threads | ✓ VERIFIED | `smoke-fase1.sh --sem-build --perfil-demo` EXIT=0: `retry.1s/5s/25s` exist for all channels (TTL 1000 confirmed via management API) and the happy path still reaches SENT on a VirtualThread. `spring.threads.virtual.enabled: ${VIRTUAL_THREADS:true}`; there is no custom listener factory, so Boot's VT executor is kept. |
+| 1 | Infra healthy; `./mvnw verify` builds all 3 modules; broker topology (3 exchanges; per channel main queue + 3 delay queues with TTL in the name + DLQ); Mongo indexes | ✓ VERIFIED (regression) | smoke this run: rabbitmq and mongo healthy; `OK: exchanges notify.exchange, notify.retry e notify.dlx`; `OK: por canal (email, sms, webhook): fila principal, DLQ e retry.5s/25s/125s`; indexes `_id_,status_channel_createdAt,channel_createdAt,createdAt`; 3 templates seeded. The orchestrator's `./mvnw -q verify` passed with 184 tests. I re-ran only the affected class, `NotificationValidationTest`: 22 tests, 0 failures/errors. |
+| 2 | POST → 202 + Location; PENDING → SENT from the seed template, one attempt with timestamp and duration | ✓ VERIFIED (regression) | smoke this run: all 3 channels 202 → SENT, rendered, attempt 1 on a VirtualThread. After the binding was restored, a fresh EMAIL (23ec171d) also reached SENT. |
+| 3 | Invalid payload → 400 Problem Details; unconfirmed/unroutable publish → 503 + Retry-After and PUBLISH_FAILED | ✓ VERIFIED (gap closed) | **Live, packaged jar (smoke this run):** `canal numérico 1 (ordinal de SMS) → 400 problem+json, errors[].field = channel` and `canal numérico em string 2 (ordinal de WEBHOOK) → 400 problem+json, errors[].field = channel`. Both payloads are otherwise valid for the channel the ordinal would select, so without the fix they would have returned 202. `espera_400` asserts status = 400, Content-Type contains `application/problem+json`, and `"field":"channel"` appears in the body. PUSH, missing recipient, non-E.164 SMS and dotted variable key also → 400. `nenhum 400 gravou no Mongo (notifications continua com 32 documentos)`. The 503 path still works: binding removed → 503, `Retry-After: 5`, `publish-failed`, and GET shows PUBLISH_FAILED. **Unit:** `numericChannelIs400WithOnlyChannelErrorAndNoWrite[1]` and `[2]` pass and assert one error {channel, "valores aceitos: EMAIL, SMS, WEBHOOK"} plus `verifyNoInteractions(mongoTemplate, rabbitTemplate)`, with a broker mock that acks (so a regression shows up as 202). **Code:** `spring.jackson.deserialization.fail-on-numbers-for-enums: true` is in `notify-api/src/main/resources/application.yml` and is also present in `BOOT-INF/classes/application.yml` inside the packaged jar. No custom `ObjectMapper` bean overrides Boot's (the only use is injection into the AMQP converter), and `application-demo.yml` does not override it. |
+| 4 | A duplicate produces no second send; a rejected message goes to the channel DLQ, not back in a loop | ✓ VERIFIED (regression) | smoke this run: the duplicate of e37a6216 was discarded (log `duplicada/obsoleta`) and attempts stayed at 1. Unknown templateCode → `notify.email.dlq` got exactly one more message (4) and `notify.email` is empty. |
+| 5 | `demo` profile → short-TTL delay queues (1s/5s/25s) with no code change; worker on virtual threads | ✓ VERIFIED (regression) | `smoke-fase1.sh --sem-build --perfil-demo` this run: EXIT=0; `retry.1s/5s/25s` on all 3 channels; EMAIL 64affc31 → SENT on a VirtualThread. |
 
-**Score:** 4/5 roadmap truths verified (0 present-but-behavior-unverified)
+**Score:** 5/5 roadmap truths verified (0 present-but-behavior-unverified)
 
-Plan-level must_haves (01-01..01-06) were checked against the code and the smoke run. All hold except the API-06 channel-coercion case above. The `verification: backstop` truths (Maven re-run safety, concurrent topology declaration, concurrent claim atomicity) are partly backed by observed behavior: the smoke restarts both apps on an existing topology with no PRECONDITION_FAILED, and a duplicate claim is rejected. Full concurrency proof is outside what one verification run can show. None of them is a roadmap success criterion.
+### Plan 01-07 must_haves
 
-### Prohibitions
+| Truth | Status | Evidence |
+|-------|--------|----------|
+| `"channel":1` with a valid SMS payload → 400 validation-error, one error on channel, no Mongo/Rabbit call | ✓ VERIFIED | unit `[1]` passes (I ran it); smoke line OK |
+| `"channel":"2"` with a valid WEBHOOK payload → same 400, no write or publish | ✓ VERIFIED | unit `[2]` passes; smoke line OK |
+| EMAIL/SMS/WEBHOOK by name still 202; magic recipients do not regress | ✓ VERIFIED | smoke happy path for all 3 channels; `magicRecipientsAreAccepted` is in the 22/22 green class |
+| Packaged jar answers 400 field=channel for both forms; notifications count unchanged | ✓ VERIFIED | smoke this run (count 32 → 32) |
 
-| Plan | Prohibition | Tier | Disposition |
-|------|-------------|------|-------------|
-| 01-01 | No PII in AMQP body/headers; recipient masked in logs | test | Enforced: `NotificationMessageJsonTest.serializesExactlyTheFourTokenFields` asserts exactly {notificationId, channel, templateCode, createdAt}. The only header is `notify-retry-count`. Logs go through `RecipientRules.mask` (seen in the smoke logs as `a***@exemplo.com`). |
-| 01-04 | No 202 for an unconfirmed publish the worker has not claimed | test | Enforced: `NotificationServiceTest.nackMarksPublishFailedConditionallyAndThrows` and `NotificationPublisherTest`, plus the live smoke (binding removed → 503). Caveat in WR-03 below (TIMEOUT may still be delivered). |
-| 01-03 | No real delivery (no SMTP/SMS/HTTP) | judgment | Non-authoritative LLM verdict: holds. `SimulatedChannelAdapter` only sleeps and draws a random number, and the worker sources contain no `java.net`/HttpClient/RestTemplate/WebClient/mail/Socket usage. Human review recommended. |
-
-### Required Artifacts
+### Required Artifacts (01-07)
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `pom.xml` + module POMs | Boot 3.5.16 parent, Java 21, 3 modules | ✓ VERIFIED | api and worker depend on notify-common |
-| `mvnw`, `.mvn/wrapper/maven-wrapper.properties` | Maven 3.9.16 wrapper | ✓ VERIFIED | used for the verify run |
-| `docker-compose.yml` | pinned images, healthchecks, 127.0.0.1 ports | ✓ VERIFIED | |
-| `Channel`, `NotificationStatus`, `NotificationMessage`, `RecipientRules`, `NotifyHeaders` | shared contract | ✓ VERIFIED | used by api and worker |
-| `NotifyTopology` / `TopologyProperties` / `NotifyCommonConfiguration` | single `Declarables` bean, configurable levels | ✓ VERIFIED | wired through `@Import` in `ApiConfiguration` and `WorkerConfiguration` |
-| `MongoIndexInitializer` | explicit named indexes | ✓ VERIFIED | called by an `@Order(1)` runner in both apps |
-| API: controller, service, publisher, exception handler, validator | 202/GET/400/404/503 | ⚠️ PARTIAL | everything works except the numeric-channel binding (gap) |
-| Worker: listeners, `DeliveryProcessor`, `NotificationStateService`, `WorkerConfiguration` | claim → render → send → SENT | ✓ VERIFIED | listeners start only after indexes and seed |
-| Templates: seed JSONs, `TemplateSeeder`, `TemplateRenderer` | 3 templates × 3 variants, idempotent seed | ✓ VERIFIED | smoke: 3 templates; renderer test passes |
-| `SimulatedChannelAdapter` + `SimulationConfiguration` | one adapter per channel, latency/failure configurable | ✓ VERIFIED | |
-| `scripts/smoke-fase1.sh` | end-to-end proof | ✓ VERIFIED | EXIT=0 in both profiles |
+| `notify-api/src/main/resources/application.yml` | `fail-on-numbers-for-enums: true` | ✓ VERIFIED | under the single root `spring:` block, at `spring.jackson.deserialization`; present in the packaged jar |
+| `notify-api/src/test/java/dev/notifyhub/api/web/NotificationValidationTest.java` | `numericChannelIs400WithOnlyChannelErrorAndNoWrite` | ✓ VERIFIED | 2 parameterized rows, both pass |
+| `scripts/smoke-fase1.sh` | `espera_400 "canal numérico ...` ×2 before `contagem_depois` | ✓ VERIFIED | executed; both OK |
+
+The artifacts from plans 01-01..01-06 had a regression check through the smoke. Git shows no changes to production code under `notify-common` or `notify-worker` since the previous verification. In `notify-api`, `application.yml` is the only production file that changed.
 
 ### Key Link Verification
 
 | From | To | Via | Status |
 |------|----|-----|--------|
-| ApiConfiguration / WorkerConfiguration | NotifyCommonConfiguration | `@Import` | WIRED |
-| NotifyCommonConfiguration | NotifyTopology | `NotifyTopology.declarables(props)` | WIRED |
-| NotifyTopology | Channel | `ch.queue()/dlq()/retryQueue()/routingKey()` | WIRED |
-| NotificationService | NotificationPublisher | `publisher.publish` after insert | WIRED |
-| NotificationPublisher | NotifyTopology | `convertAndSend(NotifyTopology.MAIN_EXCHANGE, …, cd)` | WIRED |
-| NotificationController | CreateNotificationRequestValidator | `@InitBinder addValidators` | WIRED |
-| ChannelListeners | DeliveryProcessor | `processor.process(Channel.X, …)` | WIRED |
-| DeliveryProcessor | TemplateRenderer / ChannelAdapter | `renderer.render` → `adapters.get(..).send` | WIRED |
-| WorkerConfiguration | TemplateSeeder | `@Order(2)` runner `seed()` before `registry.start()` | WIRED |
+| application.yml (`fail-on-numbers-for-enums`) | ApiExceptionHandler.invalidChannel | Boot ObjectMapper → `InvalidFormatException(targetType=Channel)` → `FieldProblem("channel", ACCEPTED_CHANNELS)` | WIRED (proved live: field=channel in the response body) |
+| NotificationValidationTest | application.yml | `@WebMvcTest` loads application.yml + JacksonAutoConfiguration | WIRED (the test was RED with 202 before the flag and is GREEN after, per commits 82f45fb → 39f513f; it is green now) |
+| smoke-fase1.sh | packaged notify-api jar | `espera_400` against `$API_URL/notifications` before the count comparison | WIRED |
+| Previous links (01-01..01-06) | — | — | WIRED (regression via smoke) |
 
 ### Data-Flow Trace (Level 4)
 
@@ -198,83 +176,86 @@ Plan-level must_haves (01-01..01-06) were checked against the code and the smoke
 
 | Behavior | Command | Result | Status |
 |----------|---------|--------|--------|
-| Build and unit tests | `./mvnw -q verify` | EXIT=0; 182 tests, 0 fail/err/skip | ✓ PASS |
-| End-to-end, default profile | `bash scripts/smoke-fase1.sh --sem-build` | EXIT=0, all `OK:` lines (topology, indexes, seed, 3×SENT on VT, 4×400, 503/PUBLISH_FAILED, duplicate, DLQ without loop) | ✓ PASS |
-| End-to-end, demo profile | `bash scripts/smoke-fase1.sh --sem-build --perfil-demo` | EXIT=0, retry.1s/5s/25s present, happy path SENT | ✓ PASS |
-| Broker plugins | `rabbitmq-plugins list -e -m`; `curl :15692/metrics` | management + prometheus enabled; 200 | ✓ PASS |
-| Numeric channel rejected | `curl POST {"channel":1,...}` / `{"channel":"2",...}` against the packaged API | 202 / 202 | ✗ FAIL |
+| Numeric-channel WebMvc slice | `./mvnw -q -pl notify-api -am test -Dtest=NotificationValidationTest` | EXIT=0; 22 tests, 0 fail/err/skip; `[1]` and `[2]` present | ✓ PASS |
+| End-to-end, default profile | `bash scripts/smoke-fase1.sh --sem-build` | EXIT=0, `SMOKE FASE 1: OK`; includes both numeric-channel 400 lines and "nenhum 400 gravou no Mongo" | ✓ PASS |
+| End-to-end, demo profile | `bash scripts/smoke-fase1.sh --sem-build --perfil-demo` | EXIT=0, retry.1s/5s/25s, EMAIL SENT on a VirtualThread | ✓ PASS |
+| Jar freshness | `unzip -p notify-api-*.jar BOOT-INF/classes/application.yml` | contains `fail-on-numbers-for-enums: true`; the api jar was built 21:42, after fix commit 39f513f (21:41); the worker jar (16:32) is newer than the last worker/common commit (16:31) | ✓ PASS |
+| Full build | `./mvnw -q verify` (orchestrator run, not repeated) | EXIT=0, 184 tests | ✓ PASS (reported) |
+
+Both smoke runs shut down their API and worker JVMs. Only `java.exe` pid 6408 (the VS Code language server) is still running.
 
 ### Requirements Coverage
 
 | Req | Source Plan | Status | Evidence |
 |-----|-------------|--------|----------|
-| FND-01 | 01-01, 01-06 | ✓ SATISFIED | multi-module build through the wrapper, Boot 3.5.16, Java 21 |
-| FND-02 | 01-01, 01-02 | ✓ SATISFIED | Channel/Status/transitions/message/headers/topology constants in notify-common |
-| FND-03 | 01-01 | ✓ SATISFIED | pinned images, healthchecks, management + prometheus plugin enabled |
-| FND-04 | 01-02, 01-04, 01-05 | ✓ SATISFIED | explicit `createIndex` runners; indexes present |
-| MSG-01 | 01-02 | ✓ SATISFIED | single `Declarables` bean, 3 exchanges |
-| MSG-02 | 01-02 | ✓ SATISFIED | `notify.<ch>` bound by `notification.<ch>` |
-| MSG-03 | 01-02 | ✓ SATISFIED | 5s/25s/125s queues, TTL in the name, DLX back to the main queue with an explicit key |
-| MSG-04 | 01-02 | ✓ SATISFIED | main queue DLX → `notify.<ch>.dlq`; reject parks the message (smoke) |
-| MSG-05 | 01-02, 01-04, 01-05 | ✓ SATISFIED | demo 1s/5s/25s verified live; ms labels supported |
-| API-01 | 01-04 | ✓ SATISFIED | 202 + Location; insert before publish |
-| API-02 | 01-04 | ✓ SATISFIED | correlated confirms + mandatory; conditional PUBLISH_FAILED; 503 + Retry-After (see WR-03 caveat) |
-| API-04 | 01-04 | ✓ SATISFIED | GET with status, attempts, lastError; 404 Problem Detail |
-| API-06 | 01-04 | ✗ BLOCKED (partial) | numeric/ordinal channel accepted with 202 |
-| WRK-01 | 01-05 | ✓ SATISFIED | 3 containers, requeue-rejected false, retry off, prefetch 10 |
-| WRK-02 | 01-05 | ✓ SATISFIED | conditional findAndModify claim; duplicate discarded (smoke) |
-| WRK-04 | 01-05 | ✓ SATISFIED (Phase 1 scope: SENT) | single atomic update; the other outcomes come in Phase 2 by design |
-| WRK-05 | 01-05 | ✓ SATISFIED | VT enabled, attempts on VirtualThread, configurable concurrency |
-| TPL-01 | 01-03, 01-05 | ✓ SATISFIED | `templates` collection, 3 docs, idempotent versioned seed |
-| DLV-01 | 01-03 | ✓ SATISFIED | one simulated adapter per channel, configurable latency and failure rate |
+| FND-01 | 01-01, 01-06 | ✓ SATISFIED | multi-module build via wrapper (184 tests green) |
+| FND-02 | 01-01, 01-02 | ✓ SATISFIED | shared contract unchanged |
+| FND-03 | 01-01 | ✓ SATISFIED | pinned images, healthy, plugins |
+| FND-04 | 01-02, 01-04, 01-05 | ✓ SATISFIED | indexes present (smoke) |
+| MSG-01 | 01-02 | ✓ SATISFIED | 3 exchanges (smoke) |
+| MSG-02 | 01-02 | ✓ SATISFIED | main queues and bindings (smoke) |
+| MSG-03 | 01-02 | ✓ SATISFIED | retry.5s/25s/125s per channel (smoke) |
+| MSG-04 | 01-02 | ✓ SATISFIED | reject → DLQ, no loop (smoke) |
+| MSG-05 | 01-02, 01-04, 01-05 | ✓ SATISFIED | demo 1s/5s/25s (demo smoke) |
+| API-01 | 01-04 | ✓ SATISFIED | 202 + Location |
+| API-02 | 01-04 | ✓ SATISFIED | 503 + Retry-After + PUBLISH_FAILED (WR-03 caveat stands) |
+| API-04 | 01-04 | ✓ SATISFIED | GET with status/attempts |
+| API-06 | 01-04, 01-07 | ✓ SATISFIED | **gap closed**: numeric/ordinal channel → 400, no write (live and unit) |
+| WRK-01 | 01-05 | ✓ SATISFIED | 3 containers, no requeue loop |
+| WRK-02 | 01-05 | ✓ SATISFIED | duplicate discarded (smoke) |
+| WRK-04 | 01-05 | ✓ SATISFIED (Phase 1 scope: SENT) | single atomic update |
+| WRK-05 | 01-05 | ✓ SATISFIED | VirtualThread in attempts and logs |
+| TPL-01 | 01-03, 01-05 | ✓ SATISFIED | 3 seeded templates |
+| DLV-01 | 01-03 | ✓ SATISFIED | simulated adapters per channel |
 
-No orphaned requirements: all 19 phase-1 IDs in REQUIREMENTS.md appear in at least one plan's `requirements:`.
+No requirements are orphaned. Bookkeeping note: `.planning/REQUIREMENTS.md` still shows API-06 as `[ ]` / "Gaps Found". The orchestrator should flip it to Complete. That edit will change `covered_digest`, because REQUIREMENTS.md is a covered file.
+
+### Prohibitions
+
+Unchanged from the initial verification. Plan 01-07 adds none.
+- 01-01 (test tier, no PII in AMQP): enforced by `NotificationMessageJsonTest`.
+- 01-04 (test tier, no 202 for an unconfirmed publish): enforced by tests and by the live 503 in this run.
+- 01-03 (judgment tier, no real delivery): non-authoritative LLM verdict "holds" (no network or mail APIs in the worker). Human review is recommended.
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
 |------|------|---------|----------|--------|
-| (all phase files) | — | TBD/FIXME/XXX | — | none found |
-| notify-api/.../CreateNotificationRequest.java + application.yml | 16-17 | lenient enum binding (WR-01) | 🛑 Blocker | API-06/SC3 gap above |
+| 01-07 modified files | — | TBD/FIXME/XXX | — | none found |
 | notify-api/.../NotificationService.java | 49 | `Instant.now()` nanos vs Mongo millis (WR-02) | ⚠️ Warning | createdAt in the 202 differs from GET |
-| notify-api/.../NotificationService.java / NotificationPublisher.java | 59-83 / 49-53 | TIMEOUT treated as a definite failure (WR-03) | ⚠️ Warning | possible duplicate if the client retries after a 503 that was really delivered; mitigated later by API-03 |
-| notify-api/.../NotificationPublisher.java | 40,56 | raw exception text in lastError (WR-04) | ⚠️ Warning | infrastructure details leak via GET |
-| notify-api/.../ApiExceptionHandler.java | 22-28 | Mongo/AMQP infra errors not mapped to Problem Details; orphan PENDING on a double failure (WR-05) | ⚠️ Warning | outside the SC3 wording; affects the core value under a dependency outage |
-| notify-worker/.../NotificationStateService.java | 63-65 | claim not filtered by channel (WR-06) | ⚠️ Warning | cross-channel delivery is possible with a hand-crafted message |
-| notify-worker/.../DeliveryProcessor.java | 93-114 | doc left PROCESSING after a post-claim failure | ℹ️ Info | known; Phase 2 (WRK-03, DLV-03) |
-| notify-worker application.yml | — | MustacheAutoConfiguration active (deferred-items.md) | ℹ️ Info | cosmetic warning in the log |
+| notify-api/.../NotificationService.java / NotificationPublisher.java | — | TIMEOUT treated as a definite failure (WR-03) | ⚠️ Warning | possible duplicate after a 503; mitigated later by API-03 |
+| notify-api/.../NotificationPublisher.java | — | raw exception text in lastError (WR-04) | ⚠️ Warning | infrastructure details visible via GET |
+| notify-api/.../ApiExceptionHandler.java | — | infrastructure errors not mapped; orphan PENDING on a double failure (WR-05) | ⚠️ Warning | outside the SC3 wording |
+| notify-worker/.../NotificationStateService.java | — | claim not filtered by channel (WR-06) | ⚠️ Warning | needs a hand-crafted message |
+| notify-worker/.../DeliveryProcessor.java | — | doc left PROCESSING after a post-claim failure | ℹ️ Info | Phase 2 scope (WRK-03, DLV-03); the smoke prints it as the known gap |
+
+WR-01 (the previous blocker) is resolved. WR-02..WR-06 are the known non-blocking warnings from 01-REVIEW.md and are unchanged.
 
 ### Deferred Items
 
-None of the gaps match a later phase. The PROCESSING-after-failure behavior (IN-01) is Phase 2 scope (WRK-03, DLV-03) by roadmap design and is not counted as a Phase 1 gap.
+None. The PROCESSING-after-failure behavior is Phase 2 scope by roadmap design and is not counted as a Phase 1 gap.
 
 ### Human Verification Required
-
-These two items do not change the status (gaps_found takes precedence). They remain the end-of-phase UAT items from plan 01-06:
 
 #### 1. RabbitMQ management UI
 
 **Test:** Open http://localhost:15672 (notify/notify) with API and worker running.
-**Expected:** The 3 exchanges are listed. Per channel: the main queue (DLX args), retry.5s/25s/125s (TTL args) and the DLQ. `notify.email.dlq` holds the rejected messages.
-**Why human:** This is a visual check. The same data was confirmed automatically through `/api/queues` and `/api/exchanges`.
+**Expected:** The 3 exchanges are listed. Per channel: the main queue (DLX args), retry.5s/25s/125s (TTL args) and the DLQ. `notify.email.dlq` holds the rejected messages. The demo-profile run also left retry.1s queues in the broker.
+**Why human:** This is a visual check. The same data was confirmed automatically through the management API in this run.
 
 #### 2. Browser GET of an EMAIL notification
 
-**Test:** With the API running, open `/notifications/{id}` for a SENT EMAIL notification (for example 58c60c80-ac8d-4956-8cb5-86fc4ab8d6a6 from this run).
+**Test:** With the API running, open `/notifications/e37a6216-7353-4c1c-9c70-e04f2078d380`, a SENT EMAIL from this run.
 **Expected:** SENT, pt-BR subject/body, `attempts[0]` with startedAt, durationMs and a VirtualThread name.
-**Why human:** Deferred readability check. The content was already confirmed by curl in the smoke.
+**Why human:** Deferred readability check from plan 01-06. The content was already confirmed by curl in the smoke.
 
 ### Gaps Summary
 
-There is one gap, and it comes from a single root cause. The API's Jackson binding accepts enum ordinals for `channel`, so `1` and `"2"` are taken as SMS and WEBHOOK and get a 202. API-06 and SC3 promise a 400 Problem Detail for an invalid channel. The fix is the WR-01 fix:
-- set `spring.jackson.deserialization.fail-on-numbers-for-enums: true` in `notify-api/src/main/resources/application.yml`;
-- add a WebMvc test for both forms.
+There are no gaps left. The single previous gap (SC3 / API-06) is closed by `spring.jackson.deserialization.fail-on-numbers-for-enums: true`. Both the WebMvc slice and a live run against the packaged jar prove it, with nothing persisted for rejected payloads. The new smoke cases did not regress anything: the happy path on all 3 channels, the 503/PUBLISH_FAILED path, duplicate suppression, DLQ parking without a loop and the demo-profile TTLs all passed.
 
-The existing `ApiExceptionHandler.invalidChannel` already produces the right 400 body. Everything else in the phase goal was shown to work end to end by my own runs of the build and both smoke variants.
-
-Side effect of this verification: the numeric-channel probe created two valid PENDING notifications (83679994-d0e4-44f6-92c8-047f5363583c on SMS, 10ba7ccf-8b30-4541-bc1f-45fa77a3bee7 on WEBHOOK). Their messages are waiting in `notify.sms` and `notify.webhook` and will go to SENT the next time the worker starts. No API or worker processes were left running.
+Side effects of this verification: the smoke created new notifications. These are e37a6216, 288415d8, 1e08a37e and 23ec171d (SENT), 73796133 (PUBLISH_FAILED) and 0040ca44 (PROCESSING, now in `notify.email.dlq`), plus 64affc31 (SENT, demo run). RabbitMQ and Mongo are still up. No API or worker JVMs are left running.
 
 ---
 
-_Verified: 2026-10-12T23:06:00Z_
+_Verified: 2026-10-13T00:51:07Z_
 _Verifier: Claude (gsd-verifier)_
