@@ -1,9 +1,10 @@
 ---
 phase: 01-entrega-ponta-a-ponta-no-caminho-feliz
 verified: 2026-10-13T00:51:07Z
-status: human_needed
+status: passed
 score: 5/5 roadmap success criteria verified (19/19 requirements satisfied)
 covered_files:
+
   - .planning/REQUIREMENTS.md
   - .planning/phases/01-entrega-ponta-a-ponta-no-caminho-feliz/01-01-PLAN.md
   - .planning/phases/01-entrega-ponta-a-ponta-no-caminho-feliz/01-01-SUMMARY.md
@@ -82,6 +83,7 @@ covered_files:
   - notify-worker/src/main/resources/seed/templates/welcome.json
   - pom.xml
   - scripts/smoke-fase1.sh
+
 covered_digest: "v1:sha256:0d36295d0373654f52f52ee3ee61d8e816ddbc8cde6d9cce8fa8c48e725df6b3"
 behavior_unverified: 0
 overrides_applied: 0
@@ -94,6 +96,7 @@ re_verification:
   regressions: []
 advisory: []
 human_verification:
+
   - test: "Abrir http://localhost:15672 (notify/notify) com API e worker no ar e conferir Exchanges e Queues"
     expected: "notify.exchange (topic), notify.retry e notify.dlx (direct); por canal a fila principal com DLX, retry.5s/25s/125s com TTL e a DLQ; notify.email.dlq com as mensagens rejeitadas pelo smoke"
     why_human: "O SC1 fala em 'visíveis no painel'. A API de gerenciamento (mesma fonte do painel) foi conferida automaticamente pelo smoke; a renderização visual da UI não."
@@ -213,6 +216,7 @@ No requirements are orphaned. Bookkeeping note: `.planning/REQUIREMENTS.md` stil
 ### Prohibitions
 
 Unchanged from the initial verification. Plan 01-07 adds none.
+
 - 01-01 (test tier, no PII in AMQP): enforced by `NotificationMessageJsonTest`.
 - 01-04 (test tier, no 202 for an unconfirmed publish): enforced by tests and by the live 503 in this run.
 - 01-03 (judgment tier, no real delivery): non-authoritative LLM verdict "holds" (no network or mail APIs in the worker). Human review is recommended.

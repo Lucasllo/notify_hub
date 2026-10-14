@@ -1,44 +1,44 @@
 ---
 gsd_state_version: "1.0"
-current_phase: 01
-current_phase_name: Entrega ponta a ponta no caminho feliz
-status: executing
-stopped_at: Completed 01-07-PLAN.md
-last_updated: "2026-10-13T00:46:14.594Z"
-last_activity: 2026-10-12
-last_activity_desc: Phase 01 execution started
-state_head: c2e0976a03ba0559a699ef7ccb42c3aa2d0d4643
+current_phase: 2
+current_phase_name: Falhas, retry com backoff e resiliência
+status: planning
+stopped_at: Phase 01 complete, ready to plan Phase 2
+last_updated: "2026-10-14T00:21:38.357Z"
+last_activity: 2026-10-13
+last_activity_desc: Phase 01 complete, transitioned to Phase 2
+state_head: e4085157c0715affb4802c461cad2753de0f719f
 progress:
   total_phases: 4
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 7
   completed_plans: 7
-  percent: 0
+  percent: 25
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-10-09)
+See: .planning/PROJECT.md (updated 2026-10-13)
 
 **Core value:** Uma notificação aceita pela API nunca se perde em silêncio: é entregue, passa por retries com backoff exponencial ou termina na DLQ com histórico completo, de onde pode ser reprocessada, tudo observável e demonstrável com `docker compose up` + script.
-**Current focus:** Phase 01 — Entrega ponta a ponta no caminho feliz
+**Current focus:** Phase 2 — Falhas, retry com backoff e resiliência
 
 ## Current Position
 
-Phase: 01 (Entrega ponta a ponta no caminho feliz) — EXECUTING
-Plan: 2 of 7
-Status: Ready to execute
-Last activity: 2026-10-12 — Phase 01 execution started
+Phase: 2 — Falhas, retry com backoff e resiliência
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-10-13 — Phase 01 complete, transitioned to Phase 2
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [███░░░░░░░] 25%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 0
+- Total plans completed: 7
 - Average duration: -
 - Total execution time: 0 hours
 
@@ -46,7 +46,7 @@ Progress: [░░░░░░░░░░] 0%
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| 01 | 7 | - | - |
 
 **Recent Trend:**
 
@@ -98,11 +98,11 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Phase 1]: Fase mais densa (19 requisitos, esqueleto + fundação); o plan-phase deve dividi-la em vários planos
-- [Phase 1]: Mudar argumentos de fila exige `docker compose down -v`; definir argumentos num único lugar em `notify-common`
-- [Phase 1]: Fábricas de listener customizadas precisam passar pelo configurer do Boot, ou o executor de virtual threads se perde sem aviso
+- [Phase 2]: Mudar argumentos de fila exige `docker compose down -v`; definir argumentos num único lugar em `notify-common`
+- [Phase 2]: Fábricas de listener customizadas precisam passar pelo configurer do Boot, ou o executor de virtual threads se perde sem aviso
 - [Phase 2]: Pesquisa necessária: dimensionamento de CB/bulkhead vs concorrência e escada de delay; `CallNotPermitted` consome nível?; comportamento DLX/`x-death` no RabbitMQ 4.3
 - [Phase 2]: Decidir ack mode (AUTO com espera do confirm dentro do listener vs MANUAL) no discuss-phase
+- [Phase 2]: Mensagem rejeitada para a DLQ deixa a notificação em PROCESSING (lacuna conhecida do smoke 01-06, fecha com FAILED/DEAD_LETTERED)
 - [Phase 4]: Benchmark VT precisa de spike de desenho (alvo, varredura de concorrência, executor k6, JFR)
 
 ## Deferred Items
@@ -115,6 +115,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-13T00:46:14.539Z
-Stopped at: Completed 01-07-PLAN.md
+Last session: 2026-10-13
+Stopped at: Phase 1 complete (UAT 2/2, SECURITY threats_open 0), ready to plan Phase 2
 Resume file: None
