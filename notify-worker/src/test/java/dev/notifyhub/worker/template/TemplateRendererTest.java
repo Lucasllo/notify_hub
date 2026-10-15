@@ -1,16 +1,21 @@
 package dev.notifyhub.worker.template;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.samskivert.mustache.MustacheException;
 import dev.notifyhub.common.domain.Channel;
 import dev.notifyhub.common.persistence.RenderedContent;
+import dev.notifyhub.worker.failure.ErrorCode;
+import dev.notifyhub.worker.failure.PermanentDeliveryException;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.mongodb.core.MongoTemplate;
 
 /** Escape por canal e renderização estrita. */
 class TemplateRendererTest {
@@ -93,5 +98,74 @@ class TemplateRendererTest {
         renderer.render(WELCOME, Channel.WEBHOOK, variables, "n-1");
 
         assertThat(variables).containsOnlyKeys("name");
+    }
+
+    // --- Fase 2: escape JSON no webhook e validação estrita do corpo (TPL-03, D-16) ---
+
+    /** Valor hostil: aspas, barra invertida, quebra de linha, tab, U+0001 e tag de script. */
+    private static final String HOSTILE_NAME = "Ana \"Bia\" \\ back\nline\ttab\u0001 </script>";
+
+    @Test
+    void seedPasswordResetWebhookStaysValidJsonWithQuotesBackslashAndControls() throws Exception {
+        TemplateDocument passwordReset = seedTemplate("password-reset");
+
+        RenderedContent webhook = renderer.render(passwordReset, Channel.WEBHOOK,
+                Map.of("name", HOSTILE_NAME, "resetCode", "789012"), "n-99");
+
+        assertThatCode(() -> json.readTree(webhook.body()))
+                .as("corpo do webhook precisa ser JSON válido")
+                .doesNotThrowAnyException();
+        JsonNode envelope = json.readTree(webhook.body());
+        assertThat(envelope.isObject()).isTrue();
+        assertThat(envelope.path("data").path("name").asText()).isEqualTo(HOSTILE_NAME);
+        assertThat(envelope.path("data").path("resetCode").asText()).isEqualTo("789012");
+        assertThat(envelope.path("notificationId").asText()).isEqualTo("n-99");
+    }
+
+    @Test
+    void webhookBodyNeverCarriesHtmlEntities() {
+        TemplateDocument passwordReset = seedTemplate("password-reset");
+
+        RenderedContent webhook = renderer.render(passwordReset, Channel.WEBHOOK,
+                Map.of("name", HOSTILE_NAME, "resetCode", "<1&2>"), "n-1");
+
+        assertThat(webhook.body()).doesNotContain("&quot;").doesNotContain("&lt;").doesNotContain("&amp;");
+    }
+
+    @Test
+    void webhookWithTrailingGarbageIsInvalidPayload() {
+        assertInvalidWebhookPayload("{\"a\":\"{{x}}\"} lixo");
+    }
+
+    @Test
+    void webhookThatRendersAnArrayIsInvalidPayload() {
+        assertInvalidWebhookPayload("[1,2]");
+    }
+
+    @Test
+    void webhookThatRendersOnlyWhitespaceIsInvalidPayload() {
+        assertInvalidWebhookPayload("   ");
+    }
+
+    private void assertInvalidWebhookPayload(String webhookBody) {
+        TemplateDocument broken = new TemplateDocument("webhook-quebrado", 1, List.of(),
+                Map.of(Channel.WEBHOOK, new TemplateVariant(null, webhookBody)));
+        Map<String, Object> variables = Map.of("x", "segredo-do-cliente");
+
+        assertThatThrownBy(() -> renderer.render(broken, Channel.WEBHOOK, variables, "n-1"))
+                .isInstanceOf(PermanentDeliveryException.class)
+                .satisfies(e -> assertThat(((PermanentDeliveryException) e).errorCode())
+                        .isEqualTo(ErrorCode.INVALID_WEBHOOK_PAYLOAD))
+                .hasMessageContaining("webhook-quebrado")
+                .hasMessageNotContaining("segredo-do-cliente")
+                .hasNoCause();
+    }
+
+    /** Lê um template do seed real do classpath, como o {@code SeedTemplatesTest}. */
+    private TemplateDocument seedTemplate(String id) {
+        return new TemplateSeeder(mock(MongoTemplate.class), json).loadSeed().stream()
+                .filter(t -> t.id().equals(id))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("seed sem o template " + id));
     }
 }
