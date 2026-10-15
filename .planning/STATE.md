@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: Falhas, retry com backoff e resiliência
 status: executing
-stopped_at: Completed 02-05-PLAN.md
-last_updated: "2026-10-15T23:41:27.241Z"
+stopped_at: Completed 02-06-PLAN.md
+last_updated: "2026-10-15T23:55:22.460Z"
 last_activity: 2026-10-15
 last_activity_desc: Phase 02 execution started
-state_head: 219f8ac68bc1ea73541c47ae2a10eaaa0caab199
+state_head: 93e76a15bc93d7cb7be91df2fb0f948fbaaa3adc
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 14
-  completed_plans: 12
+  completed_plans: 13
   percent: 25
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-13)
 ## Current Position
 
 Phase: 02 (Falhas, retry com backoff e resiliência) — EXECUTING
-Plan: 5 of 7
+Plan: 6 of 7
 Status: Ready to execute
 Last activity: 2026-10-15 — Phase 02 execution started
 
@@ -68,6 +68,7 @@ Progress: [███░░░░░░░] 25%
 | Phase 02 P03 | 5min | 2 tasks | 4 files |
 | Phase 02 P04 | 10min | 2 tasks | 12 files |
 | Phase 02 P05 | 12min | 2 tasks | 14 files |
+| Phase 02 P06 | 10min | 2 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -105,6 +106,9 @@ Recent decisions affecting current work:
 - [Phase 02]: 02-05: Resilience4j programático atrás do ChannelGateway (bulkhead → CB → adapter), instâncias por registry.find e falha ao subir se faltar; tempo aberto validado ≤ 1º nível via getWaitIntervalFunctionInOpenState().apply(1)
 - [Phase 02]: 02-05: CB registra só TransientDeliveryException e ignora o resto por NonTransientFailurePredicate; recusas de CB/bulkhead são TRANSIENT (CIRCUIT_OPEN/BULKHEAD_FULL) e consomem um nível
 - [Phase 02]: 02-05: profile demo fixa wait-duration-in-open-state 500ms literal; nele NOTIFY_CB_OPEN_WAIT fica sombreado (benchmark da Fase 4 precisa sobrescrever a chave direto se rodar com demo)
+- [Phase 02]: 02-06: DeliveryMetrics pré-registra as 42 séries do D-15 (15 outcomes, 9 retries, 12 timers com histograma 1ms-30s, 6 rejections); outcome do timer = AttemptOutcome em minúsculo via FailureClassifier
+- [Phase 02]: 02-06: failed e deadLettered contam depois do fence e antes da cópia na DLQ (reject leva a original à DLQ do mesmo jeito); retrying só depois do confirm, com nível h+1 validado em 1..N
+- [Phase 02]: 02-06: timer notify.delivery.duration por dentro de bulkhead e CB, em volta só do adapter; CallNotPermitted/BulkheadFull incrementam notify.delivery.rejections e são relançadas
 
 ### Pending Todos
 
@@ -129,6 +133,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-15T23:41:27.129Z
-Stopped at: Completed 02-05-PLAN.md
+Last session: 2026-10-15T23:55:22.350Z
+Stopped at: Completed 02-06-PLAN.md
 Resume file: None
