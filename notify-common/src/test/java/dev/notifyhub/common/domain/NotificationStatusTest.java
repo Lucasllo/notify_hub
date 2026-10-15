@@ -80,7 +80,18 @@ class NotificationStatusTest {
     }
 
     @Test
+    void reclaimableWhenStuckIsOnlyProcessingDerivedFromTheTable() {
+        assertThat(NotificationStatus.reclaimableWhenStuck()).containsExactly(PROCESSING);
+        assertThat(NotificationStatus.reclaimableWhenStuck())
+                .allMatch(status -> status.canTransitionTo(PROCESSING));
+        assertThat(NotificationStatus.reclaimableWhenStuck())
+                .doesNotContainAnyElementsOf(NotificationStatus.claimableForDelivery());
+    }
+
+    @Test
     void returnedSetsAreImmutable() {
+        assertThatThrownBy(() -> NotificationStatus.reclaimableWhenStuck().add(SENT))
+                .isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> NotificationStatus.claimableForDelivery().add(SENT))
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> NotificationStatus.sourcesOf(PENDING).add(SENT))

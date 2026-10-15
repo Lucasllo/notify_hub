@@ -155,7 +155,7 @@ class DeliveryFlowTest {
 
     @Test
     void emailMessageEndsSentInASingleAtomicUpdateWithTheAttemptRecorded() {
-        listeners.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), null);
+        listeners.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), null, null);
 
         Document bson = MongoBson.update(captureResult().update());
 
@@ -177,7 +177,7 @@ class DeliveryFlowTest {
 
     @Test
     void claimFiltersByIdAndAbsentRetryHeaderBecomesLevelZero() {
-        listeners.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), null);
+        listeners.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), null, null);
 
         ArgumentCaptor<Query> query = ArgumentCaptor.forClass(Query.class);
         verify(mongo).findAndModify(query.capture(), any(UpdateDefinition.class),
@@ -188,6 +188,21 @@ class DeliveryFlowTest {
         assertThat(filter.get("retryCount", Document.class).get("$lte")).isEqualTo(0);
     }
 
+    @Test
+    void redeliveredMessageReclaimsAStuckProcessingDocumentAndEndsSent() {
+        listeners.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), null, true);
+
+        ArgumentCaptor<Query> query = ArgumentCaptor.forClass(Query.class);
+        verify(mongo).findAndModify(query.capture(), any(UpdateDefinition.class),
+                any(FindAndModifyOptions.class), eq(NotificationDocument.class));
+        Document filter = MongoBson.query(query.getValue());
+        Document stuck = filter.getList("$or", Document.class).get(1);
+        assertThat(stuck).isEqualTo(new Document("status", new Document("$in", List.of("PROCESSING"))));
+
+        Document set = MongoBson.update(captureResult().update()).get("$set", Document.class);
+        assertThat(set.get("status")).isEqualTo("SENT");
+    }
+
     // ------------------------------------------------------------ falha permanente
 
     @Test
@@ -196,7 +211,7 @@ class DeliveryFlowTest {
         assertThat(mongo.findById("nao-existe", TemplateDocument.class)).isNull();
 
         assertThatCode(() -> listeners.onEmail(
-                new NotificationMessage("n-1", Channel.EMAIL, "nao-existe", NOW), null))
+                new NotificationMessage("n-1", Channel.EMAIL, "nao-existe", NOW), null, null))
                 .doesNotThrowAnyException();
 
         verify(emailAdapter, never()).send(anyString(), any());
@@ -206,7 +221,7 @@ class DeliveryFlowTest {
     void missingTemplateIsWrittenAsFailedInOneFencedUpdateWithTheAttempt() {
         claimReturns(processingDoc("nao-existe", 0));
 
-        listeners.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "nao-existe", NOW), null);
+        listeners.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "nao-existe", NOW), null, null);
 
         Result result = captureResult();
         assertThat(MongoBson.query(result.query())).isEqualTo(new Document("_id", "n-1")
@@ -240,7 +255,7 @@ class DeliveryFlowTest {
         claimReturns(processingDoc("nao-existe", 0));
         NotificationMessage message = new NotificationMessage("n-1", Channel.EMAIL, "nao-existe", NOW);
 
-        listeners.onEmail(message, null);
+        listeners.onEmail(message, null, null);
 
         Published published = captureDlqPublish("email.dlq");
         assertThat(published.body()).isEqualTo(message);
@@ -255,7 +270,7 @@ class DeliveryFlowTest {
     void retryLevelFromTheHeaderIsRecordedInTheAttemptAndCarriedToTheDlqCopy() {
         claimReturns(processingDoc("nao-existe", 2));
 
-        listeners.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "nao-existe", NOW), "2");
+        listeners.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "nao-existe", NOW), "2", null);
 
         Document bson = MongoBson.update(captureResult().update());
         Document attempt = (Document) bson.get("$push", Document.class)
@@ -280,7 +295,7 @@ class DeliveryFlowTest {
     void transientFailureAtLevelZeroIsWrittenAsRetryingWithoutTouchingRetryCount() {
         ChannelListeners failing = listenersWithEmailFailureRate(1.0);
 
-        failing.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), null);
+        failing.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), null, null);
 
         Result result = captureResult();
         assertThat(MongoBson.query(result.query())).isEqualTo(new Document("_id", "n-1")
@@ -310,7 +325,7 @@ class DeliveryFlowTest {
         ChannelListeners failing = listenersWithEmailFailureRate(1.0);
         NotificationMessage message = new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW);
 
-        assertThatCode(() -> failing.onEmail(message, null)).doesNotThrowAnyException();
+        assertThatCode(() -> failing.onEmail(message, null, null)).doesNotThrowAnyException();
 
         Published published = captureRetryPublish("email.retry.5s");
         assertThat(published.body()).isEqualTo(message);
@@ -332,7 +347,7 @@ class DeliveryFlowTest {
         claimReturns(processingDoc("welcome", 1));
         ChannelListeners failing = listenersWithEmailFailureRate(1.0);
 
-        failing.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), "1");
+        failing.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), "1", null);
 
         MessageProperties props = applied(captureRetryPublish("email.retry.25s").postProcessor());
         assertThat((Object) props.getHeader("notify-retry-count")).isEqualTo(2);
@@ -345,7 +360,7 @@ class DeliveryFlowTest {
         claimReturns(processingDoc("welcome", 3, 3));
         ChannelListeners failing = listenersWithEmailFailureRate(1.0);
 
-        assertThatCode(() -> failing.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), "3"))
+        assertThatCode(() -> failing.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), "3", null))
                 .doesNotThrowAnyException();
 
         Result result = captureResult();
@@ -370,7 +385,7 @@ class DeliveryFlowTest {
 
         for (int h = 0; h <= 3; h++) {
             claimReturns(processingDoc("welcome", h, h));
-            failing.onEmail(message, h == 0 ? null : String.valueOf(h));
+            failing.onEmail(message, h == 0 ? null : String.valueOf(h), null);
         }
 
         ArgumentCaptor<UpdateDefinition> updates = ArgumentCaptor.forClass(UpdateDefinition.class);

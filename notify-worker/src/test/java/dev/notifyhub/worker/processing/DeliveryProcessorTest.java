@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -85,7 +86,7 @@ class DeliveryProcessorTest {
     }
 
     private void claimReturns(NotificationDocument doc) {
-        when(state.claim("n-1", doc.retryCount())).thenReturn(Optional.of(doc));
+        when(state.claim("n-1", doc.retryCount(), false)).thenReturn(Optional.of(doc));
         when(catalog.require("welcome")).thenReturn(TEMPLATE);
         when(renderer.render(TEMPLATE, Channel.EMAIL, VARIABLES, "n-1")).thenReturn(RENDERED);
         when(state.markSent(eq("n-1"), anyInt(), any(), any())).thenReturn(true);
@@ -93,9 +94,9 @@ class DeliveryProcessorTest {
 
     @Test
     void duplicateOrStaleMessageIsAckedWithoutSending() {
-        when(state.claim("n-1", 0)).thenReturn(Optional.empty());
+        when(state.claim("n-1", 0, false)).thenReturn(Optional.empty());
 
-        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 0)).doesNotThrowAnyException();
+        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 0, false)).doesNotThrowAnyException();
 
         verifyNoInteractions(catalog, renderer);
         verify(email, never()).send(anyString(), any());
@@ -103,21 +104,45 @@ class DeliveryProcessorTest {
     }
 
     @Test
+    void redeliveredFlagReachesTheClaimAndTheResumedDeliveryEndsSent() {
+        NotificationDocument stuck = claimedEmail(0, 1);
+        claimReturns(stuck);
+        when(state.claim("n-1", 0, true)).thenReturn(Optional.of(stuck));
+
+        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 0, true)).doesNotThrowAnyException();
+
+        verify(state).claim("n-1", 0, true);
+        verify(state, never()).claim("n-1", 0, false);
+        verify(email).send("ana@exemplo.com", RENDERED);
+        verify(state).markSent(eq("n-1"), eq(0), eq(RENDERED), any());
+    }
+
+    @Test
+    void firstDeliveryClaimsWithoutTheRedeliveredFlag() {
+        claimReturns(claimedEmail(0, 0));
+
+        processor.process(Channel.EMAIL, emailMessage(), 0, false);
+
+        verify(state).claim("n-1", 0, false);
+        verify(state, never()).claim("n-1", 0, true);
+    }
+
+    @Test
     void messageFromAnotherChannelIsRejectedWithoutClaiming() {
-        assertThatThrownBy(() -> processor.process(Channel.SMS, emailMessage(), 0))
+        assertThatThrownBy(() -> processor.process(Channel.SMS, emailMessage(), 0, false))
                 .isInstanceOf(AmqpRejectAndDontRequeueException.class);
 
-        verify(state, never()).claim(anyString(), anyInt());
+        verify(state, never()).claim(anyString(), anyInt(), anyBoolean());
     }
 
     @Test
     void missingTemplateIsMarkedFailedAndCopiedToTheDlqWithoutThrowing() {
-        when(state.claim("n-1", 0)).thenReturn(Optional.of(claimedEmail(0, 0)));
+        when(state.claim("n-1", 0, false)).thenReturn(Optional.of(claimedEmail(0, 0)));
         when(catalog.require("welcome")).thenThrow(TemplateNotFoundException.missing("welcome"));
         when(state.markFailed(eq("n-1"), eq(0), any(), any())).thenReturn(true);
         when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.acked());
 
-        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 0)).doesNotThrowAnyException();
+        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 0, false)).doesNotThrowAnyException();
 
         ArgumentCaptor<AttemptEntry> attempt = ArgumentCaptor.forClass(AttemptEntry.class);
         ArgumentCaptor<LastError> lastError = ArgumentCaptor.forClass(LastError.class);
@@ -141,7 +166,7 @@ class DeliveryProcessorTest {
         when(state.markRetrying(eq("n-1"), eq(0), any(), any())).thenReturn(true);
         when(publisher.publishToRetry(any(), any(), anyInt(), any())).thenReturn(PublishOutcome.acked());
 
-        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 0)).doesNotThrowAnyException();
+        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 0, false)).doesNotThrowAnyException();
 
         ArgumentCaptor<AttemptEntry> attempt = ArgumentCaptor.forClass(AttemptEntry.class);
         ArgumentCaptor<LastError> lastError = ArgumentCaptor.forClass(LastError.class);
@@ -167,7 +192,7 @@ class DeliveryProcessorTest {
         when(state.markDeadLettered(eq("n-1"), eq(3), any(), any())).thenReturn(true);
         when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.acked());
 
-        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 3)).doesNotThrowAnyException();
+        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 3, false)).doesNotThrowAnyException();
 
         ArgumentCaptor<AttemptEntry> attempt = ArgumentCaptor.forClass(AttemptEntry.class);
         ArgumentCaptor<LastError> lastError = ArgumentCaptor.forClass(LastError.class);
@@ -188,7 +213,7 @@ class DeliveryProcessorTest {
         when(state.markDeadLettered(eq("n-1"), eq(7), any(), any())).thenReturn(true);
         when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.acked());
 
-        processor.process(Channel.EMAIL, emailMessage(), 7);
+        processor.process(Channel.EMAIL, emailMessage(), 7, false);
 
         verify(publisher).publishToDlq(Channel.EMAIL, emailMessage(), FailureClass.TRANSIENT, 7);
         verify(publisher, never()).publishToRetry(any(), any(), anyInt(), any());
@@ -200,7 +225,7 @@ class DeliveryProcessorTest {
         when(state.markDeadLettered(eq("n-1"), eq(3), any(), any())).thenReturn(true);
         when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.timeout());
 
-        assertThatThrownBy(() -> processor.process(Channel.EMAIL, emailMessage(), 3))
+        assertThatThrownBy(() -> processor.process(Channel.EMAIL, emailMessage(), 3, false))
                 .isInstanceOf(AmqpRejectAndDontRequeueException.class)
                 .hasMessageContaining("n-1");
     }
@@ -210,7 +235,7 @@ class DeliveryProcessorTest {
         adapterFailsTransiently(3);
         when(state.markDeadLettered(eq("n-1"), eq(3), any(), any())).thenReturn(false);
 
-        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 3)).doesNotThrowAnyException();
+        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 3, false)).doesNotThrowAnyException();
 
         verifyNoInteractions(publisher);
     }
@@ -220,7 +245,7 @@ class DeliveryProcessorTest {
         adapterFailsTransiently(0);
         when(state.markRetrying(eq("n-1"), eq(0), any(), any())).thenReturn(false);
 
-        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 0)).doesNotThrowAnyException();
+        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 0, false)).doesNotThrowAnyException();
 
         verifyNoInteractions(publisher);
     }
@@ -233,7 +258,7 @@ class DeliveryProcessorTest {
         when(state.markDeadLetteredAfterRepublishFailure(eq("n-1"), eq(1), any())).thenReturn(true);
         when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.acked());
 
-        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 1)).doesNotThrowAnyException();
+        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 1, false)).doesNotThrowAnyException();
 
         verify(publisher).publishToRetry(Channel.EMAIL, emailMessage(), 2, Duration.ofSeconds(25));
         ArgumentCaptor<LastError> lastError = ArgumentCaptor.forClass(LastError.class);
@@ -255,7 +280,7 @@ class DeliveryProcessorTest {
         when(state.markDeadLetteredAfterRepublishFailure(eq("n-1"), eq(0), any())).thenReturn(true);
         when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.nacked("y"));
 
-        assertThatThrownBy(() -> processor.process(Channel.EMAIL, emailMessage(), 0))
+        assertThatThrownBy(() -> processor.process(Channel.EMAIL, emailMessage(), 0, false))
                 .isInstanceOf(AmqpRejectAndDontRequeueException.class);
     }
 
@@ -266,7 +291,7 @@ class DeliveryProcessorTest {
         when(publisher.publishToRetry(any(), any(), anyInt(), any())).thenReturn(PublishOutcome.timeout());
         when(state.markDeadLetteredAfterRepublishFailure(eq("n-1"), eq(0), any())).thenReturn(false);
 
-        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 0)).doesNotThrowAnyException();
+        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 0, false)).doesNotThrowAnyException();
 
         verify(publisher, never()).publishToDlq(any(), any(), any(), anyInt());
     }
@@ -278,7 +303,7 @@ class DeliveryProcessorTest {
         when(state.markFailed(eq("n-1"), eq(0), any(), any())).thenReturn(true);
         when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.acked());
 
-        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 0)).doesNotThrowAnyException();
+        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 0, false)).doesNotThrowAnyException();
 
         ArgumentCaptor<AttemptEntry> attempt = ArgumentCaptor.forClass(AttemptEntry.class);
         verify(state).markFailed(eq("n-1"), eq(0), attempt.capture(), any(LastError.class));
@@ -291,12 +316,12 @@ class DeliveryProcessorTest {
 
     @Test
     void unconfirmedDlqCopyFallsBackToRejectWithoutRequeue() {
-        when(state.claim("n-1", 0)).thenReturn(Optional.of(claimedEmail(0, 0)));
+        when(state.claim("n-1", 0, false)).thenReturn(Optional.of(claimedEmail(0, 0)));
         when(catalog.require("welcome")).thenThrow(TemplateNotFoundException.missing("welcome"));
         when(state.markFailed(eq("n-1"), eq(0), any(), any())).thenReturn(true);
         when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.nacked("x"));
 
-        assertThatThrownBy(() -> processor.process(Channel.EMAIL, emailMessage(), 0))
+        assertThatThrownBy(() -> processor.process(Channel.EMAIL, emailMessage(), 0, false))
                 .isInstanceOf(AmqpRejectAndDontRequeueException.class)
                 .hasMessageContaining("n-1");
 
@@ -305,11 +330,11 @@ class DeliveryProcessorTest {
 
     @Test
     void lostFenceOnFailedSkipsTheDlqCopyAndAcks() {
-        when(state.claim("n-1", 0)).thenReturn(Optional.of(claimedEmail(0, 0)));
+        when(state.claim("n-1", 0, false)).thenReturn(Optional.of(claimedEmail(0, 0)));
         when(catalog.require("welcome")).thenThrow(TemplateNotFoundException.missing("welcome"));
         when(state.markFailed(eq("n-1"), eq(0), any(), any())).thenReturn(false);
 
-        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 0)).doesNotThrowAnyException();
+        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 0, false)).doesNotThrowAnyException();
 
         verifyNoInteractions(publisher);
     }
@@ -319,7 +344,7 @@ class DeliveryProcessorTest {
         claimReturns(claimedEmail(0, 0));
         doThrow(new AssertionError("erro de JVM")).when(email).send("ana@exemplo.com", RENDERED);
 
-        assertThatThrownBy(() -> processor.process(Channel.EMAIL, emailMessage(), 0))
+        assertThatThrownBy(() -> processor.process(Channel.EMAIL, emailMessage(), 0, false))
                 .isInstanceOf(AssertionError.class);
 
         verify(state, never()).markFailed(anyString(), anyInt(), any(), any());
@@ -330,7 +355,7 @@ class DeliveryProcessorTest {
     void attemptNumberFollowsAttemptCountAndRecordsTheRetryLevel() {
         claimReturns(claimedEmail(2, 3));
 
-        processor.process(Channel.EMAIL, emailMessage(), 2);
+        processor.process(Channel.EMAIL, emailMessage(), 2, false);
 
         verify(renderer).render(TEMPLATE, Channel.EMAIL, VARIABLES, "n-1");
         verify(email).send("ana@exemplo.com", RENDERED);
@@ -348,7 +373,7 @@ class DeliveryProcessorTest {
     void onlyTheAdapterOfTheDocumentChannelIsCalled() {
         claimReturns(claimedEmail(0, 0));
 
-        processor.process(Channel.EMAIL, emailMessage(), 0);
+        processor.process(Channel.EMAIL, emailMessage(), 0, false);
 
         verify(sms, never()).send(anyString(), any());
         verify(webhook, never()).send(anyString(), any());

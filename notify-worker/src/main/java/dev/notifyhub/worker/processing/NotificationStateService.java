@@ -62,7 +62,7 @@ public class NotificationStateService {
      * @return o documento já em PROCESSING, ou vazio se a mensagem for duplicada ou obsoleta (o
      *         documento não existe, já foi reivindicado/entregue ou está num nível acima)
      */
-    public Optional<NotificationDocument> claim(String id, int retryCount) {
+    public Optional<NotificationDocument> claim(String id, int retryCount, boolean redelivered) {
         Instant now = Instant.now();
         Query claimable = query(where(Fields.ID).is(id)
                 .and(Fields.STATUS).in(NotificationStatus.claimableForDelivery())

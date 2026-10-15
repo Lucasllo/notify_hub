@@ -1,6 +1,7 @@
 package dev.notifyhub.worker.listener;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -55,7 +56,13 @@ class ChannelListenersDispatchTest {
     }
 
     private Message amqpMessage(NotificationMessage payload, Object retryHeader) throws Exception {
+        return amqpMessage(payload, retryHeader, false);
+    }
+
+    private Message amqpMessage(NotificationMessage payload, Object retryHeader, boolean redelivered)
+            throws Exception {
         MessageProperties props = new MessageProperties();
+        props.setRedelivered(redelivered);
         props.setContentType(MessageProperties.CONTENT_TYPE_JSON);
         props.setHeader("__TypeId__", NotificationMessage.class.getName());
         if (retryHeader != null) {
@@ -71,7 +78,7 @@ class ChannelListenersDispatchTest {
 
         adapterFor("onEmail").onMessage(amqpMessage(payload, 0), mock(Channel.class));
 
-        verify(processor).process(dev.notifyhub.common.domain.Channel.EMAIL, payload, 0);
+        verify(processor).process(dev.notifyhub.common.domain.Channel.EMAIL, payload, 0, false);
     }
 
     @Test
@@ -81,7 +88,7 @@ class ChannelListenersDispatchTest {
 
         adapterFor("onSms").onMessage(amqpMessage(payload, " 2 "), mock(Channel.class));
 
-        verify(processor).process(dev.notifyhub.common.domain.Channel.SMS, payload, 2);
+        verify(processor).process(dev.notifyhub.common.domain.Channel.SMS, payload, 2, false);
     }
 
     @Test
@@ -91,7 +98,37 @@ class ChannelListenersDispatchTest {
 
         adapterFor("onWebhook").onMessage(amqpMessage(payload, null), mock(Channel.class));
 
-        verify(processor).process(dev.notifyhub.common.domain.Channel.WEBHOOK, payload, 0);
+        verify(processor).process(dev.notifyhub.common.domain.Channel.WEBHOOK, payload, 0, false);
+    }
+
+    @Test
+    void brokerRedeliveryFlagReachesTheProcessorAsTrue() throws Exception {
+        NotificationMessage payload = new NotificationMessage(
+                "n-5", dev.notifyhub.common.domain.Channel.EMAIL, "welcome", NOW);
+
+        adapterFor("onEmail").onMessage(amqpMessage(payload, 1, true), mock(Channel.class));
+
+        verify(processor).process(dev.notifyhub.common.domain.Channel.EMAIL, payload, 1, true);
+    }
+
+    @Test
+    void firstDeliveryReachesTheProcessorAsNotRedelivered() throws Exception {
+        NotificationMessage payload = new NotificationMessage(
+                "n-6", dev.notifyhub.common.domain.Channel.SMS, "welcome", NOW);
+
+        adapterFor("onSms").onMessage(amqpMessage(payload, "2", false), mock(Channel.class));
+
+        verify(processor).process(dev.notifyhub.common.domain.Channel.SMS, payload, 2, false);
+    }
+
+    @Test
+    void webhookRedeliveryWithoutRetryHeaderIsLevelZeroAndRedelivered() throws Exception {
+        NotificationMessage payload = new NotificationMessage(
+                "n-7", dev.notifyhub.common.domain.Channel.WEBHOOK, "welcome", NOW);
+
+        adapterFor("onWebhook").onMessage(amqpMessage(payload, null, true), mock(Channel.class));
+
+        verify(processor).process(dev.notifyhub.common.domain.Channel.WEBHOOK, payload, 0, true);
     }
 
     @Test
@@ -101,6 +138,7 @@ class ChannelListenersDispatchTest {
 
         assertThatThrownBy(() -> adapterFor("onEmail").onMessage(amqpMessage(payload, "abc"), mock(Channel.class)))
                 .hasRootCauseInstanceOf(AmqpRejectAndDontRequeueException.class);
-        verify(processor, never()).process(eq(dev.notifyhub.common.domain.Channel.EMAIL), eq(payload), anyInt());
+        verify(processor, never()).process(eq(dev.notifyhub.common.domain.Channel.EMAIL), eq(payload), anyInt(),
+                anyBoolean());
     }
 }

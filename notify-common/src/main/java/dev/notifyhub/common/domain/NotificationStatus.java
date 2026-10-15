@@ -54,6 +54,11 @@ public enum NotificationStatus {
         return Collections.unmodifiableSet(sources);
     }
 
+    /** Esqueleto (RED). */
+    public static Set<NotificationStatus> reclaimableWhenStuck() {
+        return Collections.emptySet();
+    }
+
     /**
      * Status a partir dos quais o worker pode reivindicar uma entrega na Fase 1:
      * {@code sourcesOf(PROCESSING)} sem o próprio PROCESSING (o reclaim fica para a Fase 2).

@@ -3,6 +3,7 @@ package dev.notifyhub.worker.processing;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -19,6 +20,8 @@ import dev.notifyhub.common.persistence.NotificationDocument;
 import dev.notifyhub.common.persistence.RenderedContent;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -45,7 +48,11 @@ class NotificationStateServiceTest {
     }
 
     private Claim captureClaim(int retryCount) {
-        service.claim("n-1", retryCount);
+        return captureClaim(retryCount, false);
+    }
+
+    private Claim captureClaim(int retryCount, boolean redelivered) {
+        service.claim("n-1", retryCount, redelivered);
         ArgumentCaptor<Query> query = ArgumentCaptor.forClass(Query.class);
         ArgumentCaptor<UpdateDefinition> update = ArgumentCaptor.forClass(UpdateDefinition.class);
         ArgumentCaptor<FindAndModifyOptions> options = ArgumentCaptor.forClass(FindAndModifyOptions.class);
@@ -54,24 +61,74 @@ class NotificationStateServiceTest {
         return new Claim(query.getValue(), update.getValue(), options.getValue());
     }
 
+    private static List<Document> orBranches(Document filter) {
+        return filter.getList("$or", Document.class);
+    }
+
+    private static List<Object> statusIn(Document branch) {
+        return branch.get("status", Document.class).getList("$in", Object.class);
+    }
+
+    private static Instant asInstant(Object value) {
+        return value instanceof Date date ? date.toInstant() : (Instant) value;
+    }
+
     @Test
-    void claimFilterIsIdClaimableStatusesAndInclusiveRetryLevel() {
+    void claimFilterIsIdInclusiveRetryLevelAndTwoStatusBranches() {
         Document filter = MongoBson.query(captureClaim(2).query());
 
-        assertThat(filter.keySet()).containsExactly("_id", "status", "retryCount");
+        assertThat(filter.keySet()).containsExactlyInAnyOrder("_id", "retryCount", "$or");
         assertThat(filter.get("_id")).isEqualTo("n-1");
-        assertThat(filter.get("status", Document.class).getList("$in", Object.class))
+        // o fence de nível vale nos dois ramos (fica fora do $or)
+        assertThat(filter.get("retryCount", Document.class)).isEqualTo(new Document("$lte", 2));
+        assertThat(orBranches(filter)).hasSize(2);
+        assertThat(statusIn(orBranches(filter).get(0)))
                 .containsExactlyInAnyOrder("PENDING", "RETRYING", "PUBLISH_FAILED");
+    }
+
+    @Test
+    void redeliveredClaimReclaimsProcessingWithoutLeaseCondition() {
+        Document filter = MongoBson.query(captureClaim(2, true).query());
+
+        Document stuck = orBranches(filter).get(1);
+        assertThat(stuck.keySet()).containsExactly("status");
+        assertThat(statusIn(stuck)).containsExactly("PROCESSING");
         assertThat(filter.get("retryCount", Document.class)).isEqualTo(new Document("$lte", 2));
     }
 
     @Test
-    void claimStatusFilterIsDerivedFromTheTransitionTable() {
-        Document filter = MongoBson.query(captureClaim(0).query());
+    void firstDeliveryOnlyReclaimsProcessingWhoseLeaseHasExpired() {
+        Instant before = Instant.now();
+        Document filter = MongoBson.query(captureClaim(2, false).query());
+        Instant after = Instant.now();
 
-        List<String> expected = NotificationStatus.claimableForDelivery().stream().map(Enum::name).toList();
-        assertThat(filter.get("status", Document.class).getList("$in", Object.class))
-                .containsExactlyInAnyOrderElementsOf(expected);
+        Document stuck = orBranches(filter).get(1);
+        assertThat(stuck.keySet()).containsExactlyInAnyOrder("status", "leaseUntil");
+        assertThat(statusIn(stuck)).containsExactly("PROCESSING");
+        Instant leaseCutoff = asInstant(stuck.get("leaseUntil", Document.class).get("$lt"));
+        // lease vigente (leaseUntil ≥ agora) não casa; só lease vencido
+        assertThat(leaseCutoff).isBetween(before.truncatedTo(ChronoUnit.MILLIS), after);
+        assertThat(filter.get("retryCount", Document.class)).isEqualTo(new Document("$lte", 2));
+    }
+
+    @Test
+    void claimStatusBranchesAreDerivedFromTheTransitionTable() {
+        Document filter = MongoBson.query(captureClaim(0, true).query());
+
+        List<String> fresh = NotificationStatus.claimableForDelivery().stream().map(Enum::name).toList();
+        List<String> stuck = NotificationStatus.reclaimableWhenStuck().stream().map(Enum::name).toList();
+        assertThat(statusIn(orBranches(filter).get(0))).containsExactlyInAnyOrderElementsOf(fresh);
+        assertThat(statusIn(orBranches(filter).get(1))).containsExactlyInAnyOrderElementsOf(stuck);
+    }
+
+    @Test
+    void redeliveredAndExpiredLeaseClaimsWriteTheSameUpdate() {
+        Document redelivered = captureClaim(1, true).update().getUpdateObject();
+        clearInvocations(mongo);
+        Document expired = captureClaim(1, false).update().getUpdateObject();
+
+        assertThat(redelivered.get("$set", Document.class).keySet())
+                .isEqualTo(expired.get("$set", Document.class).keySet());
     }
 
     @Test
@@ -100,7 +157,7 @@ class NotificationStateServiceTest {
         when(mongo.findAndModify(any(Query.class), any(UpdateDefinition.class),
                 any(FindAndModifyOptions.class), eq(NotificationDocument.class))).thenReturn(null);
 
-        assertThat(service.claim("n-1", 0)).isEmpty();
+        assertThat(service.claim("n-1", 0, false)).isEmpty();
     }
 
     @Test
@@ -111,7 +168,7 @@ class NotificationStateServiceTest {
         when(mongo.findAndModify(any(Query.class), any(UpdateDefinition.class),
                 any(FindAndModifyOptions.class), eq(NotificationDocument.class))).thenReturn(processing);
 
-        assertThat(service.claim("n-1", 1)).isEqualTo(Optional.of(processing));
+        assertThat(service.claim("n-1", 1, true)).isEqualTo(Optional.of(processing));
     }
 
     // ---------------------------------------------------------------- markSent

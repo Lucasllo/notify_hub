@@ -107,7 +107,8 @@ public class DeliveryProcessor {
      * @param listenerChannel canal da fila que recebeu a mensagem
      * @param retryCount      nível de retry lido do header (0 = fila principal)
      */
-    public void process(Channel listenerChannel, NotificationMessage message, int retryCount) {
+    public void process(Channel listenerChannel, NotificationMessage message, int retryCount,
+                        boolean redelivered) {
         logThreadOnce();
         if (message == null || message.notificationId() == null || message.notificationId().isBlank()) {
             throw new AmqpRejectAndDontRequeueException("mensagem sem notificationId na fila "
@@ -119,7 +120,7 @@ public class DeliveryProcessor {
         }
 
         String id = message.notificationId();
-        Optional<NotificationDocument> claimed = state.claim(id, retryCount);
+        Optional<NotificationDocument> claimed = state.claim(id, retryCount, false);
         if (claimed.isEmpty()) {
             log.info("mensagem duplicada/obsoleta descartada id={} retryCount={}", id, retryCount);
             return;

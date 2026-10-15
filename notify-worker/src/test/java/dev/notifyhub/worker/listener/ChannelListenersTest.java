@@ -8,6 +8,7 @@ import dev.notifyhub.common.domain.Channel;
 import dev.notifyhub.common.messaging.NotificationMessage;
 import dev.notifyhub.worker.processing.DeliveryProcessor;
 import java.lang.reflect.Method;
+import java.lang.reflect.Parameter;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
@@ -17,6 +18,8 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.amqp.support.AmqpHeaders;
+import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.expression.common.TemplateParserContext;
 import org.springframework.expression.spel.standard.SpelExpressionParser;
 
@@ -89,33 +92,75 @@ class ChannelListenersTest {
     void smsListenerParsesStringHeaderFromTheManagementUi() {
         NotificationMessage message = new NotificationMessage("n-2", Channel.SMS, "welcome", NOW);
 
-        listeners.onSms(message, "1");
+        listeners.onSms(message, "1", null);
 
-        verify(processor).process(Channel.SMS, message, 1);
+        verify(processor).process(Channel.SMS, message, 1, false);
     }
 
     @Test
     void webhookListenerTreatsAbsentHeaderAsLevelZero() {
         NotificationMessage message = new NotificationMessage("n-3", Channel.WEBHOOK, "welcome", NOW);
 
-        listeners.onWebhook(message, null);
+        listeners.onWebhook(message, null, null);
 
-        verify(processor).process(Channel.WEBHOOK, message, 0);
+        verify(processor).process(Channel.WEBHOOK, message, 0, false);
     }
 
     @Test
     void emailListenerPassesNumericHeader() {
         NotificationMessage message = new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW);
 
-        listeners.onEmail(message, "2");
+        listeners.onEmail(message, "2", null);
 
-        verify(processor).process(Channel.EMAIL, message, 2);
+        verify(processor).process(Channel.EMAIL, message, 2, false);
+    }
+
+    @Test
+    void absentRedeliveredFlagIsFalse() {
+        NotificationMessage message = new NotificationMessage("n-2", Channel.SMS, "welcome", NOW);
+
+        listeners.onSms(message, "1", null);
+
+        verify(processor).process(Channel.SMS, message, 1, false);
+    }
+
+    @Test
+    void redeliveredFlagReachesTheProcessor() {
+        NotificationMessage message = new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW);
+
+        listeners.onEmail(message, null, true);
+
+        verify(processor).process(Channel.EMAIL, message, 0, true);
+    }
+
+    @Test
+    void webhookListenerPassesTheRedeliveredFlagToo() {
+        NotificationMessage message = new NotificationMessage("n-3", Channel.WEBHOOK, "welcome", NOW);
+
+        listeners.onWebhook(message, "2", Boolean.TRUE);
+
+        verify(processor).process(Channel.WEBHOOK, message, 2, true);
+    }
+
+    @Test
+    void everyListenerReadsTheRedeliveredHeaderAsAnOptionalBoolean() throws NoSuchMethodException {
+        for (String name : List.of("onEmail", "onSms", "onWebhook")) {
+            Method method = ChannelListeners.class.getMethod(name, NotificationMessage.class, String.class,
+                    Boolean.class);
+            Parameter redelivered = method.getParameters()[2];
+
+            assertThat(redelivered.getType()).isEqualTo(Boolean.class);
+            Header header = redelivered.getAnnotation(Header.class);
+            assertThat(header).as("%s: @Header no parâmetro redelivered", name).isNotNull();
+            assertThat(header.name()).isEqualTo(AmqpHeaders.REDELIVERED);
+            assertThat(header.required()).isFalse();
+        }
     }
 
     @Test
     void listenerMethodsTakeTheConcreteMessageType() throws NoSuchMethodException {
         for (String name : List.of("onEmail", "onSms", "onWebhook")) {
-            Method method = ChannelListeners.class.getMethod(name, NotificationMessage.class, String.class);
+            Method method = ChannelListeners.class.getMethod(name, NotificationMessage.class, String.class, Boolean.class);
             assertThat(method.getParameterTypes()[0]).isEqualTo(NotificationMessage.class);
         }
     }

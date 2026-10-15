@@ -5,6 +5,7 @@ import dev.notifyhub.common.messaging.NotificationMessage;
 import dev.notifyhub.common.messaging.NotifyHeaders;
 import dev.notifyhub.worker.processing.DeliveryProcessor;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.amqp.support.AmqpHeaders;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 
@@ -38,23 +39,26 @@ public class ChannelListeners {
             queues = "#{T(dev.notifyhub.common.domain.Channel).EMAIL.queue()}",
             concurrency = "${notify.worker.channels.email.concurrency:10}")
     public void onEmail(NotificationMessage message,
-                        @Header(name = NotifyHeaders.RETRY_COUNT, required = false) String retryCount) {
-        processor.process(Channel.EMAIL, message, RetryHeaders.parse(retryCount));
+                        @Header(name = NotifyHeaders.RETRY_COUNT, required = false) String retryCount,
+                        @Header(name = AmqpHeaders.REDELIVERED, required = false) Boolean redelivered) {
+        processor.process(Channel.EMAIL, message, RetryHeaders.parse(retryCount), false);
     }
 
     @RabbitListener(id = "listener-sms",
             queues = "#{T(dev.notifyhub.common.domain.Channel).SMS.queue()}",
             concurrency = "${notify.worker.channels.sms.concurrency:10}")
     public void onSms(NotificationMessage message,
-                      @Header(name = NotifyHeaders.RETRY_COUNT, required = false) String retryCount) {
-        processor.process(Channel.SMS, message, RetryHeaders.parse(retryCount));
+                      @Header(name = NotifyHeaders.RETRY_COUNT, required = false) String retryCount,
+                      @Header(name = AmqpHeaders.REDELIVERED, required = false) Boolean redelivered) {
+        processor.process(Channel.SMS, message, RetryHeaders.parse(retryCount), false);
     }
 
     @RabbitListener(id = "listener-webhook",
             queues = "#{T(dev.notifyhub.common.domain.Channel).WEBHOOK.queue()}",
             concurrency = "${notify.worker.channels.webhook.concurrency:10}")
     public void onWebhook(NotificationMessage message,
-                          @Header(name = NotifyHeaders.RETRY_COUNT, required = false) String retryCount) {
-        processor.process(Channel.WEBHOOK, message, RetryHeaders.parse(retryCount));
+                          @Header(name = NotifyHeaders.RETRY_COUNT, required = false) String retryCount,
+                          @Header(name = AmqpHeaders.REDELIVERED, required = false) Boolean redelivered) {
+        processor.process(Channel.WEBHOOK, message, RetryHeaders.parse(retryCount), false);
     }
 }
