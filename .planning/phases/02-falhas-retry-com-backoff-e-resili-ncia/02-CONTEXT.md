@@ -48,7 +48,7 @@ Ficam fora desta fase:
 
 ### PROCESSING preso e ack (WRK-03)
 - **D-09:** O claim também aceita PROCESSING quando **a mensagem chega com `redelivered=true` OU quando `leaseUntil < agora`**. O fence por `retryCount` continua valendo. `redelivered` cobre o caso típico (worker derrubado, broker reentrega na hora) e o lease cobre o resto. Isso atualiza `NotificationStatus.claimableForDelivery()` e o filtro do `NotificationStateService.claim`, e a transição PROCESSING→PROCESSING já existe na tabela.
-- **D-10:** O ack mode continua **AUTO, com confirm síncrono dentro do listener**. O listener republica na fila de delay e bloqueia até o confirm, o que é barato em virtual threads. Retorno normal faz ack. Para mandar para a DLQ usa `AmqpRejectAndDontRequeueException`. MANUAL não é usado. Isso resolve o blocker do STATE.md.
+- **D-10:** O ack mode continua **AUTO, com confirm síncrono dentro do listener**. O listener republica na fila de delay e bloqueia até o confirm, o que é barato em virtual threads. Retorno normal faz ack. Para mandar para a DLQ, o listener **publica uma cópia em `notify.dlx` com routing key `<canal>.dlq` e o header `x-failure-class`, espera o confirm e então retorna normalmente (ack do original)**. `AmqpRejectAndDontRequeueException` fica só como fallback quando esse publish falha (nack, timeout ou return). MANUAL não é usado. Isso resolve o blocker do STATE.md. *(Ajustado após a pesquisa, 2026-10-14: um reject AMQP 0-9-1 não consegue adicionar headers, então o reject puro nunca entregaria `x-failure-class: PERMANENT` na DLQ — critério de sucesso 2. Confirmado pelo usuário.)*
 - **D-11:** O retry segue esta ordem:
   1. Update atômico PROCESSING→RETRYING + `$push` attempt.
   2. Publish na fila de delay do próximo nível com `notify-retry-count` incrementado e espera do confirm.
@@ -65,7 +65,12 @@ Ficam fora desta fase:
   - `notify.delivery.retries{channel, level=1|2|3}`
   - timer `notify.delivery.duration{channel, outcome}` com histograma/percentis para o p95
 
+  - contador `notify.delivery.rejections{channel, reason=bulkhead_full|circuit_open}` (o Resilience4j não expõe contador de rejeição do bulkhead)
+  - tag `outcome` do timer = `success|transient_failure|permanent_failure|unknown_failure`, medindo só a chamada ao adapter
+
   As tags têm conjunto fechado e são pré-registradas na inicialização. Os códigos de erro detalhados **não** viram tag: ficam no Mongo e no log. O worker passa a expor `prometheus` no actuator (`micrometer-registry-prometheus`). As métricas do Resilience4j (estado do CB, bulkhead) vêm do `resilience4j-micrometer`. — **Reversibility:** costly — o dashboard provisionado da Fase 4 e as queries do README usam esses nomes.
+
+- **D-17:** *(Fechado após a pesquisa, 2026-10-14, confirmado pelo usuário.)* `AttemptOutcome` ganha `UNKNOWN_FAILURE` para representar a classe `UNKNOWN` da D-13. Quando a republicação para retry falha (`REPUBLISH_FAILED`, D-11), só o `lastError` é gravado; não entra um `AttemptEntry` extra.
 
 ### Templates (TPL-02, TPL-03)
 - **D-16:** No webhook, os valores são escapados como string JSON (aspas, barra invertida, caracteres de controle) por um escaper próprio do JMustache. Depois de renderizar, o corpo passa por um parse com o `ObjectMapper`. JSON inválido gera falha PERMANENT com `INVALID_WEBHOOK_PAYLOAD` em vez de sair corrompido. E-mail escapa HTML no corpo, e o SMS sai sem escape. Template inexistente, variante ausente e variável obrigatória faltando são PERMANENT. A variável obrigatória é conferida contra `requiredVariables` e também pelo comportamento padrão do JMustache, que lança exceção.
