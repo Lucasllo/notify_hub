@@ -44,7 +44,10 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        # prometheus: métricas de entrega do D-15 (notify_delivery_*) e do Resilience4j (resilience4j_*).
+        # Sem autenticação: só contagens e latências agregadas, sem PII; a porta 8081 fica na rede
+        # local/compose (o Prometheus da Fase 4 coleta daqui)
+        include: health,info,prometheus
 
 notify:
   worker:

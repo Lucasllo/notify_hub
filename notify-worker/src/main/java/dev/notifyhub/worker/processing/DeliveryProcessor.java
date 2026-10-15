@@ -144,6 +144,7 @@ public class DeliveryProcessor {
         AttemptEntry attempt = new AttemptEntry(attemptNumber, retryCount, startedAt, durationMs,
                 AttemptOutcome.SUCCESS, null, null, null, Thread.currentThread().toString());
         if (state.markSent(id, retryCount, rendered, attempt)) {
+            metrics.sent(doc.channel());
             log.info("Notificação entregue id={} canal={} destinatario={} tentativa={} duracaoMs={}",
                     id, doc.channel(), RecipientRules.mask(doc.channel(), doc.recipient()),
                     attempt.number(), durationMs);
