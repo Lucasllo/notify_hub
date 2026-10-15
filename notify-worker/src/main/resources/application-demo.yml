@@ -3,3 +3,10 @@
 notify:
   topology:
     retry-levels: 1s,5s,25s
+# CB aberto por metade do 1º nível (1s): o lote recusado volta do delay depois que as 3 chamadas do
+# half-open já fecharam o CB, em vez de chegar durante o half-open e queimar o 2º nível (RESEARCH 6.2)
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        wait-duration-in-open-state: 500ms
