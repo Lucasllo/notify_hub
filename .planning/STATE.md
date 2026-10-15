@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: Falhas, retry com backoff e resiliência
 status: executing
-stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-10-15T23:04:16.529Z"
+stopped_at: Completed 02-03-PLAN.md
+last_updated: "2026-10-15T23:11:22.863Z"
 last_activity: 2026-10-15
 last_activity_desc: Phase 02 execution started
-state_head: 9ae2b494a1d8f1cee88177f4314819f03ef0ff48
+state_head: e02e69f2d287814eab34af55f3e4345ec111cc69
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 14
-  completed_plans: 9
+  completed_plans: 10
   percent: 25
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-13)
 ## Current Position
 
 Phase: 02 (Falhas, retry com backoff e resiliência) — EXECUTING
-Plan: 2 of 7
+Plan: 3 of 7
 Status: Ready to execute
 Last activity: 2026-10-15 — Phase 02 execution started
 
@@ -65,6 +65,7 @@ Progress: [███░░░░░░░] 25%
 | Phase 01 P06 | 10min | 2 tasks | 1 files |
 | Phase 01 P07 | 7min | 2 tasks | 3 files |
 | Phase 02 P02 | 15min | 3 tasks | 14 files |
+| Phase 02 P03 | 5min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -95,6 +96,8 @@ Recent decisions affecting current work:
 - [Phase 02]: 02-02: markRetrying/markDeadLettered nunca gravam retryCount; quem grava h+1 é o claim do próximo token (Armadilha 2)
 - [Phase 02]: 02-02: claim com fence retryCount <= h fora de um $or derivado da tabela (claimableForDelivery + reclaimableWhenStuck com redelivered ou leaseUntil < agora)
 - [Phase 02]: 02-02: republish falho vai de RETRYING a DEAD_LETTERED só com lastError REPUBLISH_FAILED e cópia TRANSIENT na DLQ; Armadilha 12 aceita e documentada
+- [Phase 02]: [02-03]: Webhook escapa valores com JsonValueEscaper (JsonStringEncoder) num compilador JMustache próprio e valida o corpo com ObjectReader FAIL_ON_TRAILING_TOKENS + isObject → INVALID_WEBHOOK_PAYLOAD sem causa anexada
+- [Phase 02]: [02-03]: requiredVariables checado depois de resolver a variante e antes de compilar (ausente/nula → MISSING_VARIABLE com só o nome; string vazia válida); JMustache sem defaultValue continua como segunda rede
 
 ### Pending Todos
 
@@ -119,6 +122,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-15T23:04:16.425Z
-Stopped at: Completed 02-02-PLAN.md
+Last session: 2026-10-15T23:11:22.765Z
+Stopped at: Completed 02-03-PLAN.md
 Resume file: None

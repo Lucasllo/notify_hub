@@ -74,7 +74,7 @@
 
 ### Testes (TST)
 
-- [ ] **TST-01**: Testes unitários do renderizador cobrem renderização, variável ausente, template inexistente e escape por canal
+- [x] **TST-01**: Testes unitários do renderizador cobrem renderização, variável ausente, template inexistente e escape por canal
 - [ ] **TST-02**: Um teste de integração com Testcontainers (RabbitMQ + MongoDB) cobre o fluxo retry → DLQ → reprocessamento → SENT, com TTLs curtos e Awaitility
 - [ ] **TST-03**: Testes de integração cobrem mensagem venenosa (chega à DLQ sem loop), publish não roteável (vira PUBLISH_FAILED) e entrega duplicada concorrente (exatamente um envio)
 - [ ] **TST-04**: Testes de integração rodam via Failsafe (`*IT`), separados dos unitários
@@ -166,7 +166,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | OBS-01 | Phase 2 | Pending |
 | OBS-02 | Phase 4 | Pending |
 | OBS-03 | Phase 4 | Pending |
-| TST-01 | Phase 2 | Pending |
+| TST-01 | Phase 2 | Complete |
 | TST-02 | Phase 3 | Pending |
 | TST-03 | Phase 3 | Pending |
 | TST-04 | Phase 3 | Pending |
