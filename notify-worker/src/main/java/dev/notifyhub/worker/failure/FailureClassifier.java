@@ -6,6 +6,8 @@ import com.mongodb.MongoTimeoutException;
 import com.samskivert.mustache.MustacheException;
 import dev.notifyhub.common.domain.AttemptOutcome;
 import dev.notifyhub.common.domain.FailureClass;
+import io.github.resilience4j.bulkhead.BulkheadFullException;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.TransientDataAccessException;
 import org.springframework.stereotype.Component;
@@ -15,6 +17,9 @@ import org.springframework.stereotype.Component;
  * estado. A ordem importa: subclasses antes das superclasses.
  *
  * <ol>
+ *   <li>{@link CallNotPermittedException} (circuit breaker do canal aberto) → TRANSIENT/CIRCUIT_OPEN e
+ *       {@link BulkheadFullException} (bulkhead do canal cheio) → TRANSIENT/BULKHEAD_FULL: a recusa
+ *       consome um nível da escada como qualquer transitória e nunca vira FAILED (D-05);</li>
  *   <li>{@link DeliveryFailureException} (transitória ou permanente) → classe, código e mensagem da
  *       própria exceção;</li>
  *   <li>{@link MustacheException.Context} (variável ausente ou nula) → PERMANENT/MISSING_VARIABLE;</li>
@@ -36,6 +41,12 @@ public class FailureClassifier {
     static final int MAX_MESSAGE = 300;
 
     public Classification classify(RuntimeException e) {
+        if (e instanceof CallNotPermittedException) {
+            return classification(FailureClass.TRANSIENT, ErrorCode.CIRCUIT_OPEN, "circuit breaker aberto no canal");
+        }
+        if (e instanceof BulkheadFullException) {
+            return classification(FailureClass.TRANSIENT, ErrorCode.BULKHEAD_FULL, "bulkhead cheio no canal");
+        }
         if (e instanceof DeliveryFailureException failure) {
             return classification(failure.failureClass(), failure.errorCode(), failure.getMessage());
         }

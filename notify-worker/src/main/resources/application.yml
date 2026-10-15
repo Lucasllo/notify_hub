@@ -80,3 +80,49 @@ notify:
       latency-min: 50ms
       latency-max: 200ms
       failure-rate: 0.0
+
+# Circuit breaker e bulkhead por canal (RES-01, RES-02), usados pelo ChannelGateway na ordem
+# bulkhead → circuit breaker → adapter. Cada canal precisa da sua instância: o worker não sobe sem ela.
+# Os placeholders de ENV deixam o profile de benchmark da Fase 4 afrouxar o bulkhead e neutralizar o CB
+# sem mudar código (D-08); por canal, sobrescreva em instances.<canal>.
+# Nenhum register-health-indicator: o CB aberto não pode derrubar o /actuator/health do worker.
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: ${NOTIFY_CB_WINDOW_SIZE:20}
+        minimum-number-of-calls: ${NOTIFY_CB_MIN_CALLS:10}
+        failure-rate-threshold: ${NOTIFY_CB_FAILURE_RATE:50}
+        # Tempo aberto ≤ 1º nível da escada (D-06), validado ao subir. Metade do nível (5s → 2500ms)
+        # para o lote recusado voltar do delay depois do half-open, não durante
+        wait-duration-in-open-state: ${NOTIFY_CB_OPEN_WAIT:2500ms}
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        # Só falha transitória indica provedor doente; o resto (permanente, desconhecida, recusa de
+        # bulkhead) é ignorado, porque sem ignore uma exceção não registrada contaria como sucesso
+        record-exceptions:
+          - dev.notifyhub.worker.failure.TransientDeliveryException
+        ignore-exception-predicate: dev.notifyhub.worker.resilience.NonTransientFailurePredicate
+    instances:
+      email:
+        base-config: default
+      sms:
+        base-config: default
+      webhook:
+        base-config: default
+  bulkhead:
+    configs:
+      default:
+        # Semáforo (nunca ThreadPoolBulkhead: o trabalho fica na virtual thread do listener).
+        # 8 permissões para 10 consumidores de propósito, para a recusa aparecer sob carga (D-07)
+        max-concurrent-calls: ${NOTIFY_BULKHEAD_MAX_CONCURRENT:8}
+        # Sem espera: o excesso é recusado na hora e vira RETRYING
+        max-wait-duration: 0ms
+    instances:
+      email:
+        base-config: default
+      sms:
+        base-config: default
+      webhook:
+        base-config: default
