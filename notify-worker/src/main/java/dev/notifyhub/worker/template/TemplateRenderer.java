@@ -11,6 +11,7 @@ import dev.notifyhub.common.persistence.RenderedContent;
 import dev.notifyhub.worker.failure.ErrorCode;
 import dev.notifyhub.worker.failure.PermanentDeliveryException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import org.springframework.stereotype.Component;
 
@@ -32,8 +33,13 @@ import org.springframework.stereotype.Component;
  * {@code FAIL_ON_TRAILING_TOKENS}) e precisa ser um objeto JSON. Se não for, a renderização falha com
  * {@link ErrorCode#INVALID_WEBHOOK_PAYLOAD} e nenhum corpo corrompido sai.
  *
- * <p>Nenhum valor substituto é configurado para variável ausente ou nula: o padrão do JMustache
- * lança exceção, e a renderização nunca sai em branco.
+ * <p>Renderização estrita (TPL-02): antes de compilar, cada nome de {@code requiredVariables} precisa
+ * estar presente e não nulo nas variáveis, senão a falha é permanente com
+ * {@link ErrorCode#MISSING_VARIABLE} (a mensagem cita só o nome). Nenhum valor substituto é
+ * configurado no JMustache: variável usada pelo template e fora de {@code requiredVariables} ainda
+ * lança {@code MustacheException.Context}, que o {@code FailureClassifier} trata como
+ * PERMANENT/MISSING_VARIABLE, e erro de sintaxe lança {@code MustacheException} (TEMPLATE_INVALID).
+ * A renderização nunca sai em branco.
  *
  * <p>Só se compilam templates do seed. Texto enviado pelo cliente entra apenas como dado do
  * contexto, nunca como template (T-01-10).
@@ -57,9 +63,12 @@ public class TemplateRenderer {
      * Renderiza a variante do canal.
      *
      * @throws TemplateNotFoundException se o template não tiver variante para o canal
-     * @throws PermanentDeliveryException com {@link ErrorCode#INVALID_WEBHOOK_PAYLOAD} se o corpo do
-     *         webhook não for um objeto JSON válido
-     * @throws com.samskivert.mustache.MustacheException se faltar uma variável no contexto
+     * @throws PermanentDeliveryException com {@link ErrorCode#MISSING_VARIABLE} se faltar (ou for
+     *         nula) uma variável de {@code requiredVariables}, ou com
+     *         {@link ErrorCode#INVALID_WEBHOOK_PAYLOAD} se o corpo do webhook não for um objeto JSON
+     *         válido
+     * @throws com.samskivert.mustache.MustacheException se o template usar uma variável ausente que
+     *         não está em {@code requiredVariables}, ou se não compilar
      */
     public RenderedContent render(TemplateDocument template, Channel channel,
                                   Map<String, Object> variables, String notificationId) {
@@ -67,6 +76,7 @@ public class TemplateRenderer {
         if (variant == null) {
             throw TemplateNotFoundException.missingVariant(template.id(), channel);
         }
+        requireVariables(template.requiredVariables(), variables);
 
         Map<String, Object> context = new HashMap<>(variables == null ? Map.of() : variables);
         context.put(NOTIFICATION_ID_VARIABLE, notificationId);
@@ -79,6 +89,23 @@ public class TemplateRenderer {
             case WEBHOOK -> new RenderedContent(null,
                     requireJsonObject(template.id(), execute(JSON, variant.body(), context)));
         };
+    }
+
+    /**
+     * Cada variável obrigatória precisa estar presente e não nula; string vazia é valor válido. A
+     * mensagem cita só o nome da variável, nunca valores. {@code _notificationId} é injetado pelo
+     * worker e nunca está em {@code requiredVariables}.
+     */
+    private static void requireVariables(List<String> required, Map<String, Object> variables) {
+        if (required == null) {
+            return;
+        }
+        for (String name : required) {
+            if (variables == null || variables.get(name) == null) {
+                throw new PermanentDeliveryException(ErrorCode.MISSING_VARIABLE,
+                        "variável obrigatória ausente: " + name);
+            }
+        }
     }
 
     private static String execute(Mustache.Compiler compiler, String text, Map<String, Object> context) {
