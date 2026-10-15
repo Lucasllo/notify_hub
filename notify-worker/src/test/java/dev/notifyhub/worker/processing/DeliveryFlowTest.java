@@ -27,10 +27,15 @@ import dev.notifyhub.worker.channel.SimulationProperties.ChannelSimulation;
 import dev.notifyhub.worker.failure.FailureClassifier;
 import dev.notifyhub.worker.listener.ChannelListeners;
 import dev.notifyhub.worker.messaging.DeliveryRoutingPublisher;
+import dev.notifyhub.worker.resilience.ChannelGateway;
+import dev.notifyhub.worker.resilience.ResilienceFixtures;
 import dev.notifyhub.worker.template.TemplateCatalog;
 import dev.notifyhub.worker.template.TemplateDocument;
 import dev.notifyhub.worker.template.TemplateRenderer;
 import dev.notifyhub.worker.template.TemplateSeeder;
+import io.github.resilience4j.bulkhead.BulkheadRegistry;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -67,6 +72,8 @@ class DeliveryFlowTest {
     private final MongoTemplate mongo = mock(MongoTemplate.class);
     private final RabbitTemplate rabbit = mock(RabbitTemplate.class);
     private ChannelAdapter emailAdapter;
+    private CircuitBreakerRegistry circuitBreakers;
+    private BulkheadRegistry bulkheads;
     private ChannelListeners listeners;
 
     @BeforeEach
@@ -102,9 +109,14 @@ class DeliveryFlowTest {
                 new SimulatedChannelAdapter(Channel.SMS, instant, ThreadLocalRandom::current),
                 new SimulatedChannelAdapter(Channel.WEBHOOK, instant, ThreadLocalRandom::current));
 
+        // CB e bulkhead reais por canal, com a mesma configuração do application.yml
+        circuitBreakers = ResilienceFixtures.yamlCircuitBreakers();
+        bulkheads = ResilienceFixtures.yamlBulkheads();
+        ChannelGateway gateway = new ChannelGateway(adapters, circuitBreakers, bulkheads, TOPOLOGY);
+
         NotificationStateService state = new NotificationStateService(mongo, Duration.ofMinutes(5));
         DeliveryProcessor processor = new DeliveryProcessor(
-                state, new TemplateCatalog(mongo), new TemplateRenderer(), adapters,
+                state, new TemplateCatalog(mongo), new TemplateRenderer(), gateway,
                 new FailureClassifier(), new DeliveryRoutingPublisher(rabbit, Duration.ofSeconds(2)), TOPOLOGY);
         return new ChannelListeners(processor);
     }
@@ -500,5 +512,46 @@ class DeliveryFlowTest {
 
         MessageProperties props = applied(captureDlqPublish("email.dlq").postProcessor());
         assertThat((Object) props.getHeader("x-failure-class")).isEqualTo("TRANSIENT");
+    }
+
+    // ------------------------------------------------------------ circuit breaker e bulkhead (RES-01, D-05)
+
+    @Test
+    void openCircuitBreakerTurnsTheDeliveryIntoACircuitOpenRetryWithoutCallingTheAdapter() {
+        CircuitBreaker emailBreaker = circuitBreakers.find("email").orElseThrow();
+        emailBreaker.transitionToOpenState();
+
+        assertThatCode(() -> listeners.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), null, null))
+                .doesNotThrowAnyException();
+
+        Document bson = MongoBson.update(captureResult().update());
+        Document set = bson.get("$set", Document.class);
+        assertThat(set.get("status")).isEqualTo("RETRYING");
+        assertThat(set.get("lastError", Document.class).getString("code")).isEqualTo("CIRCUIT_OPEN");
+        Document attempt = (Document) bson.get("$push", Document.class)
+                .get("attempts", Document.class).get("$each", List.class).get(0);
+        assertThat(attempt.get("errorCode")).isEqualTo("CIRCUIT_OPEN");
+        assertThat(attempt.get("failureClass")).isEqualTo("TRANSIENT");
+        assertThat(attempt.get("outcome")).isEqualTo("TRANSIENT_FAILURE");
+        assertThat(((Number) attempt.get("durationMs")).longValue()).isLessThan(50L);
+
+        MessageProperties props = applied(captureRetryPublish("email.retry.5s").postProcessor());
+        assertThat((Object) props.getHeader("notify-retry-count")).isEqualTo(1);
+        verify(emailAdapter, never()).send(anyString(), any(), any());
+        // recusa do CB nunca vira FAILED: nada na DLQ
+        verify(rabbit, never()).convertAndSend(eq("notify.dlx"), anyString(), any(Object.class),
+                any(MessagePostProcessor.class), any(CorrelationData.class));
+    }
+
+    @Test
+    void closedCircuitBreakerLetsTheHappyPathReachSentThroughTheGateway() {
+        listeners.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), null, null);
+
+        Document set = MongoBson.update(captureResult().update()).get("$set", Document.class);
+        assertThat(set.get("status")).isEqualTo("SENT");
+        CircuitBreaker emailBreaker = circuitBreakers.find("email").orElseThrow();
+        assertThat(emailBreaker.getState()).isEqualTo(CircuitBreaker.State.CLOSED);
+        assertThat(emailBreaker.getMetrics().getNumberOfSuccessfulCalls()).isEqualTo(1);
+        assertThat(bulkheads.find("email").orElseThrow().getMetrics().getAvailableConcurrentCalls()).isEqualTo(8);
     }
 }

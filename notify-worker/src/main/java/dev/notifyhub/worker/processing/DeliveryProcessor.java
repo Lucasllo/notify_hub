@@ -12,23 +12,18 @@ import dev.notifyhub.common.persistence.LastError;
 import dev.notifyhub.common.persistence.NotificationDocument;
 import dev.notifyhub.common.persistence.RenderedContent;
 import dev.notifyhub.worker.channel.AttemptContext;
-import dev.notifyhub.worker.channel.ChannelAdapter;
 import dev.notifyhub.worker.failure.ErrorCode;
 import dev.notifyhub.worker.failure.FailureClassifier;
 import dev.notifyhub.worker.failure.FailureClassifier.Classification;
 import dev.notifyhub.worker.messaging.DeliveryRoutingPublisher;
 import dev.notifyhub.worker.messaging.DeliveryRoutingPublisher.PublishOutcome;
 import dev.notifyhub.worker.processing.RetryPolicy.RetryDecision;
+import dev.notifyhub.worker.resilience.ChannelGateway;
 import dev.notifyhub.worker.template.TemplateCatalog;
 import dev.notifyhub.worker.template.TemplateDocument;
 import dev.notifyhub.worker.template.TemplateRenderer;
 import java.time.Instant;
-import java.util.EnumMap;
-import java.util.EnumSet;
-import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
@@ -66,42 +61,27 @@ public class DeliveryProcessor {
     private final NotificationStateService state;
     private final TemplateCatalog catalog;
     private final TemplateRenderer renderer;
-    private final Map<Channel, ChannelAdapter> adapters;
+    private final ChannelGateway gateway;
     private final FailureClassifier classifier;
     private final DeliveryRoutingPublisher publisher;
     private final TopologyProperties topology;
     private final AtomicBoolean firstMessage = new AtomicBoolean(true);
 
     /**
+     * @param gateway  envio pelo canal, já protegido por bulkhead e circuit breaker (RES-01, RES-02)
      * @param topology níveis da escada de delay; os mesmos {@code Duration} que declararam as filas
-     * @throws IllegalStateException se faltar adapter para algum canal ou houver dois para o mesmo
      */
     public DeliveryProcessor(NotificationStateService state, TemplateCatalog catalog,
-                             TemplateRenderer renderer, List<ChannelAdapter> adapters,
+                             TemplateRenderer renderer, ChannelGateway gateway,
                              FailureClassifier classifier, DeliveryRoutingPublisher publisher,
                              TopologyProperties topology) {
         this.state = state;
         this.catalog = catalog;
         this.renderer = renderer;
-        this.adapters = indexByChannel(adapters);
+        this.gateway = gateway;
         this.classifier = classifier;
         this.publisher = publisher;
         this.topology = topology;
-    }
-
-    private static Map<Channel, ChannelAdapter> indexByChannel(List<ChannelAdapter> adapters) {
-        Map<Channel, ChannelAdapter> byChannel = new EnumMap<>(Channel.class);
-        for (ChannelAdapter adapter : adapters) {
-            if (byChannel.putIfAbsent(adapter.channel(), adapter) != null) {
-                throw new IllegalStateException("mais de um adapter para o canal " + adapter.channel());
-            }
-        }
-        Set<Channel> missing = EnumSet.allOf(Channel.class);
-        missing.removeAll(byChannel.keySet());
-        if (!missing.isEmpty()) {
-            throw new IllegalStateException("canais sem adapter: " + missing);
-        }
-        return byChannel;
     }
 
     /**
@@ -142,12 +122,12 @@ public class DeliveryProcessor {
         try {
             TemplateDocument template = catalog.require(doc.templateCode());
             rendered = renderer.render(template, doc.channel(), doc.variables(), id);
-            ChannelAdapter adapter = adapters.get(doc.channel());
 
             startedAt = Instant.now();
             adapterStart = System.nanoTime();
             adapterCalled = true;
-            adapter.send(doc.recipient(), rendered, new AttemptContext(retryCount, attemptNumber));
+            // recusa do CB/bulkhead sai daqui em microssegundos e cai no ramo TRANSIENT (D-05)
+            gateway.send(doc.channel(), doc.recipient(), rendered, new AttemptContext(retryCount, attemptNumber));
             durationMs = elapsedMs(adapterStart);
         } catch (RuntimeException e) {
             // nunca Throwable/Error: um OutOfMemoryError não pode virar FAILED

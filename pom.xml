@@ -36,6 +36,14 @@
                 <artifactId>notify-common</artifactId>
                 <version>${project.version}</version>
             </dependency>
+            <!-- Resilience4j não está no BOM do Boot: uma versão única para todos os módulos -->
+            <dependency>
+                <groupId>io.github.resilience4j</groupId>
+                <artifactId>resilience4j-bom</artifactId>
+                <version>2.4.0</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 </project>

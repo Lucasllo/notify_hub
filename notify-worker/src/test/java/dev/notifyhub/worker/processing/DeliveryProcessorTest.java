@@ -27,15 +27,19 @@ import dev.notifyhub.common.persistence.LastError;
 import dev.notifyhub.common.persistence.NotificationDocument;
 import dev.notifyhub.common.persistence.RenderedContent;
 import dev.notifyhub.worker.channel.AttemptContext;
-import dev.notifyhub.worker.channel.ChannelAdapter;
 import dev.notifyhub.worker.channel.SimulatedDeliveryException;
 import dev.notifyhub.worker.failure.FailureClassifier;
 import dev.notifyhub.worker.messaging.DeliveryRoutingPublisher;
 import dev.notifyhub.worker.messaging.DeliveryRoutingPublisher.PublishOutcome;
+import dev.notifyhub.worker.resilience.ChannelGateway;
 import dev.notifyhub.worker.template.TemplateCatalog;
 import dev.notifyhub.worker.template.TemplateDocument;
 import dev.notifyhub.worker.template.TemplateNotFoundException;
 import dev.notifyhub.worker.template.TemplateRenderer;
+import io.github.resilience4j.bulkhead.Bulkhead;
+import io.github.resilience4j.bulkhead.BulkheadFullException;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -61,20 +65,11 @@ class DeliveryProcessorTest {
     private final NotificationStateService state = mock(NotificationStateService.class);
     private final TemplateCatalog catalog = mock(TemplateCatalog.class);
     private final TemplateRenderer renderer = mock(TemplateRenderer.class);
-    private final ChannelAdapter email = adapter(Channel.EMAIL);
-    private final ChannelAdapter sms = adapter(Channel.SMS);
-    private final ChannelAdapter webhook = adapter(Channel.WEBHOOK);
+    private final ChannelGateway gateway = mock(ChannelGateway.class);
     private final FailureClassifier classifier = new FailureClassifier();
     private final DeliveryRoutingPublisher publisher = mock(DeliveryRoutingPublisher.class);
     private final DeliveryProcessor processor =
-            new DeliveryProcessor(state, catalog, renderer, List.of(email, sms, webhook), classifier, publisher,
-                    TOPOLOGY);
-
-    private static ChannelAdapter adapter(Channel channel) {
-        ChannelAdapter adapter = mock(ChannelAdapter.class);
-        when(adapter.channel()).thenReturn(channel);
-        return adapter;
-    }
+            new DeliveryProcessor(state, catalog, renderer, gateway, classifier, publisher, TOPOLOGY);
 
     private static NotificationMessage emailMessage() {
         return new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW);
@@ -100,7 +95,7 @@ class DeliveryProcessorTest {
         assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 0, false)).doesNotThrowAnyException();
 
         verifyNoInteractions(catalog, renderer);
-        verify(email, never()).send(anyString(), any(), any());
+        verify(gateway, never()).send(any(), anyString(), any(), any());
         verify(state, never()).markSent(anyString(), anyInt(), any(), any());
     }
 
@@ -114,7 +109,7 @@ class DeliveryProcessorTest {
 
         verify(state).claim("n-1", 0, true);
         verify(state, never()).claim("n-1", 0, false);
-        verify(email).send(eq("ana@exemplo.com"), eq(RENDERED), any());
+        verify(gateway).send(eq(Channel.EMAIL), eq("ana@exemplo.com"), eq(RENDERED), any());
         verify(state).markSent(eq("n-1"), eq(0), eq(RENDERED), any());
     }
 
@@ -155,7 +150,7 @@ class DeliveryProcessorTest {
         assertThat(attempt.getValue().durationMs()).isZero();
         assertThat(lastError.getValue().code()).isEqualTo("TEMPLATE_NOT_FOUND");
         verify(publisher).publishToDlq(Channel.EMAIL, emailMessage(), FailureClass.PERMANENT, 0);
-        verify(email, never()).send(anyString(), any(), any());
+        verify(gateway, never()).send(any(), anyString(), any(), any());
         verify(state, never()).markSent(anyString(), anyInt(), any(), any());
     }
 
@@ -163,7 +158,7 @@ class DeliveryProcessorTest {
     void transientAdapterFailureIsMarkedRetryingAndRepublishedWithoutThrowing() {
         claimReturns(claimedEmail(0, 0));
         doThrow(new SimulatedDeliveryException("falha simulada no canal email"))
-                .when(email).send(eq("ana@exemplo.com"), eq(RENDERED), any());
+                .when(gateway).send(eq(Channel.EMAIL), eq("ana@exemplo.com"), eq(RENDERED), any());
         when(state.markRetrying(eq("n-1"), eq(0), any(), any())).thenReturn(true);
         when(publisher.publishToRetry(any(), any(), anyInt(), any())).thenReturn(PublishOutcome.acked());
 
@@ -184,7 +179,7 @@ class DeliveryProcessorTest {
     private void adapterFailsTransiently(int retryCount) {
         claimReturns(claimedEmail(retryCount, retryCount));
         doThrow(new SimulatedDeliveryException("falha simulada no canal email"))
-                .when(email).send(eq("ana@exemplo.com"), eq(RENDERED), any());
+                .when(gateway).send(eq(Channel.EMAIL), eq("ana@exemplo.com"), eq(RENDERED), any());
     }
 
     @Test
@@ -300,7 +295,7 @@ class DeliveryProcessorTest {
     @Test
     void unknownAdapterExceptionIsMarkedFailedUnknownAndCopiedToTheDlq() {
         claimReturns(claimedEmail(0, 0));
-        doThrow(new IllegalStateException("boom")).when(email).send(eq("ana@exemplo.com"), eq(RENDERED), any());
+        doThrow(new IllegalStateException("boom")).when(gateway).send(eq(Channel.EMAIL), eq("ana@exemplo.com"), eq(RENDERED), any());
         when(state.markFailed(eq("n-1"), eq(0), any(), any())).thenReturn(true);
         when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.acked());
 
@@ -343,7 +338,7 @@ class DeliveryProcessorTest {
     @Test
     void errorFromTheAdapterPropagatesWithoutBeingClassified() {
         claimReturns(claimedEmail(0, 0));
-        doThrow(new AssertionError("erro de JVM")).when(email).send(eq("ana@exemplo.com"), eq(RENDERED), any());
+        doThrow(new AssertionError("erro de JVM")).when(gateway).send(eq(Channel.EMAIL), eq("ana@exemplo.com"), eq(RENDERED), any());
 
         assertThatThrownBy(() -> processor.process(Channel.EMAIL, emailMessage(), 0, false))
                 .isInstanceOf(AssertionError.class);
@@ -359,7 +354,7 @@ class DeliveryProcessorTest {
         processor.process(Channel.EMAIL, emailMessage(), 2, false);
 
         verify(renderer).render(TEMPLATE, Channel.EMAIL, VARIABLES, "n-1");
-        verify(email).send("ana@exemplo.com", RENDERED, new AttemptContext(2, 4));
+        verify(gateway).send(Channel.EMAIL, "ana@exemplo.com", RENDERED, new AttemptContext(2, 4));
         ArgumentCaptor<AttemptEntry> attempt = ArgumentCaptor.forClass(AttemptEntry.class);
         verify(state).markSent(eq("n-1"), eq(2), eq(RENDERED), attempt.capture());
         assertThat(attempt.getValue().number()).isEqualTo(4);
@@ -376,27 +371,59 @@ class DeliveryProcessorTest {
 
         processor.process(Channel.EMAIL, emailMessage(), 0, false);
 
-        verify(email).send("ana@exemplo.com", RENDERED, new AttemptContext(0, 1));
+        verify(gateway).send(Channel.EMAIL, "ana@exemplo.com", RENDERED, new AttemptContext(0, 1));
     }
 
     @Test
-    void onlyTheAdapterOfTheDocumentChannelIsCalled() {
+    void onlyTheDocumentChannelIsSentThroughTheGateway() {
         claimReturns(claimedEmail(0, 0));
 
         processor.process(Channel.EMAIL, emailMessage(), 0, false);
 
-        verify(sms, never()).send(anyString(), any(), any());
-        verify(webhook, never()).send(anyString(), any(), any());
+        verify(gateway).send(eq(Channel.EMAIL), anyString(), any(), any());
+        verify(gateway, never()).send(eq(Channel.SMS), anyString(), any(), any());
+        verify(gateway, never()).send(eq(Channel.WEBHOOK), anyString(), any(), any());
+    }
+
+    // ------------------------------------------------------------ recusas de CB e bulkhead (D-05)
+
+    private void gatewayRefusesWith(RuntimeException refusal) {
+        claimReturns(claimedEmail(0, 0));
+        doThrow(refusal).when(gateway).send(eq(Channel.EMAIL), eq("ana@exemplo.com"), eq(RENDERED), any());
+        when(state.markRetrying(eq("n-1"), eq(0), any(), any())).thenReturn(true);
+        when(publisher.publishToRetry(any(), any(), anyInt(), any())).thenReturn(PublishOutcome.acked());
     }
 
     @Test
-    void processorRefusesToStartWithoutAnAdapterPerChannel() {
-        assertThatThrownBy(() -> new DeliveryProcessor(state, catalog, renderer, List.of(email, sms),
-                classifier, publisher, TOPOLOGY))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("WEBHOOK");
-        assertThatThrownBy(() -> new DeliveryProcessor(state, catalog, renderer,
-                List.of(email, sms, webhook, email), classifier, publisher, TOPOLOGY))
-                .isInstanceOf(IllegalStateException.class);
+    void openCircuitBreakerRefusalIsATransientCircuitOpenRetryAndNeverFailed() {
+        gatewayRefusesWith(CallNotPermittedException.createCallNotPermittedException(
+                CircuitBreaker.ofDefaults("email")));
+
+        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 0, false)).doesNotThrowAnyException();
+
+        ArgumentCaptor<AttemptEntry> attempt = ArgumentCaptor.forClass(AttemptEntry.class);
+        ArgumentCaptor<LastError> lastError = ArgumentCaptor.forClass(LastError.class);
+        verify(state).markRetrying(eq("n-1"), eq(0), attempt.capture(), lastError.capture());
+        assertThat(attempt.getValue().errorCode()).isEqualTo("CIRCUIT_OPEN");
+        assertThat(attempt.getValue().failureClass()).isEqualTo(FailureClass.TRANSIENT);
+        assertThat(attempt.getValue().outcome()).isEqualTo(AttemptOutcome.TRANSIENT_FAILURE);
+        assertThat(lastError.getValue().code()).isEqualTo("CIRCUIT_OPEN");
+        verify(publisher).publishToRetry(Channel.EMAIL, emailMessage(), 1, Duration.ofSeconds(5));
+        verify(state, never()).markFailed(anyString(), anyInt(), any(), any());
+        verify(publisher, never()).publishToDlq(any(), any(), any(), anyInt());
+    }
+
+    @Test
+    void fullBulkheadRefusalIsATransientBulkheadFullRetryAndNeverFailed() {
+        gatewayRefusesWith(BulkheadFullException.createBulkheadFullException(Bulkhead.ofDefaults("email")));
+
+        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 0, false)).doesNotThrowAnyException();
+
+        ArgumentCaptor<AttemptEntry> attempt = ArgumentCaptor.forClass(AttemptEntry.class);
+        verify(state).markRetrying(eq("n-1"), eq(0), attempt.capture(), any(LastError.class));
+        assertThat(attempt.getValue().errorCode()).isEqualTo("BULKHEAD_FULL");
+        assertThat(attempt.getValue().failureClass()).isEqualTo(FailureClass.TRANSIENT);
+        verify(publisher).publishToRetry(Channel.EMAIL, emailMessage(), 1, Duration.ofSeconds(5));
+        verify(state, never()).markFailed(anyString(), anyInt(), any(), any());
     }
 }
