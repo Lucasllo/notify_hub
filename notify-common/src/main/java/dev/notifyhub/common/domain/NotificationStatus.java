@@ -29,7 +29,8 @@ public enum NotificationStatus {
         table.put(PUBLISH_FAILED, EnumSet.of(PROCESSING, PENDING));
         // PROCESSING -> PROCESSING: reclaim de uma entrega presa (Fase 2)
         table.put(PROCESSING, EnumSet.of(SENT, RETRYING, FAILED, DEAD_LETTERED, PROCESSING));
-        table.put(RETRYING, EnumSet.of(PROCESSING));
+        // DEAD_LETTERED: republicação para o próximo nível falhou (Fase 2, D-11)
+        table.put(RETRYING, EnumSet.of(PROCESSING, DEAD_LETTERED));
         // FAILED/DEAD_LETTERED -> PENDING: reprocessamento (Fase 3)
         table.put(FAILED, EnumSet.of(PENDING));
         table.put(DEAD_LETTERED, EnumSet.of(PENDING));

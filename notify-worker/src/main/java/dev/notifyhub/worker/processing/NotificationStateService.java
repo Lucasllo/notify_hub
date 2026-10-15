@@ -32,9 +32,12 @@ import org.springframework.stereotype.Service;
  *       ({@link NotificationStatus#claimableForDelivery()}) e {@code retryCount ≤ h}. Duas entregas
  *       concorrentes da mesma mensagem produzem no máximo um claim, porque {@code findAndModify}
  *       num único documento é atômico.</li>
- *   <li><b>resultado</b> (SENT ou FAILED): {@code updateFirst} cercado por
- *       {@code status = PROCESSING} e {@code retryCount = h} exatos. Se outro worker reivindicou de
- *       novo no meio (fence perdido), nada é gravado.</li>
+ *   <li><b>resultado</b> (SENT, FAILED, RETRYING ou DEAD_LETTERED): {@code updateFirst} cercado
+ *       por {@code status = PROCESSING} e {@code retryCount = h} exatos. Se outro worker
+ *       reivindicou de novo no meio (fence perdido), nada é gravado. Nenhum resultado grava
+ *       {@code retryCount}.</li>
+ *   <li><b>republicação falha</b>: RETRYING → DEAD_LETTERED cercado por {@code status = RETRYING}
+ *       e {@code retryCount = h}, só com {@code lastError} (D-11, D-17).</li>
  * </ul>
  */
 @Service
@@ -134,19 +137,53 @@ public class NotificationStateService {
         return recordFailure(id, retryCount, NotificationStatus.RETRYING, attempt, lastError);
     }
 
-    /** Esqueleto (RED): ainda não grava nada. */
+    /**
+     * Grava DEAD_LETTERED quando a escada acabou (DLV-05): mesmo molde do {@link #markRetrying}, com a
+     * última tentativa no histórico e {@code lastError} TRANSIENT.
+     *
+     * @return {@code false} se o fence foi perdido; nada é gravado nesse caso
+     */
     public boolean markDeadLettered(String id, int retryCount, AttemptEntry attempt, LastError lastError) {
-        return false;
-    }
-
-    /** Esqueleto (RED): ainda não grava nada. */
-    public boolean markDeadLetteredAfterRepublishFailure(String id, int retryCount, LastError lastError) {
-        return false;
+        return recordFailure(id, retryCount, NotificationStatus.DEAD_LETTERED, attempt, lastError);
     }
 
     /**
-     * Molde dos resultados de falha a partir de PROCESSING (FAILED aqui; RETRYING e DEAD_LETTERED
-     * no 02-02): mesmo fence do {@link #markSent}, {@code $set} de status/lastError/updatedAt,
+     * RETRYING → DEAD_LETTERED quando a republicação para o próximo nível falhou (D-11): fence
+     * {@code status = RETRYING} e {@code retryCount = h} exatos, só {@code $set} de status,
+     * {@code lastError} (REPUBLISH_FAILED) e {@code updatedAt}. Sem {@code $push} nem {@code $inc}:
+     * a tentativa já foi registrada pelo {@link #markRetrying} (D-17).
+     *
+     * @return {@code false} se o fence foi perdido (outro worker reivindicou a reentrega); nada é
+     *         gravado nesse caso
+     * @throws IllegalStateException se a tabela de transições não permitir RETRYING → DEAD_LETTERED
+     */
+    public boolean markDeadLetteredAfterRepublishFailure(String id, int retryCount, LastError lastError) {
+        NotificationStatus from = NotificationStatus.RETRYING;
+        NotificationStatus target = NotificationStatus.DEAD_LETTERED;
+        if (!from.canTransitionTo(target)) {
+            throw new IllegalStateException("transição não permitida: " + from + " -> " + target);
+        }
+        Instant now = Instant.now();
+        Query fence = query(where(Fields.ID).is(id)
+                .and(Fields.STATUS).is(from)
+                .and(Fields.RETRY_COUNT).is(retryCount));
+        Update deadLettered = new Update()
+                .set(Fields.STATUS, target)
+                .set(Fields.LAST_ERROR, lastError)
+                .set(Fields.UPDATED_AT, now);
+
+        UpdateResult result = mongo.updateFirst(fence, deadLettered, NotificationDocument.class);
+        if (result.getModifiedCount() == 0) {
+            log.warn("fence perdido: DEAD_LETTERED após republicação falha não gravado id={} retryCount={}",
+                    id, retryCount);
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Molde dos resultados de falha a partir de PROCESSING (FAILED, RETRYING e DEAD_LETTERED): mesmo
+     * fence do {@link #markSent}, {@code $set} de status/lastError/updatedAt,
      * {@code $unset} do lease, {@code $inc} de attemptCount e {@code $push} limitado da tentativa.
      *
      * @throws IllegalStateException se a tabela de transições não permitir PROCESSING → {@code target}

@@ -2,6 +2,7 @@ package dev.notifyhub.worker.processing;
 
 import dev.notifyhub.common.domain.AttemptOutcome;
 import dev.notifyhub.common.domain.Channel;
+import dev.notifyhub.common.domain.FailureClass;
 import dev.notifyhub.common.domain.RecipientRules;
 import dev.notifyhub.common.messaging.NotificationMessage;
 import dev.notifyhub.common.messaging.TopologyProperties;
@@ -11,6 +12,7 @@ import dev.notifyhub.common.persistence.LastError;
 import dev.notifyhub.common.persistence.NotificationDocument;
 import dev.notifyhub.common.persistence.RenderedContent;
 import dev.notifyhub.worker.channel.ChannelAdapter;
+import dev.notifyhub.worker.failure.ErrorCode;
 import dev.notifyhub.worker.failure.FailureClassifier;
 import dev.notifyhub.worker.failure.FailureClassifier.Classification;
 import dev.notifyhub.worker.messaging.DeliveryRoutingPublisher;
@@ -49,7 +51,8 @@ import org.springframework.stereotype.Service;
  *       não for confirmada, {@link AmqpRejectAndDontRequeueException} estaciona a original na DLQ
  *       pela DLX da fila principal; nunca há requeue;</li>
  *   <li>falha transitória com níveis restantes → RETRYING sem mexer em {@code retryCount} e token
- *       {@code h+1} confirmado na fila de delay do próximo nível ({@link RetryPolicy}, D-11);</li>
+ *       {@code h+1} confirmado na fila de delay do próximo nível ({@link RetryPolicy}, D-11); escada
+ *       esgotada ou republicação falha → DEAD_LETTERED com cópia TRANSIENT na DLQ; nunca FAILED;</li>
  *   <li>falha do Mongo no claim ou no update de resultado não passa pelo classificador: sobe para o
  *       container (reject → DLQ) e o documento continua recuperável.</li>
  * </ul>
@@ -165,22 +168,43 @@ public class DeliveryProcessor {
         LastError lastError = new LastError(c.errorCode().name(), c.message(), c.failureClass(), Instant.now());
 
         switch (c.failureClass()) {
-            case TRANSIENT -> onTransientFailure(e, message, retryCount, attempt, lastError);
+            case TRANSIENT -> onTransientFailure(message, doc, retryCount, attempt, lastError);
             case PERMANENT, UNKNOWN -> onTerminalFailure(message, doc, retryCount, attempt, lastError, c);
         }
     }
 
     /**
-     * Ramo transitório na ordem do D-11: (1) PROCESSING → RETRYING com a tentativa, sem mexer em
-     * {@code retryCount}; (2) publish confirmado do token {@code h+1} na fila de delay do próximo
-     * nível; (3) retorno normal, que confirma a original.
+     * Ramo transitório (D-11, DLV-04, DLV-05). Uma falha transitória nunca vira FAILED: termina em
+     * RETRYING ou em DEAD_LETTERED na DLQ, de onde a Fase 3 reprocessa.
+     *
+     * <ol>
+     *   <li>Com nível restante ({@link RetryPolicy}): PROCESSING → RETRYING com a tentativa, sem mexer
+     *       em {@code retryCount}; publish confirmado do token {@code h+1} na fila de delay do próximo
+     *       nível; retorno normal, que confirma a original.</li>
+     *   <li>Escada esgotada: PROCESSING → DEAD_LETTERED com a tentativa e cópia TRANSIENT na DLQ.</li>
+     *   <li>Republicação negada, devolvida, sem confirm ou com exceção: RETRYING → DEAD_LETTERED com
+     *       {@code lastError} REPUBLISH_FAILED, sem tentativa extra (D-17), e cópia TRANSIENT na DLQ.</li>
+     * </ol>
+     *
+     * <p>Fence perdido em qualquer resultado: nada é publicado e a mensagem é confirmada (outro worker
+     * é dono do documento). Cópia para a DLQ não confirmada: {@link AmqpRejectAndDontRequeueException}
+     * estaciona a original na DLQ pela DLX da fila principal. Nenhum caminho confirma a mensagem com o
+     * documento ainda em PROCESSING.
+     *
+     * <p><b>Pior janela aceita (RESEARCH Armadilha 12, Pergunta em aberto 7):</b> se a republicação
+     * falhar e o canal morrer depois do RETRYING → DEAD_LETTERED, mas antes da cópia ou do reject, a
+     * original volta com {@code redelivered=true}, não casa no claim (DEAD_LETTERED não é
+     * reivindicável) e é confirmada. O documento fica DEAD_LETTERED, visível no GET com
+     * {@code lastError} REPUBLISH_FAILED, mas sem mensagem na DLQ. Exige duas falhas seguidas e não
+     * é silencioso; não é tratado nesta fase.
      */
-    private void onTransientFailure(RuntimeException e, NotificationMessage message, int retryCount,
+    private void onTransientFailure(NotificationMessage message, NotificationDocument doc, int retryCount,
                                     AttemptEntry attempt, LastError lastError) {
         String id = message.notificationId();
         RetryDecision decision = RetryPolicy.decide(retryCount, topology.retryLevels());
         if (decision.exhausted()) {
-            throw e; // DEAD_LETTERED: Tarefa 2
+            onLadderExhausted(message, retryCount, attempt, lastError);
+            return;
         }
         if (!state.markRetrying(id, retryCount, attempt, lastError)) {
             // outro worker é dono do documento: confirma sem publicar
@@ -188,14 +212,47 @@ public class DeliveryProcessor {
                     id, retryCount);
             return;
         }
+        String levelLabel = TtlLabel.of(decision.nextLevel());
         PublishOutcome outcome = publisher.publishToRetry(message.channel(), message,
                 decision.nextRetryCount(), decision.nextLevel());
-        if (!outcome.ok()) {
-            throw new AmqpRejectAndDontRequeueException("republicação para retry não confirmada id=" + id
-                    + " motivo=" + outcome.reason());
+        if (outcome.ok()) {
+            log.info("Notificação RETRYING id={} canal={} nivel={} tentativa={}",
+                    id, doc.channel(), levelLabel, attempt.number());
+            return;
         }
-        log.info("Notificação RETRYING id={} canal={} nivel={} tentativa={}",
-                id, message.channel(), TtlLabel.of(decision.nextLevel()), attempt.number());
+        onRepublishFailure(message, retryCount, levelLabel, outcome);
+    }
+
+    /** Escada esgotada (h ≥ N): DEAD_LETTERED com a última tentativa e cópia TRANSIENT na DLQ. */
+    private void onLadderExhausted(NotificationMessage message, int retryCount, AttemptEntry attempt,
+                                   LastError lastError) {
+        String id = message.notificationId();
+        if (!state.markDeadLettered(id, retryCount, attempt, lastError)) {
+            log.warn("DEAD_LETTERED não gravado (fence perdido), cópia na DLQ não publicada id={} retryCount={}",
+                    id, retryCount);
+            return;
+        }
+        copyToDlqOrReject(message, FailureClass.TRANSIENT, retryCount);
+        log.warn("Notificação DEAD_LETTERED id={} canal={} tentativas={} — cópia na DLQ",
+                id, message.channel(), attempt.number());
+    }
+
+    /** Republicação falha (D-11): RETRYING → DEAD_LETTERED só com o lastError e cópia TRANSIENT na DLQ. */
+    private void onRepublishFailure(NotificationMessage message, int retryCount, String levelLabel,
+                                    PublishOutcome outcome) {
+        String id = message.notificationId();
+        // mensagem curta e sem PII: só o rótulo do nível e o motivo do broker
+        LastError republishError = new LastError(ErrorCode.REPUBLISH_FAILED.name(),
+                "republicação para retry." + levelLabel + " falhou: " + outcome.reason(),
+                FailureClass.TRANSIENT, Instant.now());
+        if (!state.markDeadLetteredAfterRepublishFailure(id, retryCount, republishError)) {
+            log.warn("DEAD_LETTERED após republicação falha não gravado (fence perdido) id={} retryCount={}",
+                    id, retryCount);
+            return;
+        }
+        copyToDlqOrReject(message, FailureClass.TRANSIENT, retryCount);
+        log.warn("Notificação DEAD_LETTERED id={} canal={} — republicação para retry.{} falhou: {}",
+                id, message.channel(), levelLabel, outcome.reason());
     }
 
     /** FAILED atômico e, se o fence foi ganho, cópia confirmada na DLQ (D-10). */
@@ -208,13 +265,21 @@ public class DeliveryProcessor {
                     id, retryCount);
             return;
         }
-        PublishOutcome outcome = publisher.publishToDlq(message.channel(), message, c.failureClass(), retryCount);
-        if (!outcome.ok()) {
-            throw new AmqpRejectAndDontRequeueException("cópia para a DLQ não confirmada id=" + id
-                    + " motivo=" + outcome.reason());
-        }
+        copyToDlqOrReject(message, c.failureClass(), retryCount);
         log.warn("Notificação FAILED id={} canal={} destinatario={} codigo={} — cópia na DLQ",
                 id, doc.channel(), RecipientRules.mask(doc.channel(), doc.recipient()), c.errorCode());
+    }
+
+    /**
+     * Cópia confirmada na DLQ do canal com {@code x-failure-class}; se não for confirmada, reject sem
+     * requeue leva a original para a DLQ pela DLX da fila principal (D-10).
+     */
+    private void copyToDlqOrReject(NotificationMessage message, FailureClass failureClass, int retryCount) {
+        PublishOutcome outcome = publisher.publishToDlq(message.channel(), message, failureClass, retryCount);
+        if (!outcome.ok()) {
+            throw new AmqpRejectAndDontRequeueException("cópia para a DLQ não confirmada id="
+                    + message.notificationId() + " motivo=" + outcome.reason());
+        }
     }
 
     private static long elapsedMs(long startNanos) {
