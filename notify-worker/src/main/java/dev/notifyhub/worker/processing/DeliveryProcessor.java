@@ -11,6 +11,7 @@ import dev.notifyhub.common.persistence.AttemptEntry;
 import dev.notifyhub.common.persistence.LastError;
 import dev.notifyhub.common.persistence.NotificationDocument;
 import dev.notifyhub.common.persistence.RenderedContent;
+import dev.notifyhub.worker.channel.AttemptContext;
 import dev.notifyhub.worker.channel.ChannelAdapter;
 import dev.notifyhub.worker.failure.ErrorCode;
 import dev.notifyhub.worker.failure.FailureClassifier;
@@ -146,7 +147,7 @@ public class DeliveryProcessor {
             startedAt = Instant.now();
             adapterStart = System.nanoTime();
             adapterCalled = true;
-            adapter.send(doc.recipient(), rendered, null);
+            adapter.send(doc.recipient(), rendered, new AttemptContext(retryCount, attemptNumber));
             durationMs = elapsedMs(adapterStart);
         } catch (RuntimeException e) {
             // nunca Throwable/Error: um OutOfMemoryError não pode virar FAILED

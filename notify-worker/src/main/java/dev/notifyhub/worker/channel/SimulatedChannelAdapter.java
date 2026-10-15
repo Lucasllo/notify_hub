@@ -3,8 +3,10 @@ package dev.notifyhub.worker.channel;
 import dev.notifyhub.common.domain.Channel;
 import dev.notifyhub.common.domain.RecipientRules;
 import dev.notifyhub.common.persistence.RenderedContent;
+import dev.notifyhub.worker.channel.MagicRecipients.MagicBehavior;
 import dev.notifyhub.worker.channel.SimulationProperties.ChannelSimulation;
 import java.time.Duration;
+import java.util.Optional;
 import java.util.function.Supplier;
 import java.util.random.RandomGenerator;
 import org.slf4j.Logger;
@@ -55,11 +57,30 @@ public class SimulatedChannelAdapter implements ChannelAdapter {
             Thread.currentThread().interrupt();
             throw new SimulatedDeliveryException("envio interrompido no canal " + channel.id(), e);
         }
-        if (rnd.nextDouble() < simulation.failureRate()) {
+        // depois da latência, como uma falha real do provedor (D-04)
+        Optional<MagicBehavior> magic = MagicRecipients.parse(channel, recipient);
+        if (magic.isPresent()) {
+            applyMagic(magic.get(), context);
+        } else if (rnd.nextDouble() < simulation.failureRate()) {
             throw new SimulatedDeliveryException("falha simulada no canal " + channel.id());
         }
         log.info("Envio simulado canal={} destinatario={} latenciaMs={} thread={}",
                 channel, RecipientRules.mask(channel, recipient), latencyMs, Thread.currentThread());
+    }
+
+    /**
+     * Roteiro determinístico do destinatário mágico: quando reconhecido, o sorteio de
+     * {@code failure-rate} não se aplica. As mensagens não citam o destinatário.
+     */
+    private void applyMagic(MagicBehavior magic, AttemptContext context) {
+        boolean fails = switch (magic.kind()) {
+            case FAIL_N_THEN_OK -> context.retryCount() < magic.failures();
+            default -> false;
+        };
+        if (fails) {
+            throw new SimulatedDeliveryException(
+                    "falha transitória simulada (destinatário mágico) no canal " + channel.id());
+        }
     }
 
     private long drawLatencyMs(RandomGenerator rnd) {
