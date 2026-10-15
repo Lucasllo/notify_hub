@@ -60,6 +60,12 @@ public class DeliveryRoutingPublisher {
         return publish(NotifyTopology.DLX_EXCHANGE, channel.dlqKey(), message, headers);
     }
 
+    /** Esqueleto (RED). */
+    public PublishOutcome publishToRetry(Channel channel, NotificationMessage message, int nextRetryCount,
+                                         Duration level) {
+        throw new UnsupportedOperationException("publishToRetry: plano 02-02");
+    }
+
     private PublishOutcome publish(String exchange, String routingKey, NotificationMessage message,
                                    Map<String, Object> headers) {
         CorrelationData cd = new CorrelationData(); // UUID: nunca o notificationId

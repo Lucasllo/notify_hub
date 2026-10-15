@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -17,6 +18,7 @@ import com.mongodb.client.result.UpdateResult;
 import dev.notifyhub.common.domain.Channel;
 import dev.notifyhub.common.domain.NotificationStatus;
 import dev.notifyhub.common.messaging.NotificationMessage;
+import dev.notifyhub.common.messaging.TopologyProperties;
 import dev.notifyhub.common.persistence.NotificationDocument;
 import dev.notifyhub.worker.channel.ChannelAdapter;
 import dev.notifyhub.worker.channel.SimulatedChannelAdapter;
@@ -37,6 +39,7 @@ import org.bson.Document;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessagePostProcessor;
 import org.springframework.amqp.core.MessageProperties;
@@ -50,11 +53,15 @@ import org.springframework.data.mongodb.core.query.UpdateDefinition;
 /**
  * Caminho inteiro do worker sem broker nem banco: listener EMAIL → claim → template do seed →
  * renderização → adapter simulado → resultado numa única atualização com a tentativa registrada.
- * Na falha permanente, o resultado é FAILED e uma cópia confirmada vai para a DLQ do canal.
+ * Na falha permanente, o resultado é FAILED e uma cópia confirmada vai para a DLQ do canal. Na
+ * falha transitória, o resultado é RETRYING e um token confirmado desce para a fila de delay do
+ * próximo nível (D-11).
  */
 class DeliveryFlowTest {
 
     private static final Instant NOW = Instant.parse("2026-10-12T10:00:00Z");
+    private static final TopologyProperties TOPOLOGY = new TopologyProperties(List.of(
+            Duration.ofSeconds(5), Duration.ofSeconds(25), Duration.ofSeconds(125)));
 
     private final MongoTemplate mongo = mock(MongoTemplate.class);
     private final RabbitTemplate rabbit = mock(RabbitTemplate.class);
@@ -81,8 +88,14 @@ class DeliveryFlowTest {
         }).when(rabbit).convertAndSend(anyString(), anyString(), any(Object.class),
                 any(MessagePostProcessor.class), any(CorrelationData.class));
 
+        listeners = listenersWithEmailFailureRate(0.0);
+    }
+
+    /** Worker real com o adapter EMAIL falhando na taxa dada (1.0 = sempre transitória). */
+    private ChannelListeners listenersWithEmailFailureRate(double emailFailureRate) {
         ChannelSimulation instant = new ChannelSimulation(Duration.ZERO, Duration.ZERO, 0.0);
-        emailAdapter = spy(new SimulatedChannelAdapter(Channel.EMAIL, instant, ThreadLocalRandom::current));
+        ChannelSimulation email = new ChannelSimulation(Duration.ZERO, Duration.ZERO, emailFailureRate);
+        emailAdapter = spy(new SimulatedChannelAdapter(Channel.EMAIL, email, ThreadLocalRandom::current));
         List<ChannelAdapter> adapters = List.of(
                 emailAdapter,
                 new SimulatedChannelAdapter(Channel.SMS, instant, ThreadLocalRandom::current),
@@ -91,8 +104,8 @@ class DeliveryFlowTest {
         NotificationStateService state = new NotificationStateService(mongo, Duration.ofMinutes(5));
         DeliveryProcessor processor = new DeliveryProcessor(
                 state, new TemplateCatalog(mongo), new TemplateRenderer(), adapters,
-                new FailureClassifier(), new DeliveryRoutingPublisher(rabbit, Duration.ofSeconds(2)));
-        listeners = new ChannelListeners(processor);
+                new FailureClassifier(), new DeliveryRoutingPublisher(rabbit, Duration.ofSeconds(2)), TOPOLOGY);
+        return new ChannelListeners(processor);
     }
 
     private static NotificationDocument processingDoc(String templateCode, int retryCount) {
@@ -245,6 +258,78 @@ class DeliveryFlowTest {
         assertThat(attempt.get("retryLevel")).isEqualTo(2);
 
         MessageProperties props = applied(captureDlqPublish("email.dlq").postProcessor());
+        assertThat((Object) props.getHeader("notify-retry-count")).isEqualTo(2);
+    }
+
+    // ------------------------------------------------------------ falha transitória (D-11)
+
+    private Published captureRetryPublish(String routingKey) {
+        ArgumentCaptor<Object> body = ArgumentCaptor.forClass(Object.class);
+        ArgumentCaptor<MessagePostProcessor> mpp = ArgumentCaptor.forClass(MessagePostProcessor.class);
+        ArgumentCaptor<CorrelationData> cd = ArgumentCaptor.forClass(CorrelationData.class);
+        verify(rabbit).convertAndSend(eq("notify.retry"), eq(routingKey), body.capture(), mpp.capture(), cd.capture());
+        return new Published(body.getValue(), mpp.getValue(), cd.getValue());
+    }
+
+    @Test
+    void transientFailureAtLevelZeroIsWrittenAsRetryingWithoutTouchingRetryCount() {
+        ChannelListeners failing = listenersWithEmailFailureRate(1.0);
+
+        failing.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), null);
+
+        Result result = captureResult();
+        assertThat(MongoBson.query(result.query())).isEqualTo(new Document("_id", "n-1")
+                .append("status", "PROCESSING")
+                .append("retryCount", 0));
+
+        Document bson = MongoBson.update(result.update());
+        Document set = bson.get("$set", Document.class);
+        assertThat(set.keySet()).containsExactlyInAnyOrder("status", "lastError", "updatedAt");
+        assertThat(set.get("status")).isEqualTo("RETRYING");
+        Document lastError = set.get("lastError", Document.class);
+        assertThat(lastError.getString("code")).isEqualTo("SIMULATED_TRANSIENT");
+        assertThat(lastError.get("failureClass")).isEqualTo("TRANSIENT");
+        assertThat(bson.get("$unset", Document.class).keySet()).containsExactly("leaseUntil");
+        assertThat(bson.get("$inc", Document.class).get("attemptCount")).isEqualTo(1);
+
+        List<?> each = bson.get("$push", Document.class).get("attempts", Document.class).get("$each", List.class);
+        assertThat(each).hasSize(1);
+        Document attempt = (Document) each.get(0);
+        assertThat(attempt.get("outcome")).isEqualTo("TRANSIENT_FAILURE");
+        assertThat(attempt.get("errorCode")).isEqualTo("SIMULATED_TRANSIENT");
+        assertThat(attempt.get("retryLevel")).isEqualTo(0);
+    }
+
+    @Test
+    void transientFailurePublishesAConfirmedTokenToTheFirstDelayLevelAfterTheRetryingUpdate() {
+        ChannelListeners failing = listenersWithEmailFailureRate(1.0);
+        NotificationMessage message = new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW);
+
+        assertThatCode(() -> failing.onEmail(message, null)).doesNotThrowAnyException();
+
+        Published published = captureRetryPublish("email.retry.5s");
+        assertThat(published.body()).isEqualTo(message);
+        MessageProperties props = applied(published.postProcessor());
+        assertThat(props.getMessageId()).isEqualTo("n-1");
+        assertThat((Object) props.getHeader("notify-retry-count")).isEqualTo(1);
+        assertThat(published.correlation().getId()).isNotEqualTo("n-1");
+
+        InOrder order = inOrder(mongo, rabbit);
+        order.verify(mongo).updateFirst(any(Query.class), any(UpdateDefinition.class), eq(NotificationDocument.class));
+        order.verify(rabbit).convertAndSend(eq("notify.retry"), eq("email.retry.5s"), any(Object.class),
+                any(MessagePostProcessor.class), any(CorrelationData.class));
+        verify(rabbit, never()).convertAndSend(eq("notify.dlx"), anyString(), any(Object.class),
+                any(MessagePostProcessor.class), any(CorrelationData.class));
+    }
+
+    @Test
+    void transientFailureAtLevelOneGoesToTheSecondDelayLevel() {
+        claimReturns(processingDoc("welcome", 1));
+        ChannelListeners failing = listenersWithEmailFailureRate(1.0);
+
+        failing.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), "1");
+
+        MessageProperties props = applied(captureRetryPublish("email.retry.25s").postProcessor());
         assertThat((Object) props.getHeader("notify-retry-count")).isEqualTo(2);
     }
 }

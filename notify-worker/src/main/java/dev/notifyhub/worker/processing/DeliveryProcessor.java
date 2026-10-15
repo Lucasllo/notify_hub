@@ -4,6 +4,7 @@ import dev.notifyhub.common.domain.AttemptOutcome;
 import dev.notifyhub.common.domain.Channel;
 import dev.notifyhub.common.domain.RecipientRules;
 import dev.notifyhub.common.messaging.NotificationMessage;
+import dev.notifyhub.common.messaging.TopologyProperties;
 import dev.notifyhub.common.persistence.AttemptEntry;
 import dev.notifyhub.common.persistence.LastError;
 import dev.notifyhub.common.persistence.NotificationDocument;
@@ -62,20 +63,24 @@ public class DeliveryProcessor {
     private final Map<Channel, ChannelAdapter> adapters;
     private final FailureClassifier classifier;
     private final DeliveryRoutingPublisher publisher;
+    private final TopologyProperties topology;
     private final AtomicBoolean firstMessage = new AtomicBoolean(true);
 
     /**
+     * @param topology níveis da escada de delay; os mesmos {@code Duration} que declararam as filas
      * @throws IllegalStateException se faltar adapter para algum canal ou houver dois para o mesmo
      */
     public DeliveryProcessor(NotificationStateService state, TemplateCatalog catalog,
                              TemplateRenderer renderer, List<ChannelAdapter> adapters,
-                             FailureClassifier classifier, DeliveryRoutingPublisher publisher) {
+                             FailureClassifier classifier, DeliveryRoutingPublisher publisher,
+                             TopologyProperties topology) {
         this.state = state;
         this.catalog = catalog;
         this.renderer = renderer;
         this.adapters = indexByChannel(adapters);
         this.classifier = classifier;
         this.publisher = publisher;
+        this.topology = topology;
     }
 
     private static Map<Channel, ChannelAdapter> indexByChannel(List<ChannelAdapter> adapters) {

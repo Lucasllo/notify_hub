@@ -119,6 +119,11 @@ public class NotificationStateService {
         return recordFailure(id, retryCount, NotificationStatus.FAILED, attempt, lastError);
     }
 
+    /** Esqueleto (RED). */
+    public boolean markRetrying(String id, int retryCount, AttemptEntry attempt, LastError lastError) {
+        throw new UnsupportedOperationException("markRetrying: plano 02-02");
+    }
+
     /**
      * Molde dos resultados de falha a partir de PROCESSING (FAILED aqui; RETRYING e DEAD_LETTERED
      * no 02-02): mesmo fence do {@link #markSent}, {@code $set} de status/lastError/updatedAt,

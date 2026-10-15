@@ -20,6 +20,7 @@ import dev.notifyhub.common.domain.Channel;
 import dev.notifyhub.common.domain.FailureClass;
 import dev.notifyhub.common.domain.NotificationStatus;
 import dev.notifyhub.common.messaging.NotificationMessage;
+import dev.notifyhub.common.messaging.TopologyProperties;
 import dev.notifyhub.common.persistence.AttemptEntry;
 import dev.notifyhub.common.persistence.LastError;
 import dev.notifyhub.common.persistence.NotificationDocument;
@@ -33,6 +34,7 @@ import dev.notifyhub.worker.template.TemplateCatalog;
 import dev.notifyhub.worker.template.TemplateDocument;
 import dev.notifyhub.worker.template.TemplateNotFoundException;
 import dev.notifyhub.worker.template.TemplateRenderer;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -51,6 +53,8 @@ class DeliveryProcessorTest {
     private static final Map<String, Object> VARIABLES = Map.of("name", "Ana");
     private static final TemplateDocument TEMPLATE = new TemplateDocument("welcome", 1, List.of("name"), Map.of());
     private static final RenderedContent RENDERED = new RenderedContent("Olá, Ana", "<p>Olá, Ana</p>");
+    private static final TopologyProperties TOPOLOGY = new TopologyProperties(List.of(
+            Duration.ofSeconds(5), Duration.ofSeconds(25), Duration.ofSeconds(125)));
 
     private final NotificationStateService state = mock(NotificationStateService.class);
     private final TemplateCatalog catalog = mock(TemplateCatalog.class);
@@ -61,7 +65,8 @@ class DeliveryProcessorTest {
     private final FailureClassifier classifier = new FailureClassifier();
     private final DeliveryRoutingPublisher publisher = mock(DeliveryRoutingPublisher.class);
     private final DeliveryProcessor processor =
-            new DeliveryProcessor(state, catalog, renderer, List.of(email, sms, webhook), classifier, publisher);
+            new DeliveryProcessor(state, catalog, renderer, List.of(email, sms, webhook), classifier, publisher,
+                    TOPOLOGY);
 
     private static ChannelAdapter adapter(Channel channel) {
         ChannelAdapter adapter = mock(ChannelAdapter.class);
@@ -129,17 +134,25 @@ class DeliveryProcessorTest {
     }
 
     @Test
-    void transientAdapterFailureStillPropagatesAndNothingIsWritten() {
+    void transientAdapterFailureIsMarkedRetryingAndRepublishedWithoutThrowing() {
         claimReturns(claimedEmail(0, 0));
         doThrow(new SimulatedDeliveryException("falha simulada no canal email"))
                 .when(email).send("ana@exemplo.com", RENDERED);
+        when(state.markRetrying(eq("n-1"), eq(0), any(), any())).thenReturn(true);
+        when(publisher.publishToRetry(any(), any(), anyInt(), any())).thenReturn(PublishOutcome.acked());
 
-        assertThatThrownBy(() -> processor.process(Channel.EMAIL, emailMessage(), 0))
-                .isInstanceOf(SimulatedDeliveryException.class);
+        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 0)).doesNotThrowAnyException();
 
+        ArgumentCaptor<AttemptEntry> attempt = ArgumentCaptor.forClass(AttemptEntry.class);
+        ArgumentCaptor<LastError> lastError = ArgumentCaptor.forClass(LastError.class);
+        verify(state).markRetrying(eq("n-1"), eq(0), attempt.capture(), lastError.capture());
+        assertThat(attempt.getValue().outcome()).isEqualTo(AttemptOutcome.TRANSIENT_FAILURE);
+        assertThat(attempt.getValue().failureClass()).isEqualTo(FailureClass.TRANSIENT);
+        assertThat(lastError.getValue().code()).isEqualTo("SIMULATED_TRANSIENT");
+        verify(publisher).publishToRetry(Channel.EMAIL, emailMessage(), 1, Duration.ofSeconds(5));
         verify(state, never()).markSent(anyString(), anyInt(), any(), any());
         verify(state, never()).markFailed(anyString(), anyInt(), any(), any());
-        verifyNoInteractions(publisher);
+        verify(publisher, never()).publishToDlq(any(), any(), any(), anyInt());
     }
 
     @Test
@@ -228,11 +241,11 @@ class DeliveryProcessorTest {
     @Test
     void processorRefusesToStartWithoutAnAdapterPerChannel() {
         assertThatThrownBy(() -> new DeliveryProcessor(state, catalog, renderer, List.of(email, sms),
-                classifier, publisher))
+                classifier, publisher, TOPOLOGY))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("WEBHOOK");
         assertThatThrownBy(() -> new DeliveryProcessor(state, catalog, renderer,
-                List.of(email, sms, webhook, email), classifier, publisher))
+                List.of(email, sms, webhook, email), classifier, publisher, TOPOLOGY))
                 .isInstanceOf(IllegalStateException.class);
     }
 }
