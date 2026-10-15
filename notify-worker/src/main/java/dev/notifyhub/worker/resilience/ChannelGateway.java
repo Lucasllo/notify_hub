@@ -7,8 +7,11 @@ import dev.notifyhub.common.persistence.RenderedContent;
 import dev.notifyhub.worker.channel.AttemptContext;
 import dev.notifyhub.worker.channel.ChannelAdapter;
 import dev.notifyhub.worker.metrics.DeliveryMetrics;
+import dev.notifyhub.worker.metrics.DeliveryMetrics.RejectionReason;
 import io.github.resilience4j.bulkhead.Bulkhead;
+import io.github.resilience4j.bulkhead.BulkheadFullException;
 import io.github.resilience4j.bulkhead.BulkheadRegistry;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import java.time.Duration;
@@ -45,14 +48,22 @@ import org.springframework.stereotype.Component;
  * (9 de 10: ~17%), e raramente uma notificação chega a DEAD_LETTERED só por bulkhead. Se o k6 da
  * Fase 4 mostrar DEAD_LETTERED demais, o ajuste é subir para 9 permissões, nunca mudar a regra
  * (requeue ou espera fora do bulkhead).
+ *
+ * <p><b>Métricas (D-15):</b> o timer {@code notify.delivery.duration} fica <b>dentro</b> do CB e do
+ * bulkhead, em volta só da chamada ao adapter, para recusas de ~0ms não puxarem o p95 para baixo
+ * (RESEARCH Anti-padrões). Cada recusa incrementa {@code notify.delivery.rejections} com
+ * {@code reason=circuit_open|bulkhead_full}; o Resilience4j não publica contador de recusas do
+ * bulkhead.
  */
 @Component
 public class ChannelGateway {
 
     private final Map<Channel, Route> routes;
+    private final DeliveryMetrics metrics;
 
     /**
      * @param topology níveis da escada; o 1º limita o tempo aberto de cada CB
+     * @param metrics  timer da chamada ao adapter e contador de recusas (D-15)
      * @throws IllegalStateException se faltar adapter, circuit breaker ou bulkhead para algum canal,
      *                               houver dois adapters para o mesmo canal ou o tempo aberto de algum
      *                               CB for maior que o 1º nível de retry
@@ -74,6 +85,7 @@ public class ChannelGateway {
             resolved.put(channel, new Route(byChannel.get(channel), circuitBreaker, bulkhead));
         }
         this.routes = resolved;
+        this.metrics = metrics;
     }
 
     private static void requireOpenWaitWithinFirstLevel(Channel channel, CircuitBreaker circuitBreaker,
@@ -113,9 +125,19 @@ public class ChannelGateway {
      */
     public void send(Channel channel, String recipient, RenderedContent content, AttemptContext context) {
         Route route = routes.get(channel);
-        Runnable call = () -> route.adapter().send(recipient, content, context);
-        Bulkhead.decorateRunnable(route.bulkhead(),
-                CircuitBreaker.decorateRunnable(route.circuitBreaker(), call)).run();
+        // timer por dentro dos dois decorators: mede só o adapter, nunca uma recusa
+        Runnable call = () -> metrics.recordAdapterCall(channel,
+                () -> route.adapter().send(recipient, content, context));
+        try {
+            Bulkhead.decorateRunnable(route.bulkhead(),
+                    CircuitBreaker.decorateRunnable(route.circuitBreaker(), call)).run();
+        } catch (CallNotPermittedException e) {
+            metrics.rejected(channel, RejectionReason.CIRCUIT_OPEN);
+            throw e;
+        } catch (BulkheadFullException e) {
+            metrics.rejected(channel, RejectionReason.BULKHEAD_FULL);
+            throw e;
+        }
     }
 
     private record Route(ChannelAdapter adapter, CircuitBreaker circuitBreaker, Bulkhead bulkhead) {

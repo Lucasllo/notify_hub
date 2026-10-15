@@ -53,6 +53,10 @@ import org.springframework.stereotype.Service;
  *   <li>falha do Mongo no claim ou no update de resultado não passa pelo classificador: sobe para o
  *       container (reject → DLQ) e o documento continua recuperável.</li>
  * </ul>
+ *
+ * <p>Métricas (D-15): cada resultado incrementa seu contador em {@link DeliveryMetrics} só quando é
+ * real — depois de o update condicional ganhar o fence e, no retry, depois do confirm da fila de
+ * delay. Fence perdido não conta nada.
  */
 @Service
 public class DeliveryProcessor {
@@ -208,6 +212,8 @@ public class DeliveryProcessor {
         PublishOutcome outcome = publisher.publishToRetry(message.channel(), message,
                 decision.nextRetryCount(), decision.nextLevel());
         if (outcome.ok()) {
+            // só depois do confirm: um retry sem token na fila de delay não conta
+            metrics.retrying(message.channel(), decision.nextRetryCount());
             log.info("Notificação RETRYING id={} canal={} nivel={} tentativa={}",
                     id, doc.channel(), levelLabel, attempt.number());
             return;
@@ -224,6 +230,7 @@ public class DeliveryProcessor {
                     id, retryCount);
             return;
         }
+        metrics.deadLettered(message.channel());
         copyToDlqOrReject(message, FailureClass.TRANSIENT, retryCount);
         log.warn("Notificação DEAD_LETTERED id={} canal={} tentativas={} — cópia na DLQ",
                 id, message.channel(), attempt.number());
@@ -242,6 +249,7 @@ public class DeliveryProcessor {
                     id, retryCount);
             return;
         }
+        metrics.deadLettered(message.channel());
         copyToDlqOrReject(message, FailureClass.TRANSIENT, retryCount);
         log.warn("Notificação DEAD_LETTERED id={} canal={} — republicação para retry.{} falhou: {}",
                 id, message.channel(), levelLabel, outcome.reason());
@@ -257,6 +265,8 @@ public class DeliveryProcessor {
                     id, retryCount);
             return;
         }
+        // conta já aqui: se a cópia não for confirmada, o reject leva a original à DLQ do mesmo jeito
+        metrics.failed(message.channel(), c.failureClass());
         copyToDlqOrReject(message, c.failureClass(), retryCount);
         log.warn("Notificação FAILED id={} canal={} destinatario={} codigo={} — cópia na DLQ",
                 id, doc.channel(), RecipientRules.mask(doc.channel(), doc.recipient()), c.errorCode());
