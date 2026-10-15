@@ -32,6 +32,11 @@ public class SimulatedChannelAdapter implements ChannelAdapter {
      */
     public SimulatedChannelAdapter(Channel channel, ChannelSimulation simulation,
                                    Supplier<RandomGenerator> random) {
+        this(channel, simulation, random, true);
+    }
+
+    public SimulatedChannelAdapter(Channel channel, ChannelSimulation simulation,
+                                   Supplier<RandomGenerator> random, boolean magicRecipients) {
         this.channel = channel;
         this.simulation = simulation;
         this.random = random;

@@ -14,7 +14,8 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 public record SimulationProperties(
         @DefaultValue ChannelSimulation email,
         @DefaultValue ChannelSimulation sms,
-        @DefaultValue ChannelSimulation webhook) {
+        @DefaultValue ChannelSimulation webhook,
+        @DefaultValue("true") boolean magicRecipients) {
 
     /** Configuração de simulação do canal informado. */
     public ChannelSimulation forChannel(Channel channel) {

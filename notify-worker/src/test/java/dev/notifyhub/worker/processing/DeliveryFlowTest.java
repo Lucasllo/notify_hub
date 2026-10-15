@@ -460,4 +460,45 @@ class DeliveryFlowTest {
         verify(rabbit, never()).convertAndSend(anyString(), anyString(), any(Object.class),
                 any(MessagePostProcessor.class), any(CorrelationData.class));
     }
+
+    @Test
+    void alwaysPermanentEndsFailedOnTheFirstAttemptWithAPermanentDlqCopy() {
+        claimReturns(processingDoc("welcome", 0, 0, "always-permanent@fail.test"));
+
+        listeners.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), null, null);
+
+        Document bson = MongoBson.update(captureResult().update());
+        Document set = bson.get("$set", Document.class);
+        assertThat(set.get("status")).isEqualTo("FAILED");
+        assertThat(set.get("lastError", Document.class).getString("code")).isEqualTo("SIMULATED_PERMANENT");
+        assertThat(bson.get("$inc", Document.class).get("attemptCount")).isEqualTo(1);
+        List<?> each = bson.get("$push", Document.class).get("attempts", Document.class).get("$each", List.class);
+        assertThat(each).hasSize(1);
+        Document attempt = (Document) each.get(0);
+        assertThat(attempt.get("number")).isEqualTo(1);
+        assertThat(attempt.get("errorCode")).isEqualTo("SIMULATED_PERMANENT");
+        assertThat(attempt.get("failureClass")).isEqualTo("PERMANENT");
+
+        MessageProperties props = applied(captureDlqPublish("email.dlq").postProcessor());
+        assertThat((Object) props.getHeader("x-failure-class")).isEqualTo("PERMANENT");
+        verify(rabbit, never()).convertAndSend(eq("notify.retry"), anyString(), any(Object.class),
+                any(MessagePostProcessor.class), any(CorrelationData.class));
+    }
+
+    @Test
+    void alwaysTransientOnTheLastLevelEndsDeadLetteredWithATransientDlqCopy() {
+        claimReturns(processingDoc("welcome", 3, 3, "always-transient@fail.test"));
+
+        listeners.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), "3", null);
+
+        Document bson = MongoBson.update(captureResult().update());
+        assertThat(bson.get("$set", Document.class).get("status")).isEqualTo("DEAD_LETTERED");
+        Document attempt = (Document) bson.get("$push", Document.class)
+                .get("attempts", Document.class).get("$each", List.class).get(0);
+        assertThat(attempt.get("number")).isEqualTo(4);
+        assertThat(attempt.get("errorCode")).isEqualTo("SIMULATED_TRANSIENT");
+
+        MessageProperties props = applied(captureDlqPublish("email.dlq").postProcessor());
+        assertThat((Object) props.getHeader("x-failure-class")).isEqualTo("TRANSIENT");
+    }
 }

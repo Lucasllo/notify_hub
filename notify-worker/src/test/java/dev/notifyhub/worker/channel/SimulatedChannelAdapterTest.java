@@ -7,6 +7,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import dev.notifyhub.common.domain.Channel;
 import dev.notifyhub.common.persistence.RenderedContent;
 import dev.notifyhub.worker.channel.SimulationProperties.ChannelSimulation;
+import dev.notifyhub.worker.failure.ErrorCode;
+import dev.notifyhub.worker.failure.PermanentDeliveryException;
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
@@ -111,6 +113,81 @@ class SimulatedChannelAdapterTest {
     }
 
     @Test
+    void alwaysTransientFailsEvenWithFailureRateZero() {
+        SimulatedChannelAdapter adapter = adapter(Channel.EMAIL, simulation(0, 0, 0.0));
+
+        for (int h = 0; h <= 3; h++) {
+            AttemptContext context = new AttemptContext(h, h + 1);
+            assertThatThrownBy(() -> adapter.send("always-transient@fail.test", CONTENT, context))
+                    .isInstanceOf(SimulatedDeliveryException.class)
+                    .hasMessageContaining("destinatário mágico")
+                    .hasMessageNotContaining("always-transient");
+        }
+    }
+
+    @Test
+    void alwaysPermanentThrowsAPermanentSimulatedFailure() {
+        SimulatedChannelAdapter adapter = adapter(Channel.EMAIL, simulation(0, 0, 0.0));
+
+        assertThatThrownBy(() -> adapter.send("always-permanent@fail.test", CONTENT, FIRST))
+                .isInstanceOfSatisfying(PermanentDeliveryException.class,
+                        e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.SIMULATED_PERMANENT))
+                .hasMessageContaining("email")
+                .hasMessageNotContaining("always-permanent");
+    }
+
+    @Test
+    void failUntilReprocessFailsUpToTheFourthAttemptWhateverTheLevel() {
+        SimulatedChannelAdapter adapter = adapter(Channel.EMAIL, simulation(0, 0, 0.0));
+
+        assertThatThrownBy(() -> adapter.send("fail-until-reprocess@fail.test", CONTENT, new AttemptContext(3, 4)))
+                .isInstanceOf(SimulatedDeliveryException.class);
+        assertThatThrownBy(() -> adapter.send("fail-until-reprocess@fail.test", CONTENT, new AttemptContext(0, 1)))
+                .isInstanceOf(SimulatedDeliveryException.class);
+    }
+
+    @Test
+    void failUntilReprocessSucceedsOnTheFifthAttemptAfterAReprocessResetTheLevel() {
+        SimulatedChannelAdapter adapter = adapter(Channel.EMAIL, simulation(0, 0, 0.0));
+
+        assertThatCode(() -> adapter.send("fail-until-reprocess@fail.test", CONTENT, new AttemptContext(0, 5)))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void smsAndWebhookMagicRecipientsFollowTheSameScripts() {
+        SimulatedChannelAdapter sms = adapter(Channel.SMS, simulation(0, 0, 0.0));
+        SimulatedChannelAdapter webhook = adapter(Channel.WEBHOOK, simulation(0, 0, 0.0));
+
+        assertThatThrownBy(() -> sms.send("+550000000002", CONTENT, FIRST))
+                .isInstanceOf(PermanentDeliveryException.class);
+        assertThatThrownBy(() -> sms.send("+550000000123", CONTENT, new AttemptContext(1, 2)))
+                .isInstanceOf(SimulatedDeliveryException.class);
+        assertThatCode(() -> sms.send("+550000000123", CONTENT, new AttemptContext(2, 3)))
+                .doesNotThrowAnyException();
+        assertThatThrownBy(() -> webhook.send("https://fail.test/always-transient", CONTENT, FIRST))
+                .isInstanceOf(SimulatedDeliveryException.class);
+        assertThatCode(() -> webhook.send("https://fail.test.evil.com/always-transient", CONTENT, FIRST))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void disabledMagicRecipientsFallBackToTheRandomFailureOnly() {
+        SimulatedChannelAdapter alwaysFails = new SimulatedChannelAdapter(
+                Channel.EMAIL, simulation(0, 0, 1.0), ThreadLocalRandom::current, false);
+        SimulatedChannelAdapter neverFails = new SimulatedChannelAdapter(
+                Channel.EMAIL, simulation(0, 0, 0.0), ThreadLocalRandom::current, false);
+
+        assertThatThrownBy(() -> alwaysFails.send("always-transient@fail.test", CONTENT, FIRST))
+                .isInstanceOf(SimulatedDeliveryException.class)
+                .hasMessage("falha simulada no canal email");
+        assertThatCode(() -> neverFails.send("always-transient@fail.test", CONTENT, FIRST))
+                .doesNotThrowAnyException();
+        assertThatCode(() -> neverFails.send("always-permanent@fail.test", CONTENT, FIRST))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
     void attemptContextRejectsNegativeLevelAndAttemptBelowOne() {
         assertThatThrownBy(() -> new AttemptContext(-1, 1)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new AttemptContext(0, 0)).isInstanceOf(IllegalArgumentException.class);
@@ -154,6 +231,30 @@ class SimulatedChannelAdapterTest {
             assertThat(adapters.get(Channel.SMS).simulation().latencyMin()).isEqualTo(Duration.ofMillis(50));
             assertThat(adapters.get(Channel.EMAIL).simulation().failureRate()).isEqualTo(0.0);
             assertThat(adapters.get(Channel.WEBHOOK).simulation().failureRate()).isEqualTo(0.0);
+        });
+    }
+
+    @Test
+    void magicRecipientsAreEnabledByDefault() {
+        contextRunner.run(context -> {
+            assertThat(context.getBean(SimulationProperties.class).magicRecipients()).isTrue();
+            SimulatedChannelAdapter email = adaptersByChannel(context).get(Channel.EMAIL);
+            assertThatThrownBy(() -> email.send("always-permanent@fail.test", CONTENT, FIRST))
+                    .isInstanceOf(PermanentDeliveryException.class);
+        });
+    }
+
+    @Test
+    void magicRecipientsPropertyTurnsTheFeatureOffForEveryAdapter() {
+        contextRunner.withPropertyValues("notify.simulation.magic-recipients=false").run(context -> {
+            assertThat(context.getBean(SimulationProperties.class).magicRecipients()).isFalse();
+            Map<Channel, SimulatedChannelAdapter> adapters = adaptersByChannel(context);
+            assertThatCode(() -> adapters.get(Channel.EMAIL).send("always-permanent@fail.test", CONTENT, FIRST))
+                    .doesNotThrowAnyException();
+            assertThatCode(() -> adapters.get(Channel.SMS).send("+550000000001", CONTENT, FIRST))
+                    .doesNotThrowAnyException();
+            assertThatCode(() -> adapters.get(Channel.WEBHOOK).send("https://fail.test/always-transient", CONTENT, FIRST))
+                    .doesNotThrowAnyException();
         });
     }
 
