@@ -60,10 +60,20 @@ public class DeliveryRoutingPublisher {
         return publish(NotifyTopology.DLX_EXCHANGE, channel.dlqKey(), message, headers);
     }
 
-    /** Esqueleto (RED). */
+    /**
+     * Publica o token do próximo nível na fila de delay do canal (D-11, passo 2): exchange
+     * {@link NotifyTopology#RETRY_EXCHANGE}, routing key {@link Channel#retryKey(Duration)} e header
+     * {@link NotifyHeaders#RETRY_COUNT} = {@code nextRetryCount}.
+     *
+     * <p>A routing key sai do mesmo {@code Duration} de {@code TopologyProperties.retryLevels()} que
+     * declarou a fila, então o rótulo ({@code 5s}, {@code 200ms}) bate com o nome da fila por
+     * construção; nunca é montada à mão.
+     */
     public PublishOutcome publishToRetry(Channel channel, NotificationMessage message, int nextRetryCount,
                                          Duration level) {
-        throw new UnsupportedOperationException("publishToRetry: plano 02-02");
+        Map<String, Object> headers = new LinkedHashMap<>();
+        headers.put(NotifyHeaders.RETRY_COUNT, nextRetryCount);
+        return publish(NotifyTopology.RETRY_EXCHANGE, channel.retryKey(level), message, headers);
     }
 
     private PublishOutcome publish(String exchange, String routingKey, NotificationMessage message,

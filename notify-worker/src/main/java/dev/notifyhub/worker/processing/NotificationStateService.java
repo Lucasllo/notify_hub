@@ -119,9 +119,19 @@ public class NotificationStateService {
         return recordFailure(id, retryCount, NotificationStatus.FAILED, attempt, lastError);
     }
 
-    /** Esqueleto (RED). */
+    /**
+     * Grava RETRYING numa única atualização atômica (D-11, passo 1): mesmo molde do
+     * {@link #markFailed}, com a tentativa no histórico e o {@code lastError} visível no GET.
+     *
+     * <p>{@code retryCount} <b>não</b> muda aqui: quem grava {@code h+1} é o claim do próximo token.
+     * Se este update gravasse {@code h+1} e o worker caísse antes do publish, a reentrega da original
+     * ({@code h}) seria cercada por {@code retryCount ≤ h} e a notificação ficaria RETRYING sem
+     * mensagem em fila nenhuma (RESEARCH Armadilha 2).
+     *
+     * @return {@code false} se o fence foi perdido; nada é gravado nesse caso
+     */
     public boolean markRetrying(String id, int retryCount, AttemptEntry attempt, LastError lastError) {
-        throw new UnsupportedOperationException("markRetrying: plano 02-02");
+        return recordFailure(id, retryCount, NotificationStatus.RETRYING, attempt, lastError);
     }
 
     /**

@@ -5,6 +5,7 @@ import dev.notifyhub.common.domain.Channel;
 import dev.notifyhub.common.domain.RecipientRules;
 import dev.notifyhub.common.messaging.NotificationMessage;
 import dev.notifyhub.common.messaging.TopologyProperties;
+import dev.notifyhub.common.messaging.TtlLabel;
 import dev.notifyhub.common.persistence.AttemptEntry;
 import dev.notifyhub.common.persistence.LastError;
 import dev.notifyhub.common.persistence.NotificationDocument;
@@ -14,6 +15,7 @@ import dev.notifyhub.worker.failure.FailureClassifier;
 import dev.notifyhub.worker.failure.FailureClassifier.Classification;
 import dev.notifyhub.worker.messaging.DeliveryRoutingPublisher;
 import dev.notifyhub.worker.messaging.DeliveryRoutingPublisher.PublishOutcome;
+import dev.notifyhub.worker.processing.RetryPolicy.RetryDecision;
 import dev.notifyhub.worker.template.TemplateCatalog;
 import dev.notifyhub.worker.template.TemplateDocument;
 import dev.notifyhub.worker.template.TemplateRenderer;
@@ -46,8 +48,8 @@ import org.springframework.stereotype.Service;
  *       {@code x-failure-class}; só então o retorno normal confirma a original (D-10). Se a cópia
  *       não for confirmada, {@link AmqpRejectAndDontRequeueException} estaciona a original na DLQ
  *       pela DLX da fila principal; nunca há requeue;</li>
- *   <li>falha transitória → por enquanto relança a exceção original (reject → DLQ); a escada de
- *       delay é do plano 02-02;</li>
+ *   <li>falha transitória com níveis restantes → RETRYING sem mexer em {@code retryCount} e token
+ *       {@code h+1} confirmado na fila de delay do próximo nível ({@link RetryPolicy}, D-11);</li>
  *   <li>falha do Mongo no claim ou no update de resultado não passa pelo classificador: sobe para o
  *       container (reject → DLQ) e o documento continua recuperável.</li>
  * </ul>
@@ -163,10 +165,37 @@ public class DeliveryProcessor {
         LastError lastError = new LastError(c.errorCode().name(), c.message(), c.failureClass(), Instant.now());
 
         switch (c.failureClass()) {
-            // a escada de delay é do plano 02-02; até lá a transitória rejeita para a DLQ como na Fase 1
-            case TRANSIENT -> throw e;
+            case TRANSIENT -> onTransientFailure(e, message, retryCount, attempt, lastError);
             case PERMANENT, UNKNOWN -> onTerminalFailure(message, doc, retryCount, attempt, lastError, c);
         }
+    }
+
+    /**
+     * Ramo transitório na ordem do D-11: (1) PROCESSING → RETRYING com a tentativa, sem mexer em
+     * {@code retryCount}; (2) publish confirmado do token {@code h+1} na fila de delay do próximo
+     * nível; (3) retorno normal, que confirma a original.
+     */
+    private void onTransientFailure(RuntimeException e, NotificationMessage message, int retryCount,
+                                    AttemptEntry attempt, LastError lastError) {
+        String id = message.notificationId();
+        RetryDecision decision = RetryPolicy.decide(retryCount, topology.retryLevels());
+        if (decision.exhausted()) {
+            throw e; // DEAD_LETTERED: Tarefa 2
+        }
+        if (!state.markRetrying(id, retryCount, attempt, lastError)) {
+            // outro worker é dono do documento: confirma sem publicar
+            log.warn("RETRYING não gravado (fence perdido), retry não publicado id={} retryCount={}",
+                    id, retryCount);
+            return;
+        }
+        PublishOutcome outcome = publisher.publishToRetry(message.channel(), message,
+                decision.nextRetryCount(), decision.nextLevel());
+        if (!outcome.ok()) {
+            throw new AmqpRejectAndDontRequeueException("republicação para retry não confirmada id=" + id
+                    + " motivo=" + outcome.reason());
+        }
+        log.info("Notificação RETRYING id={} canal={} nivel={} tentativa={}",
+                id, message.channel(), TtlLabel.of(decision.nextLevel()), attempt.number());
     }
 
     /** FAILED atômico e, se o fence foi ganho, cópia confirmada na DLQ (D-10). */
