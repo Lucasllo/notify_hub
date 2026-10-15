@@ -10,6 +10,7 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -109,9 +110,13 @@ class DeliveryFlowTest {
     }
 
     private static NotificationDocument processingDoc(String templateCode, int retryCount) {
+        return processingDoc(templateCode, retryCount, 0);
+    }
+
+    private static NotificationDocument processingDoc(String templateCode, int retryCount, int attemptCount) {
         return new NotificationDocument(
                 "n-1", Channel.EMAIL, "ana@exemplo.com", templateCode, Map.of("name", "Ana"),
-                NotificationStatus.PROCESSING, retryCount, 0, null, null, List.of(),
+                NotificationStatus.PROCESSING, retryCount, attemptCount, null, null, List.of(),
                 NOW, NOW, NOW, NOW.plus(Duration.ofMinutes(5)), null);
     }
 
@@ -331,5 +336,58 @@ class DeliveryFlowTest {
 
         MessageProperties props = applied(captureRetryPublish("email.retry.25s").postProcessor());
         assertThat((Object) props.getHeader("notify-retry-count")).isEqualTo(2);
+    }
+
+    // ------------------------------------------------------------ escada esgotada (DLV-05)
+
+    @Test
+    void transientFailureOnTheLastLevelEndsDeadLetteredWithATransientDlqCopy() {
+        claimReturns(processingDoc("welcome", 3, 3));
+        ChannelListeners failing = listenersWithEmailFailureRate(1.0);
+
+        assertThatCode(() -> failing.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), "3"))
+                .doesNotThrowAnyException();
+
+        Result result = captureResult();
+        assertThat(MongoBson.query(result.query())).isEqualTo(new Document("_id", "n-1")
+                .append("status", "PROCESSING")
+                .append("retryCount", 3));
+        Document set = MongoBson.update(result.update()).get("$set", Document.class);
+        assertThat(set.get("status")).isEqualTo("DEAD_LETTERED");
+        assertThat(set.get("lastError", Document.class).get("failureClass")).isEqualTo("TRANSIENT");
+
+        MessageProperties props = applied(captureDlqPublish("email.dlq").postProcessor());
+        assertThat((Object) props.getHeader("x-failure-class")).isEqualTo("TRANSIENT");
+        assertThat((Object) props.getHeader("notify-retry-count")).isEqualTo(3);
+        verify(rabbit, never()).convertAndSend(eq("notify.retry"), anyString(), any(Object.class),
+                any(MessagePostProcessor.class), any(CorrelationData.class));
+    }
+
+    @Test
+    void alwaysTransientWalksTheWholeLadderAndEndsDeadLetteredOnTheFourthAttempt() {
+        ChannelListeners failing = listenersWithEmailFailureRate(1.0);
+        NotificationMessage message = new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW);
+
+        for (int h = 0; h <= 3; h++) {
+            claimReturns(processingDoc("welcome", h, h));
+            failing.onEmail(message, h == 0 ? null : String.valueOf(h));
+        }
+
+        ArgumentCaptor<UpdateDefinition> updates = ArgumentCaptor.forClass(UpdateDefinition.class);
+        verify(mongo, times(4)).updateFirst(any(Query.class), updates.capture(), eq(NotificationDocument.class));
+        List<Document> bson = updates.getAllValues().stream().map(MongoBson::update).toList();
+        assertThat(bson).extracting(b -> b.get("$set", Document.class).get("status"))
+                .containsExactly("RETRYING", "RETRYING", "RETRYING", "DEAD_LETTERED");
+        assertThat(bson).extracting(b -> ((Document) b.get("$push", Document.class).get("attempts", Document.class)
+                        .get("$each", List.class).get(0)).get("number"))
+                .containsExactly(1, 2, 3, 4);
+
+        InOrder order = inOrder(rabbit);
+        for (String key : List.of("email.retry.5s", "email.retry.25s", "email.retry.125s")) {
+            order.verify(rabbit).convertAndSend(eq("notify.retry"), eq(key), any(Object.class),
+                    any(MessagePostProcessor.class), any(CorrelationData.class));
+        }
+        order.verify(rabbit).convertAndSend(eq("notify.dlx"), eq("email.dlq"), any(Object.class),
+                any(MessagePostProcessor.class), any(CorrelationData.class));
     }
 }

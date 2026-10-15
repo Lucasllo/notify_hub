@@ -134,6 +134,16 @@ public class NotificationStateService {
         return recordFailure(id, retryCount, NotificationStatus.RETRYING, attempt, lastError);
     }
 
+    /** Esqueleto (RED): ainda não grava nada. */
+    public boolean markDeadLettered(String id, int retryCount, AttemptEntry attempt, LastError lastError) {
+        return false;
+    }
+
+    /** Esqueleto (RED): ainda não grava nada. */
+    public boolean markDeadLetteredAfterRepublishFailure(String id, int retryCount, LastError lastError) {
+        return false;
+    }
+
     /**
      * Molde dos resultados de falha a partir de PROCESSING (FAILED aqui; RETRYING e DEAD_LETTERED
      * no 02-02): mesmo fence do {@link #markSent}, {@code $set} de status/lastError/updatedAt,

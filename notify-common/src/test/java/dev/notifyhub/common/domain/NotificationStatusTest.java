@@ -56,6 +56,24 @@ class NotificationStatusTest {
     }
 
     @Test
+    void retryingCanBeClaimedOrDeadLetteredWhenTheRepublishFails() {
+        assertThat(RETRYING.canTransitionTo(PROCESSING)).isTrue();
+        assertThat(RETRYING.canTransitionTo(DEAD_LETTERED)).isTrue();
+        assertThat(RETRYING.canTransitionTo(FAILED)).isFalse();
+        assertThat(RETRYING.canTransitionTo(SENT)).isFalse();
+    }
+
+    @Test
+    void sourcesOfDeadLetteredAreProcessingAndRetrying() {
+        assertThat(NotificationStatus.sourcesOf(DEAD_LETTERED)).containsExactlyInAnyOrder(PROCESSING, RETRYING);
+    }
+
+    @Test
+    void sourcesOfFailedAreOnlyProcessing() {
+        assertThat(NotificationStatus.sourcesOf(FAILED)).containsExactly(PROCESSING);
+    }
+
+    @Test
     void claimableForDeliveryExcludesProcessing() {
         assertThat(NotificationStatus.claimableForDelivery())
                 .containsExactlyInAnyOrder(PENDING, RETRYING, PUBLISH_FAILED);

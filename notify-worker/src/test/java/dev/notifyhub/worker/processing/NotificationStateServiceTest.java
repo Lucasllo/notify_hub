@@ -254,4 +254,114 @@ class NotificationStateServiceTest {
         verify(mongo).updateFirst(any(Query.class), any(UpdateDefinition.class), eq(NotificationDocument.class));
         verifyNoMoreInteractions(mongo);
     }
+
+    // ---------------------------------------------------------------- markRetrying / markDeadLettered (D-11)
+
+    private static final AttemptEntry TRANSIENT_ATTEMPT = new AttemptEntry(
+            2, 1, NOW, 35, AttemptOutcome.TRANSIENT_FAILURE, "SIMULATED_TRANSIENT",
+            "falha simulada no canal email", FailureClass.TRANSIENT, "VirtualThread[#42]");
+    private static final LastError TRANSIENT_ERROR = new LastError(
+            "SIMULATED_TRANSIENT", "falha simulada no canal email", FailureClass.TRANSIENT, NOW);
+
+    private void assertTransientResultShape(NotificationStatus target) {
+        Result result = captureResult();
+
+        Document filter = MongoBson.query(result.query());
+        assertThat(filter.keySet()).containsExactly("_id", "status", "retryCount");
+        assertThat(filter).isEqualTo(new Document("_id", "n-1")
+                .append("status", "PROCESSING")
+                .append("retryCount", 1));
+
+        Document raw = result.update().getUpdateObject();
+        assertThat(raw.keySet()).containsExactlyInAnyOrder("$set", "$unset", "$inc", "$push");
+        Document set = raw.get("$set", Document.class);
+        // retryCount nunca é gravado no resultado: quem grava h+1 é o claim do próximo token (Armadilha 2)
+        assertThat(set.keySet()).containsExactlyInAnyOrder("status", "lastError", "updatedAt");
+        assertThat(set.get("status")).isEqualTo(target);
+        assertThat(set.get("lastError")).isEqualTo(TRANSIENT_ERROR);
+        assertThat(raw.get("$unset", Document.class).keySet()).containsExactly("leaseUntil");
+        assertThat(raw.get("$inc", Document.class)).isEqualTo(new Document("attemptCount", 1));
+
+        Document attempts = MongoBson.update(result.update()).get("$push", Document.class)
+                .get("attempts", Document.class);
+        assertThat(attempts.keySet()).containsExactlyInAnyOrder("$each", "$slice");
+        assertThat(attempts.get("$slice")).isEqualTo(-50);
+        List<?> each = attempts.get("$each", List.class);
+        assertThat(each).hasSize(1);
+        Document attempt = (Document) each.get(0);
+        assertThat(attempt.get("outcome")).isEqualTo("TRANSIENT_FAILURE");
+        assertThat(attempt.get("retryLevel")).isEqualTo(1);
+    }
+
+    @Test
+    void markRetryingIsOneFencedUpdateThatNeverWritesRetryCount() {
+        updateFirstModifies(1);
+
+        assertThat(service.markRetrying("n-1", 1, TRANSIENT_ATTEMPT, TRANSIENT_ERROR)).isTrue();
+
+        assertTransientResultShape(NotificationStatus.RETRYING);
+    }
+
+    @Test
+    void markDeadLetteredIsOneFencedUpdateWithTheLastAttempt() {
+        updateFirstModifies(1);
+
+        assertThat(service.markDeadLettered("n-1", 1, TRANSIENT_ATTEMPT, TRANSIENT_ERROR)).isTrue();
+
+        assertTransientResultShape(NotificationStatus.DEAD_LETTERED);
+    }
+
+    @Test
+    void markRetryingAndMarkDeadLetteredWithLostFenceReturnFalse() {
+        updateFirstModifies(0);
+
+        assertThat(service.markRetrying("n-1", 1, TRANSIENT_ATTEMPT, TRANSIENT_ERROR)).isFalse();
+        assertThat(service.markDeadLettered("n-1", 1, TRANSIENT_ATTEMPT, TRANSIENT_ERROR)).isFalse();
+    }
+
+    // ---------------------------------------------------------------- republicação falha (D-11, D-17)
+
+    private static final LastError REPUBLISH_ERROR = new LastError(
+            "REPUBLISH_FAILED", "republicação para retry.25s falhou: devolvida: NO_ROUTE", FailureClass.TRANSIENT, NOW);
+
+    @Test
+    void deadLetteringAfterRepublishFailureIsFencedByRetryingAndTheSameLevel() {
+        updateFirstModifies(1);
+
+        assertThat(service.markDeadLetteredAfterRepublishFailure("n-1", 1, REPUBLISH_ERROR)).isTrue();
+
+        Document filter = MongoBson.query(captureResult().query());
+        assertThat(filter.keySet()).containsExactly("_id", "status", "retryCount");
+        assertThat(filter).isEqualTo(new Document("_id", "n-1")
+                .append("status", "RETRYING")
+                .append("retryCount", 1));
+    }
+
+    @Test
+    void deadLetteringAfterRepublishFailureOnlySetsStatusAndLastErrorWithoutANewAttempt() {
+        updateFirstModifies(1);
+
+        service.markDeadLetteredAfterRepublishFailure("n-1", 1, REPUBLISH_ERROR);
+
+        UpdateDefinition update = captureResult().update();
+        Document raw = update.getUpdateObject();
+        // D-17: a tentativa já foi registrada no RETRYING; sem $push e sem $inc
+        assertThat(raw.keySet()).containsExactly("$set");
+        Document set = raw.get("$set", Document.class);
+        assertThat(set.keySet()).containsExactlyInAnyOrder("status", "lastError", "updatedAt");
+        assertThat(set.get("status")).isEqualTo(NotificationStatus.DEAD_LETTERED);
+
+        Document lastError = MongoBson.update(update).get("$set", Document.class).get("lastError", Document.class);
+        assertThat(lastError.getString("code")).isEqualTo("REPUBLISH_FAILED");
+        assertThat(lastError.get("failureClass")).isEqualTo("TRANSIENT");
+    }
+
+    @Test
+    void deadLetteringAfterRepublishFailureWithLostFenceReturnsFalse() {
+        updateFirstModifies(0);
+
+        assertThat(service.markDeadLetteredAfterRepublishFailure("n-1", 1, REPUBLISH_ERROR)).isFalse();
+        verify(mongo).updateFirst(any(Query.class), any(UpdateDefinition.class), eq(NotificationDocument.class));
+        verifyNoMoreInteractions(mongo);
+    }
 }

@@ -18,6 +18,7 @@ import java.net.ConnectException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -142,6 +143,41 @@ class DeliveryRoutingPublisherTest {
         List<CorrelationData> all = cd.getAllValues();
         assertThat(all.get(0).getId()).isNotEqualTo(all.get(1).getId());
         assertThat(all).extracting(CorrelationData::getId).doesNotContain(SMS_MSG.notificationId());
+    }
+
+    @Test
+    void retryTokenGoesToTheRetryExchangeWithTheLevelKeyAndTheNextRetryCount() {
+        onSend(cd -> cd.getFuture().complete(new CorrelationData.Confirm(true, null)));
+
+        PublishOutcome outcome = publisher.publishToRetry(Channel.SMS, SMS_MSG, 2, Duration.ofSeconds(25));
+
+        assertThat(outcome.ok()).isTrue();
+        ArgumentCaptor<Object> body = ArgumentCaptor.forClass(Object.class);
+        ArgumentCaptor<MessagePostProcessor> mpp = ArgumentCaptor.forClass(MessagePostProcessor.class);
+        ArgumentCaptor<CorrelationData> cd = ArgumentCaptor.forClass(CorrelationData.class);
+        verify(rabbit).convertAndSend(eq("notify.retry"), eq("sms.retry.25s"), body.capture(), mpp.capture(),
+                cd.capture());
+        assertThat(body.getValue()).isEqualTo(SMS_MSG);
+        assertThat(UUID.fromString(cd.getValue().getId())).isNotNull();
+        assertThat(cd.getValue().getId()).isNotEqualTo(SMS_MSG.notificationId());
+
+        MessageProperties props = mpp.getValue()
+                .postProcessMessage(new Message(new byte[0], new MessageProperties()))
+                .getMessageProperties();
+        assertThat(props.getMessageId()).isEqualTo(SMS_MSG.notificationId());
+        assertThat(props.getHeaders()).containsOnlyKeys("notify-retry-count");
+        assertThat((Object) props.getHeader("notify-retry-count")).isEqualTo(2);
+    }
+
+    @Test
+    void retryKeyLabelMatchesTheDeclaredQueueForMillisecondLevels() {
+        onSend(cd -> cd.getFuture().complete(new CorrelationData.Confirm(true, null)));
+
+        publisher.publishToRetry(Channel.WEBHOOK, SMS_MSG, 1, Duration.ofMillis(200));
+
+        verify(rabbit).convertAndSend(eq("notify.retry"), eq(Channel.WEBHOOK.retryKey(Duration.ofMillis(200))),
+                any(Object.class), any(MessagePostProcessor.class), any(CorrelationData.class));
+        assertThat(Channel.WEBHOOK.retryKey(Duration.ofMillis(200))).isEqualTo("webhook.retry.200ms");
     }
 
     @Test

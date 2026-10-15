@@ -155,6 +155,122 @@ class DeliveryProcessorTest {
         verify(publisher, never()).publishToDlq(any(), any(), any(), anyInt());
     }
 
+    private void adapterFailsTransiently(int retryCount) {
+        claimReturns(claimedEmail(retryCount, retryCount));
+        doThrow(new SimulatedDeliveryException("falha simulada no canal email"))
+                .when(email).send("ana@exemplo.com", RENDERED);
+    }
+
+    @Test
+    void exhaustedLadderIsDeadLetteredAndCopiedToTheDlqAsTransient() {
+        adapterFailsTransiently(3);
+        when(state.markDeadLettered(eq("n-1"), eq(3), any(), any())).thenReturn(true);
+        when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.acked());
+
+        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 3)).doesNotThrowAnyException();
+
+        ArgumentCaptor<AttemptEntry> attempt = ArgumentCaptor.forClass(AttemptEntry.class);
+        ArgumentCaptor<LastError> lastError = ArgumentCaptor.forClass(LastError.class);
+        verify(state).markDeadLettered(eq("n-1"), eq(3), attempt.capture(), lastError.capture());
+        assertThat(attempt.getValue().number()).isEqualTo(4);
+        assertThat(attempt.getValue().retryLevel()).isEqualTo(3);
+        assertThat(attempt.getValue().outcome()).isEqualTo(AttemptOutcome.TRANSIENT_FAILURE);
+        assertThat(lastError.getValue().failureClass()).isEqualTo(FailureClass.TRANSIENT);
+        verify(publisher).publishToDlq(Channel.EMAIL, emailMessage(), FailureClass.TRANSIENT, 3);
+        verify(publisher, never()).publishToRetry(any(), any(), anyInt(), any());
+        verify(state, never()).markRetrying(anyString(), anyInt(), any(), any());
+        verify(state, never()).markFailed(anyString(), anyInt(), any(), any());
+    }
+
+    @Test
+    void tamperedLevelAboveTheLadderIsDeadLetteredToo() {
+        adapterFailsTransiently(7);
+        when(state.markDeadLettered(eq("n-1"), eq(7), any(), any())).thenReturn(true);
+        when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.acked());
+
+        processor.process(Channel.EMAIL, emailMessage(), 7);
+
+        verify(publisher).publishToDlq(Channel.EMAIL, emailMessage(), FailureClass.TRANSIENT, 7);
+        verify(publisher, never()).publishToRetry(any(), any(), anyInt(), any());
+    }
+
+    @Test
+    void unconfirmedDlqCopyAfterExhaustionFallsBackToReject() {
+        adapterFailsTransiently(3);
+        when(state.markDeadLettered(eq("n-1"), eq(3), any(), any())).thenReturn(true);
+        when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.timeout());
+
+        assertThatThrownBy(() -> processor.process(Channel.EMAIL, emailMessage(), 3))
+                .isInstanceOf(AmqpRejectAndDontRequeueException.class)
+                .hasMessageContaining("n-1");
+    }
+
+    @Test
+    void lostFenceOnDeadLetteredPublishesNothing() {
+        adapterFailsTransiently(3);
+        when(state.markDeadLettered(eq("n-1"), eq(3), any(), any())).thenReturn(false);
+
+        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 3)).doesNotThrowAnyException();
+
+        verifyNoInteractions(publisher);
+    }
+
+    @Test
+    void lostFenceOnRetryingPublishesNothing() {
+        adapterFailsTransiently(0);
+        when(state.markRetrying(eq("n-1"), eq(0), any(), any())).thenReturn(false);
+
+        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 0)).doesNotThrowAnyException();
+
+        verifyNoInteractions(publisher);
+    }
+
+    @Test
+    void failedRepublishMovesRetryingToDeadLetteredAndCopiesToTheDlq() {
+        adapterFailsTransiently(1);
+        when(state.markRetrying(eq("n-1"), eq(1), any(), any())).thenReturn(true);
+        when(publisher.publishToRetry(any(), any(), anyInt(), any())).thenReturn(PublishOutcome.returned("NO_ROUTE"));
+        when(state.markDeadLetteredAfterRepublishFailure(eq("n-1"), eq(1), any())).thenReturn(true);
+        when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.acked());
+
+        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 1)).doesNotThrowAnyException();
+
+        verify(publisher).publishToRetry(Channel.EMAIL, emailMessage(), 2, Duration.ofSeconds(25));
+        ArgumentCaptor<LastError> lastError = ArgumentCaptor.forClass(LastError.class);
+        verify(state).markDeadLetteredAfterRepublishFailure(eq("n-1"), eq(1), lastError.capture());
+        assertThat(lastError.getValue().code()).isEqualTo("REPUBLISH_FAILED");
+        assertThat(lastError.getValue().message()).contains("republicação para retry.25s falhou");
+        assertThat(lastError.getValue().failureClass()).isEqualTo(FailureClass.TRANSIENT);
+        verify(publisher).publishToDlq(Channel.EMAIL, emailMessage(), FailureClass.TRANSIENT, 1);
+        // transitória nunca vira FAILED
+        verify(state, never()).markFailed(anyString(), anyInt(), any(), any());
+        verify(state, never()).markDeadLettered(anyString(), anyInt(), any(), any());
+    }
+
+    @Test
+    void failedRepublishWithUnconfirmedDlqCopyFallsBackToReject() {
+        adapterFailsTransiently(0);
+        when(state.markRetrying(eq("n-1"), eq(0), any(), any())).thenReturn(true);
+        when(publisher.publishToRetry(any(), any(), anyInt(), any())).thenReturn(PublishOutcome.nacked("x"));
+        when(state.markDeadLetteredAfterRepublishFailure(eq("n-1"), eq(0), any())).thenReturn(true);
+        when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.nacked("y"));
+
+        assertThatThrownBy(() -> processor.process(Channel.EMAIL, emailMessage(), 0))
+                .isInstanceOf(AmqpRejectAndDontRequeueException.class);
+    }
+
+    @Test
+    void failedRepublishWithLostFenceOnRetryingPublishesNothingToTheDlq() {
+        adapterFailsTransiently(0);
+        when(state.markRetrying(eq("n-1"), eq(0), any(), any())).thenReturn(true);
+        when(publisher.publishToRetry(any(), any(), anyInt(), any())).thenReturn(PublishOutcome.timeout());
+        when(state.markDeadLetteredAfterRepublishFailure(eq("n-1"), eq(0), any())).thenReturn(false);
+
+        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 0)).doesNotThrowAnyException();
+
+        verify(publisher, never()).publishToDlq(any(), any(), any(), anyInt());
+    }
+
     @Test
     void unknownAdapterExceptionIsMarkedFailedUnknownAndCopiedToTheDlq() {
         claimReturns(claimedEmail(0, 0));
