@@ -18,6 +18,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.mongodb.core.FindAndModifyOptions;
 import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.stereotype.Service;
@@ -29,7 +30,8 @@ import org.springframework.stereotype.Service;
  *
  * <ul>
  *   <li><b>claim</b>: {@code findAndModify} que só casa se o status for reivindicável
- *       ({@link NotificationStatus#claimableForDelivery()}) e {@code retryCount ≤ h}. Duas entregas
+ *       ({@link NotificationStatus#claimableForDelivery()}, ou PROCESSING preso com
+ *       {@code redelivered} ou lease vencido) e {@code retryCount ≤ h}. Duas entregas
  *       concorrentes da mesma mensagem produzem no máximo um claim, porque {@code findAndModify}
  *       num único documento é atômico.</li>
  *   <li><b>resultado</b> (SENT, FAILED, RETRYING ou DEAD_LETTERED): {@code updateFirst} cercado
@@ -55,18 +57,40 @@ public class NotificationStateService {
     }
 
     /**
-     * Reivindica a notificação para entrega no nível {@code retryCount}: PENDING, RETRYING ou
-     * PUBLISH_FAILED com {@code retryCount ≤ h} → PROCESSING, com {@code claimedAt},
-     * {@code leaseUntil} e {@code updatedAt}.
+     * Reivindica a notificação para entrega no nível {@code retryCount} → PROCESSING, com
+     * {@code claimedAt}, {@code leaseUntil} e {@code updatedAt} (WRK-03, D-09). O filtro tem o fence
+     * {@code retryCount ≤ h}, que vale para os dois ramos, e um {@code $or} derivado da tabela:
+     * <ul>
+     *   <li>{@link NotificationStatus#claimableForDelivery()} (PENDING, RETRYING, PUBLISH_FAILED):
+     *       sem condição;</li>
+     *   <li>{@link NotificationStatus#reclaimableWhenStuck()} (PROCESSING abandonado por um worker
+     *       derrubado): só quando a mensagem chega com {@code redelivered=true} ou, sem o flag,
+     *       quando {@code leaseUntil < agora}. Um lease vigente nunca é tomado de um worker ativo; o
+     *       lease ({@code notify.worker.lease}, 5m) é muito maior que o pior caso de uma tentativa
+     *       (latência + confirms de 5s).</li>
+     * </ul>
      *
+     * <p><b>At-least-once (Pergunta em aberto 6, adiada):</b> o broker também marca
+     * {@code redelivered} quando o canal de um worker <i>vivo</i> cai. Aí dois workers processam o
+     * mesmo nível; o fence {@code status} + {@code retryCount} dos resultados garante que só um
+     * resultado é gravado, mas o envio pode ter acontecido duas vezes. Endurecer o fence com
+     * {@code claimedAt} fica para depois; o trade-off é documentado na Fase 4.
+     *
+     * @param redelivered flag {@code redelivered} da entrega AMQP
      * @return o documento já em PROCESSING, ou vazio se a mensagem for duplicada ou obsoleta (o
-     *         documento não existe, já foi reivindicado/entregue ou está num nível acima)
+     *         documento não existe, já foi reivindicado/entregue, está num nível acima ou está em
+     *         PROCESSING com lease vigente numa primeira entrega)
      */
     public Optional<NotificationDocument> claim(String id, int retryCount, boolean redelivered) {
         Instant now = Instant.now();
+        Criteria fresh = where(Fields.STATUS).in(NotificationStatus.claimableForDelivery());
+        Criteria stuck = where(Fields.STATUS).in(NotificationStatus.reclaimableWhenStuck());
+        if (!redelivered) {
+            stuck = stuck.and(Fields.LEASE_UNTIL).lt(now);
+        }
         Query claimable = query(where(Fields.ID).is(id)
-                .and(Fields.STATUS).in(NotificationStatus.claimableForDelivery())
-                .and(Fields.RETRY_COUNT).lte(retryCount));
+                .and(Fields.RETRY_COUNT).lte(retryCount)
+                .orOperator(fresh, stuck));
         Update toProcessing = new Update()
                 .set(Fields.STATUS, NotificationStatus.PROCESSING)
                 .set(Fields.RETRY_COUNT, retryCount)

@@ -106,6 +106,8 @@ public class DeliveryProcessor {
     /**
      * @param listenerChannel canal da fila que recebeu a mensagem
      * @param retryCount      nível de retry lido do header (0 = fila principal)
+     * @param redelivered     flag {@code redelivered} da entrega AMQP: permite retomar uma
+     *                        notificação presa em PROCESSING por um worker derrubado (D-09)
      */
     public void process(Channel listenerChannel, NotificationMessage message, int retryCount,
                         boolean redelivered) {
@@ -120,10 +122,13 @@ public class DeliveryProcessor {
         }
 
         String id = message.notificationId();
-        Optional<NotificationDocument> claimed = state.claim(id, retryCount, false);
+        Optional<NotificationDocument> claimed = state.claim(id, retryCount, redelivered);
         if (claimed.isEmpty()) {
             log.info("mensagem duplicada/obsoleta descartada id={} retryCount={}", id, retryCount);
             return;
+        }
+        if (redelivered) {
+            log.info("reentrega retomada id={} retryCount={}", id, retryCount);
         }
         NotificationDocument doc = claimed.get();
         int attemptNumber = doc.attemptCount() + 1;

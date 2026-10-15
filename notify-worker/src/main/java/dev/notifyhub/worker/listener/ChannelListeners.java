@@ -25,6 +25,12 @@ import org.springframework.stereotype.Component;
  * valida os dois. Nunca declare esse parâmetro como {@code Object}: o Spring AMQP entrega os
  * "argumentos fornecidos" (a {@code Message} AMQP e o {@code Channel}) a qualquer parâmetro cujo
  * tipo os aceite antes de consultar {@code @Header}, e o listener receberia a mensagem inteira.
+ *
+ * <p>O flag {@code redelivered} da entrega AMQP chega pelo header
+ * {@code AmqpHeaders.REDELIVERED} como {@code Boolean} (nulo = {@code false}) e vai até o claim:
+ * com ele, uma notificação presa em PROCESSING por um worker derrubado antes do ack é retomada na
+ * reentrega; sem ele, só com lease vencido (D-09). Pelo mesmo motivo do header de tentativas, o
+ * tipo é {@code Boolean}, nunca {@code Object}.
  */
 @Component
 public class ChannelListeners {
@@ -41,7 +47,7 @@ public class ChannelListeners {
     public void onEmail(NotificationMessage message,
                         @Header(name = NotifyHeaders.RETRY_COUNT, required = false) String retryCount,
                         @Header(name = AmqpHeaders.REDELIVERED, required = false) Boolean redelivered) {
-        processor.process(Channel.EMAIL, message, RetryHeaders.parse(retryCount), false);
+        processor.process(Channel.EMAIL, message, RetryHeaders.parse(retryCount), Boolean.TRUE.equals(redelivered));
     }
 
     @RabbitListener(id = "listener-sms",
@@ -50,7 +56,7 @@ public class ChannelListeners {
     public void onSms(NotificationMessage message,
                       @Header(name = NotifyHeaders.RETRY_COUNT, required = false) String retryCount,
                       @Header(name = AmqpHeaders.REDELIVERED, required = false) Boolean redelivered) {
-        processor.process(Channel.SMS, message, RetryHeaders.parse(retryCount), false);
+        processor.process(Channel.SMS, message, RetryHeaders.parse(retryCount), Boolean.TRUE.equals(redelivered));
     }
 
     @RabbitListener(id = "listener-webhook",
@@ -59,6 +65,7 @@ public class ChannelListeners {
     public void onWebhook(NotificationMessage message,
                           @Header(name = NotifyHeaders.RETRY_COUNT, required = false) String retryCount,
                           @Header(name = AmqpHeaders.REDELIVERED, required = false) Boolean redelivered) {
-        processor.process(Channel.WEBHOOK, message, RetryHeaders.parse(retryCount), false);
+        processor.process(Channel.WEBHOOK, message, RetryHeaders.parse(retryCount),
+                Boolean.TRUE.equals(redelivered));
     }
 }

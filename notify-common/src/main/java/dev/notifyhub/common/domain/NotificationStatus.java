@@ -54,14 +54,25 @@ public enum NotificationStatus {
         return Collections.unmodifiableSet(sources);
     }
 
-    /** Esqueleto (RED). */
+    /**
+     * Status que o worker só reivindica sob condição (D-09): os de {@code sourcesOf(PROCESSING)} que
+     * são o próprio PROCESSING (transição PROCESSING → PROCESSING da tabela). Uma entrega presa em
+     * PROCESSING por um worker derrubado só é retomada quando a mensagem chega com
+     * {@code redelivered=true} ou quando {@code leaseUntil < agora}. Conjunto imutável.
+     */
     public static Set<NotificationStatus> reclaimableWhenStuck() {
-        return Collections.emptySet();
+        EnumSet<NotificationStatus> stuck = EnumSet.noneOf(NotificationStatus.class);
+        sourcesOf(PROCESSING).stream()
+                .filter(from -> from == PROCESSING)
+                .forEach(stuck::add);
+        return Collections.unmodifiableSet(stuck);
     }
 
     /**
-     * Status a partir dos quais o worker pode reivindicar uma entrega na Fase 1:
-     * {@code sourcesOf(PROCESSING)} sem o próprio PROCESSING (o reclaim fica para a Fase 2).
+     * Status a partir dos quais o worker reivindica uma entrega sem condição:
+     * {@code sourcesOf(PROCESSING)} sem o próprio PROCESSING. O reclaim de PROCESSING é condicional
+     * (redelivered ou lease vencido, D-09) e fica num ramo separado do filtro do claim, derivado de
+     * {@link #reclaimableWhenStuck()}.
      */
     public static Set<NotificationStatus> claimableForDelivery() {
         EnumSet<NotificationStatus> claimable = EnumSet.copyOf(sourcesOf(PROCESSING));
