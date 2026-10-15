@@ -131,6 +131,46 @@ class SeedTemplatesTest {
         }
     }
 
+    /**
+     * Triple mustache ({@code {{{x}}}}) e {@code {{&x}}} pulam o escaper do canal: no WEBHOOK geram
+     * JSON inválido ou injetável e no EMAIL geram HTML sem escape (T-02-15).
+     */
+    @Test
+    void emailAndWebhookSeedVariantsNeverBypassTheEscaper() {
+        for (TemplateDocument template : seeder.loadSeed()) {
+            for (Channel channel : List.of(Channel.EMAIL, Channel.WEBHOOK)) {
+                TemplateVariant variant = template.variants().get(channel);
+                for (String text : java.util.Arrays.asList(variant.subject(), variant.body())) {
+                    if (text == null) {
+                        continue;
+                    }
+                    assertThat(text).as(template.id() + "/" + channel)
+                            .doesNotContain("{{{")
+                            .doesNotContain("{{&");
+                }
+            }
+        }
+    }
+
+    @Test
+    void everySeedWebhookIsAJsonObjectEvenWithQuotesAndBackslashInValues() throws Exception {
+        for (TemplateDocument template : seeder.loadSeed()) {
+            Map<String, Object> variables = new java.util.HashMap<>();
+            template.requiredVariables().forEach(name -> variables.put(name, "a \"" + name + "\" \\ z"));
+
+            RenderedContent webhook = renderer.render(template, Channel.WEBHOOK, variables, "n-\"7\"");
+            JsonNode envelope = json.readTree(webhook.body());
+
+            assertThat(envelope.isObject()).as(template.id()).isTrue();
+            assertThat(envelope.path("notificationId").asText()).as(template.id()).isEqualTo("n-\"7\"");
+            for (String name : template.requiredVariables()) {
+                assertThat(envelope.path("data").path(name).asText())
+                        .as(template.id() + "/" + name)
+                        .isEqualTo("a \"" + name + "\" \\ z");
+            }
+        }
+    }
+
     /** Roda o seed contra um banco vazio e devolve o documento {@code welcome} inserido. */
     private TemplateDocument seededWelcome() {
         when(mongo.findById(any(), eq(TemplateDocument.class))).thenReturn(null);
