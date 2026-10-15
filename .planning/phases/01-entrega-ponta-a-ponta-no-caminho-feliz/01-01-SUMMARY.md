@@ -151,9 +151,9 @@ status: complete
 
 ## Task Commits
 
-1. **Task 1: Esqueleto de build e infra (tracer)** - `6950440` (feat)
-2. **Task 2: Contrato de domínio** - `48cb63e` (test, RED) e `dcf238d` (feat, GREEN)
-3. **Task 3: Contrato de mensagem e RecipientRules** - `7e34214` (test, RED) e `f59a2af` (feat, GREEN)
+1. **Task 1: Esqueleto de build e infra (tracer)** - `e1ca112` (feat)
+2. **Task 2: Contrato de domínio** - `8d77044` (test, RED) e `4a7759e` (feat, GREEN)
+3. **Task 3: Contrato de mensagem e RecipientRules** - `8a9b2cf` (test, RED) e `9d0fd39` (feat, GREEN)
 
 **Plan metadata:** commit do SUMMARY (docs)
 
@@ -201,5 +201,5 @@ None - no external service configuration required (o Docker Desktop precisa esta
 
 ## Self-Check: PASSED
 - Todos os 27 arquivos de key-files.created existem no disco
-- Commits 6950440, 48cb63e, dcf238d, 7e34214 e f59a2af estão no histórico da branch
+- Commits e1ca112, 8d77044, 4a7759e, 8a9b2cf e 9d0fd39 estão no histórico da branch
 - `./mvnw -q install` verde; 45 testes do notify-common passam; `docker compose config --quiet` verde

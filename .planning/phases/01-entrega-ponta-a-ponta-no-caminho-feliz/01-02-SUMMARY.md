@@ -20,7 +20,7 @@ actuals:
   tokens: 10189
   tasks: 2
   commits: 4
-plan_head_before: 5c9697b422bfc27af81aacaabc29aa1cf0f214b4
+plan_head_before: 5cd9fdf0409318a196a0be842fab19084a463b9a
 
 tech-stack:
   added: [spring-web (só escopo de teste no notify-common)]
@@ -137,8 +137,8 @@ status: complete
 
 ## Task Commits
 
-1. **Task 1: Topologia ponta a ponta (tracer)**: `681ffad` (test, RED) e `1b58dae` (feat, GREEN)
-2. **Task 2: Documento notifications, histórico e índices**: `f0d3fd6` (test, RED) e `21c0e72` (feat, GREEN)
+1. **Task 1: Topologia ponta a ponta (tracer)**: `7a878b8` (test, RED) e `7973d52` (feat, GREEN)
+2. **Task 2: Documento notifications, histórico e índices**: `a86963e` (test, RED) e `d2434a0` (feat, GREEN)
 
 **Plan metadata:** commit do SUMMARY (docs)
 
@@ -167,7 +167,7 @@ status: complete
 - **Fix:** Adicionei `org.springframework:spring-web` (versão gerenciada) com `<scope>test</scope>` no `notify-common/pom.xml`. O código de produção continua exigindo o `ObjectMapper` do Boot, como o plano pede.
 - **Files modified:** notify-common/pom.xml
 - **Verification:** os 5 testes do `NotifyCommonConfigurationTest` passaram (hoje são 6)
-- **Committed in:** 1b58dae
+- **Committed in:** 7973d52
 
 ---
 
@@ -194,6 +194,6 @@ None - no external service configuration required.
 
 ## Self-Check: PASSED
 - Os 11 arquivos de key-files.created e o pom modificado existem no disco
-- Os commits 681ffad, 1b58dae, f0d3fd6 e 21c0e72 estão no histórico
+- Os commits 7a878b8, 7973d52, a86963e e d2434a0 estão no histórico
 - `./mvnw -q -pl notify-common install` verde (71 testes, 0 falhas); `./mvnw -q -pl notify-api,notify-worker compile` verde
 - Todos os critérios de aceitação das Tasks 1 e 2 passaram (grep/teste)

@@ -22,7 +22,7 @@ actuals:
   tokens: 14155
   tasks: 3
   commits: 6
-plan_head_before: d1bedcd301c7f047d38bc549a406699321b46d76
+plan_head_before: 16739c2743f772a6bbe63f21fbf2d8fb1bfb073e
 
 tech-stack:
   added: []
@@ -152,9 +152,9 @@ status: complete
 
 ## Task Commits
 
-1. **Task 1: Criar e acompanhar ponta a ponta (tracer)**: `8280754` (test, RED) e `07ee30e` (feat, GREEN)
-2. **Task 2: Publish não confirmado → PUBLISH_FAILED condicional + 503**: `2444e9e` (test, RED) e `54d7f8b` (feat, GREEN)
-3. **Task 3: 400 por campo, 404 e profile demo**: `2f1b754` (test, RED) e `f17a12e` (feat, GREEN)
+1. **Task 1: Criar e acompanhar ponta a ponta (tracer)**: `10f0883` (test, RED) e `bce34f9` (feat, GREEN)
+2. **Task 2: Publish não confirmado → PUBLISH_FAILED condicional + 503**: `1f814a3` (test, RED) e `b382c4c` (feat, GREEN)
+3. **Task 3: 400 por campo, 404 e profile demo**: `bb7cb2b` (test, RED) e `f90737d` (feat, GREEN)
 
 **Plan metadata:** commit do SUMMARY (docs)
 
@@ -188,7 +188,7 @@ status: complete
 - **Fix:** A fábrica virou `acked()` (par de `nacked()`). O `boolean ok()` ficou, porque o ARCHITECTURE.md usa `p.ok()` no worker. O RESEARCH Padrão 4 cita `PublishResult.ok()` como fábrica; quem copiar esse trecho deve usar `acked()`.
 - **Files modified:** notify-api/src/main/java/dev/notifyhub/api/messaging/PublishResult.java, NotificationPublisher.java
 - **Verification:** `NotificationApiFlowTest` verde (3/3 na Task 1); `NotificationPublisherTest` verde na Task 2
-- **Committed in:** 07ee30e
+- **Committed in:** bce34f9
 
 ---
 
@@ -221,6 +221,6 @@ None - no external service configuration required.
 
 ## Self-Check: PASSED
 - Os 20 arquivos de key-files.created existem no disco
-- Os commits 8280754, 07ee30e, 2444e9e, 54d7f8b, 2f1b754 e f17a12e estão no histórico
+- Os commits 10f0883, bce34f9, 1f814a3, b382c4c, bb7cb2b e f90737d estão no histórico
 - `./mvnw -q -pl notify-api test` verde (32 testes, 0 falhas, 0 erros)
 - Todos os critérios de aceitação das Tasks 1, 2 e 3 passaram (grep/teste)

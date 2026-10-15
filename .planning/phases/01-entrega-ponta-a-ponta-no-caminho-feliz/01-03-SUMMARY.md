@@ -21,7 +21,7 @@ actuals:
   tokens: 11994
   tasks: 3
   commits: 6
-plan_head_before: 9392001be0ee1f63233f57930de496998adfdefd
+plan_head_before: 31d6fc6b5b7bc4678c319326450283477ecdfe13
 
 tech-stack:
   added: []
@@ -145,9 +145,9 @@ status: complete
 
 ## Task Commits
 
-1. **Task 1: Template ponta a ponta (tracer)**: `b204798` (test, RED) e `7d3f20f` (feat, GREEN)
-2. **Task 2: Seed completo, seeder por versão e renderizador estrito**: `651f24e` (test, RED) e `d1e8cfe` (feat, GREEN)
-3. **Task 3: Adapters simulados**: `8e38726` (test, RED) e `13cad8e` (feat, GREEN)
+1. **Task 1: Template ponta a ponta (tracer)**: `cc7dda6` (test, RED) e `c8cfb60` (feat, GREEN)
+2. **Task 2: Seed completo, seeder por versão e renderizador estrito**: `30b1d8f` (test, RED) e `f0410df` (feat, GREEN)
+3. **Task 3: Adapters simulados**: `85f6c66` (test, RED) e `58149e1` (feat, GREEN)
 
 **Plan metadata:** commit do SUMMARY (docs)
 
@@ -209,5 +209,5 @@ None - no external service configuration required.
 
 ## Self-Check: PASSED
 - Os 18 arquivos de key-files.created existem no disco
-- Os commits b204798, 7d3f20f, 651f24e, d1e8cfe, 8e38726 e 13cad8e estão no histórico
+- Os commits cc7dda6, c8cfb60, 30b1d8f, f0410df, 85f6c66 e 58149e1 estão no histórico
 - `./mvnw -q -pl notify-worker test` verde (33 testes, 0 falhas); critérios de aceitação das 3 tarefas verdes, exceto o grep literal `'"user.welcome"'` documentado em Deviations

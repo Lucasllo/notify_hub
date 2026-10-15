@@ -19,7 +19,7 @@ actuals:
   tokens: 6008
   tasks: 2
   commits: 2
-plan_head_before: e01f78f6b8172b25390c0691356dff177e9a4dec
+plan_head_before: c1494c66a065a66441427b21530912a984ab4537
 
 tech-stack:
   added: []
@@ -140,8 +140,8 @@ status: complete
 
 ## Task Commits
 
-1. **Task 1: Smoke do caminho feliz (tracer)**: `b64e6d1` (feat)
-2. **Task 2: Smoke dos caminhos de falha e profile demo**: `628bd27` (feat)
+1. **Task 1: Smoke do caminho feliz (tracer)**: `346b008` (feat)
+2. **Task 2: Smoke dos caminhos de falha e profile demo**: `c39bc6e` (feat)
 
 **Plan metadata:** commit do SUMMARY (docs)
 
@@ -186,6 +186,6 @@ None - o Docker Desktop precisa estar ligado para o smoke (passo de `user_setup`
 
 ## Self-Check: PASSED
 - `scripts/smoke-fase1.sh` existe, com modo 100755 no índice do git
-- Os commits b64e6d1 e 628bd27 estão no histórico
+- Os commits 346b008 e c39bc6e estão no histórico
 - `./mvnw -q verify` terminou com exit 0. `bash scripts/smoke-fase1.sh --sem-build` e `--sem-build --perfil-demo` terminaram com `SMOKE FASE 1: OK`, exit 0 e nenhuma linha `FALHOU:`
 - Todos os critérios de aceitação das Tasks 1 e 2 passaram (bash -n, greps, binding `notification.email` presente depois das duas execuções)

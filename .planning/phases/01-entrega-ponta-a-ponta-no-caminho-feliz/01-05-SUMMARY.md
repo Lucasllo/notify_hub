@@ -23,7 +23,7 @@ actuals:
   tokens: 14759
   tasks: 3
   commits: 7
-plan_head_before: 829de6c92d07b1e089c7c74dec3347fa9bb243ba
+plan_head_before: 0271007be2a4bd7e14a4d7e13277433a331b043e
 
 tech-stack:
   added: []
@@ -152,10 +152,10 @@ status: complete
 
 ## Task Commits
 
-1. **Task 1: Entrega EMAIL ponta a ponta (tracer)**: `2b3e085` (test, RED) e `43de441` (feat, GREEN)
-2. **Task 2: Garantias atômicas**: `46ed31b` (test; o comportamento já veio da Task 1, ver TDD abaixo)
-3. **Task 3: Todos os canais, header, configuração e demo**: `16c1cba` (test, RED) e `634da6a` (feat, GREEN)
-4. **Correção encontrada no smoke (Rule 1)**: `01cea46` (test, RED) e `3b62acc` (fix, GREEN)
+1. **Task 1: Entrega EMAIL ponta a ponta (tracer)**: `a3118ff` (test, RED) e `1093050` (feat, GREEN)
+2. **Task 2: Garantias atômicas**: `7d87764` (test; o comportamento já veio da Task 1, ver TDD abaixo)
+3. **Task 3: Todos os canais, header, configuração e demo**: `641c89a` (test, RED) e `4e27e54` (feat, GREEN)
+4. **Correção encontrada no smoke (Rule 1)**: `c07ff9e` (test, RED) e `6767972` (fix, GREEN)
 
 **Plan metadata:** commit do SUMMARY (docs)
 
@@ -185,14 +185,14 @@ status: complete
 - **Fix:** O parâmetro passou a ser `String` nos três listeners, e um Javadoc explica por que ele não pode ser `Object`. O `ChannelListenersTest` acompanhou a assinatura. O novo `ChannelListenersDispatchTest` passa pelo `MessagingMessageListenerAdapter` real com uma mensagem como a da API (header inteiro), uma como a do painel (string), uma sem header e uma com header inválido.
 - **Files modified:** `ChannelListeners.java`, `ChannelListenersTest.java`, `ChannelListenersDispatchTest.java` (novo)
 - **Verification:** o RED reproduziu o erro (3 de 4 testes com a mesma exceção do log). Depois do fix, 79/79 verdes, e no smoke real a mensagem foi entregue até SENT e o header string `" 0 "` foi aceito.
-- **Committed in:** `01cea46` (test) e `3b62acc` (fix)
+- **Committed in:** `c07ff9e` (test) e `6767972` (fix)
 
 **2. [Ajuste de critério] Texto literal exigido pelos greps de aceitação**
 - **Found during:** Task 1
 - **Issue:** `grep -q "slice(-50)"` não casava com `slice(-MAX_ATTEMPTS_KEPT)`. E `! grep "SimpleRabbitListenerContainerFactory"` casava com um comentário Javadoc que explicava por que a classe não é usada.
 - **Fix:** Usei o literal `slice(-50)` e reescrevi o comentário sem o nome da classe. O comportamento não mudou.
 - **Files modified:** `NotificationStateService.java`, `WorkerConfiguration.java`
-- **Committed in:** `43de441`
+- **Committed in:** `1093050`
 
 ---
 
@@ -202,7 +202,7 @@ status: complete
 ### Nota de processo TDD
 - Tasks 1 e 3: o RED foi falha de compilação por falta das classes e métodos (`ChannelListeners`, `onSms`, `onWebhook`), a mesma convenção dos planos 01-01 a 01-03. Os commits `test(01-05)` vêm antes dos `feat(01-05)`.
 - Task 2: os 17 testes passaram já no RED, porque a ação da Task 1 exigia exatamente esse contrato. É um GREEN inesperado, e investiguei: um teste de mutação (`$lte`→`$lt`, fence sem `retryCount`, `attemptCount + 1`→`attemptCount` e checagem de canal desligada) derrubou 4 testes, então eles discriminam. Os arquivos foram restaurados com `git checkout -- <arquivo>`. A Task 2 tem só o commit `test(01-05)`, porque nenhuma mudança de produção foi necessária.
-- Correção do smoke: RED real por asserção e exceção (`01cea46`) antes do `fix` (`3b62acc`).
+- Correção do smoke: RED real por asserção e exceção (`c07ff9e`) antes do `fix` (`6767972`).
 
 ## Issues Encountered
 - A API de gerenciamento demora para atualizar `consumers` em `/api/queues`. A contagem confiável veio de `/api/consumers` (10 por fila, prefetch 10).
@@ -224,5 +224,5 @@ None - no external service configuration required.
 
 ## Self-Check: PASSED
 - Os 16 arquivos de key-files.created existem no disco
-- Os commits 2b3e085, 43de441, 46ed31b, 16c1cba, 634da6a, 01cea46 e 3b62acc estão no histórico
+- Os commits a3118ff, 1093050, 7d87764, 641c89a, 4e27e54, c07ff9e e 6767972 estão no histórico
 - `./mvnw -q -pl notify-worker test` verde (79 testes, 0 falhas). Todos os critérios de aceitação das Tasks 1 a 3 passaram (grep e teste), e os dois greps literais da Task 1 passaram depois do ajuste de texto

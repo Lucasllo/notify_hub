@@ -19,7 +19,7 @@ actuals:
   tokens: 1080
   tasks: 2
   commits: 3
-plan_head_before: c6aeaf471336376599772d12803a75a6a3b5d715
+plan_head_before: f6232ee1366a5a67a3e62f2b972b7b91dfaf68ee
 
 tech-stack:
   added: []
@@ -100,8 +100,8 @@ status: complete
 
 ## Task Commits
 
-1. **Task 1: Tracer, `"channel":1` → 400 sem gravar**: `82f45fb` (test, RED) e `39f513f` (fix, GREEN)
-2. **Task 2: Linha `"2"`, regressão dos nomes e prova no smoke**: `c2e0976` (test)
+1. **Task 1: Tracer, `"channel":1` → 400 sem gravar**: `67021b2` (test, RED) e `a824e80` (fix, GREEN)
+2. **Task 2: Linha `"2"`, regressão dos nomes e prova no smoke**: `dfbeb8f` (test)
 
 **Plan metadata:** commit do SUMMARY (docs)
 
@@ -124,7 +124,7 @@ status: complete
 - **Fix:** Antes do POST o teste chama `brokerAcksEveryPublish()`, o mesmo stub de confirm que `magicRecipientsAreAccepted` já usava, agora extraído para um helper que os dois testes compartilham. O RED passou a ser `java.lang.AssertionError: Status expected:<400> but was:<202>`, só no caso alvo (21 testes, 20 verdes, 1 falha). `gsd-tools check tdd-red-evidence` devolveu `RED_EVIDENCE_OK` (`target_test_failed`), com o relatório do surefire transcrito para TAP. O stub com `doAnswer().when()` não conta como interação, então `verifyNoInteractions(mongoTemplate, rabbitTemplate)` continua valendo no GREEN.
 - **Files modified:** notify-api/src/test/java/dev/notifyhub/api/web/NotificationValidationTest.java
 - **Verification:** RED por asserção (acima); GREEN com 21/21 e depois 22/22 na classe; `magicRecipientsAreAccepted` verde com o helper
-- **Committed in:** 82f45fb (commit RED da Task 1)
+- **Committed in:** 67021b2 (commit RED da Task 1)
 
 ---
 
@@ -132,7 +132,7 @@ status: complete
 **Impact on plan:** Só no desenho do teste. O teste fica mais estrito, porque um broker saudável é o pior caso para a validação, e roda em ~50ms em vez de 5s. Nenhuma mudança de produção além da flag planejada.
 
 Nota de processo TDD:
-- Task 1: o commit `test(01-07)` (82f45fb) vem antes do `fix(01-07)` (39f513f). O plano pede `fix` em vez de `feat` para o GREEN, porque é correção de um gap.
+- Task 1: o commit `test(01-07)` (67021b2) vem antes do `fix(01-07)` (a824e80). O plano pede `fix` em vez de `feat` para o GREEN, porque é correção de um gap.
 - Task 2: a linha `"2"` já nasce verde, como o plano previa. É o segundo caminho do desserializador de enum (string numérica), coberto pela mesma flag, e fica como guarda de regressão.
 - Gate do tracer: execução interativa em `end-of-phase` com `<verify>` só automatizado. O verify foi refeito no GREEN (exit 0, caso `[1]` no XML, `failures="0"`) e a expansão seguiu sem checkpoint.
 
@@ -155,7 +155,7 @@ None - no external service configuration required.
 
 ## Self-Check: PASSED
 - Os 3 arquivos de key-files.modified existem e estão nos commits do plano
-- Os commits 82f45fb, 39f513f e c2e0976 estão no histórico (`git rev-list --count c6aeaf4..HEAD` = 3 antes deste commit de docs)
+- Os commits 67021b2, a824e80 e dfbeb8f estão no histórico (`git rev-list --count f6232ee..HEAD` = 3 antes deste commit de docs)
 - Critérios de aceitação da Task 1: a flag está fora de comentário; há 1 bloco `spring:`; o teste e o `verifyNoInteractions` estão presentes; `-Dtest=NotificationValidationTest` sai com exit 0, o caso `[1]` está no XML com `failures="0"`; o `test(01-07)` é mais antigo que o `fix(01-07)`
 - Critérios de aceitação da Task 2: `./mvnw -q -pl notify-api test` sai com exit 0; `[1]` e `[2]` estão no XML; `NotificationApiFlowTest` tem `failures="0"`; `grep -c 'espera_400 "canal numérico'` = 2; `bash -n` passa; o smoke sai com exit 0 e mostra as três linhas OK exigidas
 - Verificação do plano: `./mvnw -q verify` sai com exit 0 (184 testes, 0 falhas/erros); smoke com `SMOKE FASE 1: OK`

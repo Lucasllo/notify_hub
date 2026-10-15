@@ -164,7 +164,7 @@ The artifacts from plans 01-01..01-06 had a regression check through the smoke. 
 | From | To | Via | Status |
 |------|----|-----|--------|
 | application.yml (`fail-on-numbers-for-enums`) | ApiExceptionHandler.invalidChannel | Boot ObjectMapper → `InvalidFormatException(targetType=Channel)` → `FieldProblem("channel", ACCEPTED_CHANNELS)` | WIRED (proved live: field=channel in the response body) |
-| NotificationValidationTest | application.yml | `@WebMvcTest` loads application.yml + JacksonAutoConfiguration | WIRED (the test was RED with 202 before the flag and is GREEN after, per commits 82f45fb → 39f513f; it is green now) |
+| NotificationValidationTest | application.yml | `@WebMvcTest` loads application.yml + JacksonAutoConfiguration | WIRED (the test was RED with 202 before the flag and is GREEN after, per commits 67021b2 → a824e80; it is green now) |
 | smoke-fase1.sh | packaged notify-api jar | `espera_400` against `$API_URL/notifications` before the count comparison | WIRED |
 | Previous links (01-01..01-06) | — | — | WIRED (regression via smoke) |
 
@@ -182,7 +182,7 @@ The artifacts from plans 01-01..01-06 had a regression check through the smoke. 
 | Numeric-channel WebMvc slice | `./mvnw -q -pl notify-api -am test -Dtest=NotificationValidationTest` | EXIT=0; 22 tests, 0 fail/err/skip; `[1]` and `[2]` present | ✓ PASS |
 | End-to-end, default profile | `bash scripts/smoke-fase1.sh --sem-build` | EXIT=0, `SMOKE FASE 1: OK`; includes both numeric-channel 400 lines and "nenhum 400 gravou no Mongo" | ✓ PASS |
 | End-to-end, demo profile | `bash scripts/smoke-fase1.sh --sem-build --perfil-demo` | EXIT=0, retry.1s/5s/25s, EMAIL SENT on a VirtualThread | ✓ PASS |
-| Jar freshness | `unzip -p notify-api-*.jar BOOT-INF/classes/application.yml` | contains `fail-on-numbers-for-enums: true`; the api jar was built 21:42, after fix commit 39f513f (21:41); the worker jar (16:32) is newer than the last worker/common commit (16:31) | ✓ PASS |
+| Jar freshness | `unzip -p notify-api-*.jar BOOT-INF/classes/application.yml` | contains `fail-on-numbers-for-enums: true`; the api jar was built 21:42, after fix commit a824e80 (21:41); the worker jar (16:32) is newer than the last worker/common commit (16:31) | ✓ PASS |
 | Full build | `./mvnw -q verify` (orchestrator run, not repeated) | EXIT=0, 184 tests | ✓ PASS (reported) |
 
 Both smoke runs shut down their API and worker JVMs. Only `java.exe` pid 6408 (the VS Code language server) is still running.
