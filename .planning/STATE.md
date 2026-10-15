@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: Falhas, retry com backoff e resiliência
 status: executing
-stopped_at: Completed 02-04-PLAN.md
-last_updated: "2026-10-15T23:25:10.803Z"
+stopped_at: Completed 02-05-PLAN.md
+last_updated: "2026-10-15T23:41:27.241Z"
 last_activity: 2026-10-15
 last_activity_desc: Phase 02 execution started
-state_head: 419b308ef4fb35294ba741ba09677f546e0840cb
+state_head: 219f8ac68bc1ea73541c47ae2a10eaaa0caab199
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 14
-  completed_plans: 11
+  completed_plans: 12
   percent: 25
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-13)
 ## Current Position
 
 Phase: 02 (Falhas, retry com backoff e resiliência) — EXECUTING
-Plan: 4 of 7
+Plan: 5 of 7
 Status: Ready to execute
 Last activity: 2026-10-15 — Phase 02 execution started
 
@@ -67,6 +67,7 @@ Progress: [███░░░░░░░] 25%
 | Phase 02 P02 | 15min | 3 tasks | 14 files |
 | Phase 02 P03 | 5min | 2 tasks | 4 files |
 | Phase 02 P04 | 10min | 2 tasks | 12 files |
+| Phase 02 P05 | 12min | 2 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -101,6 +102,9 @@ Recent decisions affecting current work:
 - [Phase 02]: [02-03]: requiredVariables checado depois de resolver a variante e antes de compilar (ausente/nula → MISSING_VARIABLE com só o nome; string vazia válida); JMustache sem defaultValue continua como segunda rede
 - [Phase 02]: [02-04]: Destinatários mágicos com casamento exato (domínio/host fail.test, SMS +550000000 + 001/002/004/1N3 com 13 caracteres); falha lançada no SimulatedChannelAdapter depois da latência com SimulatedDeliveryException/PermanentDeliveryException(SIMULATED_PERMANENT)
 - [Phase 02]: [02-04]: fail-N-then-ok conta AttemptContext.retryCount (reprocess zera, volta a falhar); fail-until-reprocess conta attemptNumber <= 4; flag notify.simulation.magic-recipients (padrão true) desliga o parser nos três adapters
+- [Phase 02]: 02-05: Resilience4j programático atrás do ChannelGateway (bulkhead → CB → adapter), instâncias por registry.find e falha ao subir se faltar; tempo aberto validado ≤ 1º nível via getWaitIntervalFunctionInOpenState().apply(1)
+- [Phase 02]: 02-05: CB registra só TransientDeliveryException e ignora o resto por NonTransientFailurePredicate; recusas de CB/bulkhead são TRANSIENT (CIRCUIT_OPEN/BULKHEAD_FULL) e consomem um nível
+- [Phase 02]: 02-05: profile demo fixa wait-duration-in-open-state 500ms literal; nele NOTIFY_CB_OPEN_WAIT fica sombreado (benchmark da Fase 4 precisa sobrescrever a chave direto se rodar com demo)
 
 ### Pending Todos
 
@@ -125,6 +129,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-15T23:25:10.698Z
-Stopped at: Completed 02-04-PLAN.md
+Last session: 2026-10-15T23:41:27.129Z
+Stopped at: Completed 02-05-PLAN.md
 Resume file: None
