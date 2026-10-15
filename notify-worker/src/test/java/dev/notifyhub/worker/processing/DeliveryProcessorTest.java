@@ -9,6 +9,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -40,7 +41,10 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 
-/** Orquestração do processador: duplicatas, canal errado, erros sobem e número da tentativa. */
+/**
+ * Orquestração do processador: duplicatas, canal errado, classificação das falhas, FAILED + cópia na
+ * DLQ, fallback de reject e número da tentativa.
+ */
 class DeliveryProcessorTest {
 
     private static final Instant NOW = Instant.parse("2026-10-12T10:00:00Z");
@@ -154,6 +158,31 @@ class DeliveryProcessorTest {
         assertThat(attempt.getValue().errorCode()).isEqualTo("UNEXPECTED");
         verify(publisher).publishToDlq(Channel.EMAIL, emailMessage(), FailureClass.UNKNOWN, 0);
         verify(state, never()).markSent(anyString(), anyInt(), any(), any());
+    }
+
+    @Test
+    void unconfirmedDlqCopyFallsBackToRejectWithoutRequeue() {
+        when(state.claim("n-1", 0)).thenReturn(Optional.of(claimedEmail(0, 0)));
+        when(catalog.require("welcome")).thenThrow(TemplateNotFoundException.missing("welcome"));
+        when(state.markFailed(eq("n-1"), eq(0), any(), any())).thenReturn(true);
+        when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.nacked("x"));
+
+        assertThatThrownBy(() -> processor.process(Channel.EMAIL, emailMessage(), 0))
+                .isInstanceOf(AmqpRejectAndDontRequeueException.class)
+                .hasMessageContaining("n-1");
+
+        verify(state, times(1)).markFailed(eq("n-1"), eq(0), any(), any());
+    }
+
+    @Test
+    void lostFenceOnFailedSkipsTheDlqCopyAndAcks() {
+        when(state.claim("n-1", 0)).thenReturn(Optional.of(claimedEmail(0, 0)));
+        when(catalog.require("welcome")).thenThrow(TemplateNotFoundException.missing("welcome"));
+        when(state.markFailed(eq("n-1"), eq(0), any(), any())).thenReturn(false);
+
+        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 0)).doesNotThrowAnyException();
+
+        verifyNoInteractions(publisher);
     }
 
     @Test

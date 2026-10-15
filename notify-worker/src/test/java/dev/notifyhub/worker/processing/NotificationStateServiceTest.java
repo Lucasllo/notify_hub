@@ -11,8 +11,10 @@ import static org.mockito.Mockito.when;
 import com.mongodb.client.result.UpdateResult;
 import dev.notifyhub.common.domain.AttemptOutcome;
 import dev.notifyhub.common.domain.Channel;
+import dev.notifyhub.common.domain.FailureClass;
 import dev.notifyhub.common.domain.NotificationStatus;
 import dev.notifyhub.common.persistence.AttemptEntry;
+import dev.notifyhub.common.persistence.LastError;
 import dev.notifyhub.common.persistence.NotificationDocument;
 import dev.notifyhub.common.persistence.RenderedContent;
 import java.time.Duration;
@@ -28,7 +30,7 @@ import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.UpdateDefinition;
 
-/** Claim e resultado SENT como operações únicas e cercadas no MongoTemplate (WRK-02, WRK-04). */
+/** Claim e resultados SENT/FAILED como operações únicas e cercadas no MongoTemplate (WRK-02, WRK-04, DLV-06). */
 class NotificationStateServiceTest {
 
     private static final Duration LEASE = Duration.ofMinutes(5);
@@ -126,7 +128,7 @@ class NotificationStateServiceTest {
     private record Result(Query query, UpdateDefinition update) {
     }
 
-    private Result captureMarkSent() {
+    private Result captureResult() {
         ArgumentCaptor<Query> query = ArgumentCaptor.forClass(Query.class);
         ArgumentCaptor<UpdateDefinition> update = ArgumentCaptor.forClass(UpdateDefinition.class);
         verify(mongo).updateFirst(query.capture(), update.capture(), eq(NotificationDocument.class));
@@ -139,7 +141,7 @@ class NotificationStateServiceTest {
 
         assertThat(service.markSent("n-1", 2, RENDERED, ATTEMPT)).isTrue();
 
-        Document filter = MongoBson.query(captureMarkSent().query());
+        Document filter = MongoBson.query(captureResult().query());
         assertThat(filter).isEqualTo(new Document("_id", "n-1")
                 .append("status", "PROCESSING")
                 .append("retryCount", 2));
@@ -151,7 +153,7 @@ class NotificationStateServiceTest {
 
         service.markSent("n-1", 2, RENDERED, ATTEMPT);
 
-        UpdateDefinition update = captureMarkSent().update();
+        UpdateDefinition update = captureResult().update();
         Document raw = update.getUpdateObject();
         assertThat(raw.keySet()).containsExactlyInAnyOrder("$set", "$unset", "$inc", "$push");
 
@@ -192,6 +194,63 @@ class NotificationStateServiceTest {
         updateFirstModifies(0);
 
         assertThat(service.markSent("n-1", 2, RENDERED, ATTEMPT)).isFalse();
+        verify(mongo).updateFirst(any(Query.class), any(UpdateDefinition.class), eq(NotificationDocument.class));
+        verifyNoMoreInteractions(mongo);
+    }
+
+    // ---------------------------------------------------------------- markFailed
+
+    private static final AttemptEntry FAILED_ATTEMPT = new AttemptEntry(
+            3, 1, NOW, 0, AttemptOutcome.PERMANENT_FAILURE, "TEMPLATE_NOT_FOUND",
+            "template não encontrado: x", FailureClass.PERMANENT, "VirtualThread[#42]");
+    private static final LastError LAST_ERROR = new LastError(
+            "TEMPLATE_NOT_FOUND", "template não encontrado: x", FailureClass.PERMANENT, NOW);
+
+    @Test
+    void markFailedIsFencedByExactStatusAndRetryLevel() {
+        updateFirstModifies(1);
+
+        assertThat(service.markFailed("n-1", 1, FAILED_ATTEMPT, LAST_ERROR)).isTrue();
+
+        Document filter = MongoBson.query(captureResult().query());
+        assertThat(filter.keySet()).containsExactly("_id", "status", "retryCount");
+        assertThat(filter).isEqualTo(new Document("_id", "n-1")
+                .append("status", "PROCESSING")
+                .append("retryCount", 1));
+    }
+
+    @Test
+    void markFailedWritesStatusErrorAndBoundedHistoryInOneUpdate() {
+        updateFirstModifies(1);
+
+        service.markFailed("n-1", 1, FAILED_ATTEMPT, LAST_ERROR);
+
+        UpdateDefinition update = captureResult().update();
+        Document raw = update.getUpdateObject();
+        assertThat(raw.keySet()).containsExactlyInAnyOrder("$set", "$unset", "$inc", "$push");
+
+        Document set = raw.get("$set", Document.class);
+        assertThat(set.keySet()).containsExactlyInAnyOrder("status", "lastError", "updatedAt");
+        assertThat(set.get("status")).isEqualTo(NotificationStatus.FAILED);
+        assertThat(set.get("lastError")).isEqualTo(LAST_ERROR);
+        assertThat(raw.get("$unset", Document.class).keySet()).containsExactly("leaseUntil");
+        assertThat(raw.get("$inc", Document.class)).isEqualTo(new Document("attemptCount", 1));
+
+        Document attempts = MongoBson.update(update).get("$push", Document.class).get("attempts", Document.class);
+        assertThat(attempts.get("$slice")).isEqualTo(-50);
+        List<?> each = attempts.get("$each", List.class);
+        assertThat(each).hasSize(1);
+        Document attempt = (Document) each.get(0);
+        assertThat(attempt.get("outcome")).isEqualTo("PERMANENT_FAILURE");
+        assertThat(attempt.get("errorCode")).isEqualTo("TEMPLATE_NOT_FOUND");
+        assertThat(attempt.get("failureClass")).isEqualTo("PERMANENT");
+    }
+
+    @Test
+    void markFailedWithLostFenceReturnsFalseWithoutThrowing() {
+        updateFirstModifies(0);
+
+        assertThat(service.markFailed("n-1", 1, FAILED_ATTEMPT, LAST_ERROR)).isFalse();
         verify(mongo).updateFirst(any(Query.class), any(UpdateDefinition.class), eq(NotificationDocument.class));
         verifyNoMoreInteractions(mongo);
     }

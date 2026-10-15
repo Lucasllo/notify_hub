@@ -58,6 +58,18 @@ class WorkerSettingsTest {
     }
 
     @Test
+    void confirmedPublicationsWaitAtMostFiveSecondsAndShareACachedChannelPool() {
+        assertThat(base.getProperty("notify.worker.confirm-timeout")).isEqualTo("5s");
+        assertThat(base.getProperty("spring.rabbitmq.cache.channel.size")).isEqualTo(50);
+    }
+
+    @Test
+    void mvcMustacheViewAutoConfigurationIsExcluded() {
+        assertThat(String.valueOf(base.getProperty("spring.autoconfigure.exclude")))
+                .contains("org.springframework.boot.autoconfigure.mustache.MustacheAutoConfiguration");
+    }
+
+    @Test
     void demoProfileUsesTheSameShortRetryLevelsAsTheApi() {
         assertThat(demo.getProperty("notify.topology.retry-levels")).isEqualTo("1s,5s,25s");
     }
