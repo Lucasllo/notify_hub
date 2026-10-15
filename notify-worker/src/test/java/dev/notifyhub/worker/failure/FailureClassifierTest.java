@@ -11,6 +11,10 @@ import dev.notifyhub.common.domain.FailureClass;
 import dev.notifyhub.worker.channel.SimulatedDeliveryException;
 import dev.notifyhub.worker.failure.FailureClassifier.Classification;
 import dev.notifyhub.worker.template.TemplateNotFoundException;
+import io.github.resilience4j.bulkhead.Bulkhead;
+import io.github.resilience4j.bulkhead.BulkheadFullException;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataAccessResourceFailureException;
@@ -134,5 +138,29 @@ class FailureClassifierTest {
         Classification c = classifier.classify(new PermanentDeliveryException(ErrorCode.SIMULATED_PERMANENT, longMessage));
 
         assertThat(c.message()).hasSize(300);
+    }
+
+    // ------------------------------------------------------------ recusas de CB e bulkhead (D-05)
+
+    @Test
+    void openCircuitBreakerRefusalIsTransientCircuitOpen() {
+        Classification c = classifier.classify(
+                CallNotPermittedException.createCallNotPermittedException(CircuitBreaker.ofDefaults("email")));
+
+        assertThat(c.failureClass()).isEqualTo(FailureClass.TRANSIENT);
+        assertThat(c.errorCode()).isEqualTo(ErrorCode.CIRCUIT_OPEN);
+        assertThat(c.outcome()).isEqualTo(AttemptOutcome.TRANSIENT_FAILURE);
+        assertThat(c.message()).isEqualTo("circuit breaker aberto no canal");
+    }
+
+    @Test
+    void fullBulkheadRefusalIsTransientBulkheadFull() {
+        Classification c = classifier.classify(
+                BulkheadFullException.createBulkheadFullException(Bulkhead.ofDefaults("email")));
+
+        assertThat(c.failureClass()).isEqualTo(FailureClass.TRANSIENT);
+        assertThat(c.errorCode()).isEqualTo(ErrorCode.BULKHEAD_FULL);
+        assertThat(c.outcome()).isEqualTo(AttemptOutcome.TRANSIENT_FAILURE);
+        assertThat(c.message()).isEqualTo("bulkhead cheio no canal");
     }
 }
