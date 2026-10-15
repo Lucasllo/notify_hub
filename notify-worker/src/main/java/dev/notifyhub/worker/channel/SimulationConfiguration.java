@@ -6,7 +6,10 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-/** Um {@link ChannelAdapter} simulado por canal, configurado por {@link SimulationProperties}. */
+/**
+ * Um {@link ChannelAdapter} simulado por canal, configurado por {@link SimulationProperties}
+ * (latência, {@code failure-rate} e a flag de destinatários mágicos).
+ */
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(SimulationProperties.class)
 public class SimulationConfiguration {
@@ -27,6 +30,7 @@ public class SimulationConfiguration {
     }
 
     private static ChannelAdapter adapter(Channel channel, SimulationProperties props) {
-        return new SimulatedChannelAdapter(channel, props.forChannel(channel), ThreadLocalRandom::current);
+        return new SimulatedChannelAdapter(channel, props.forChannel(channel), ThreadLocalRandom::current,
+                props.magicRecipients());
     }
 }

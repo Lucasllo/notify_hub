@@ -61,6 +61,13 @@ notify:
     # Espera máxima do confirm de retry/DLQ dentro do listener; estourou = falha da publicação
     confirm-timeout: 5s
   simulation:
+    # Destinatários mágicos (falhas determinísticas da demo e dos ITs): e-mail <regra>@fail.test,
+    # webhook http(s)://fail.test/<regra> e SMS +550000000<código>. Tabela em MagicRecipients.
+    # fail-<N>-then-ok volta a falhar depois de um reprocessamento, que zera o retryCount.
+    # Desligue fora da demo com NOTIFY_SIMULATION_MAGIC_RECIPIENTS=false.
+    magic-recipients: ${NOTIFY_SIMULATION_MAGIC_RECIPIENTS:true}
+    # Latência e failure-rate de cada canal aceitam ENV (ex.: NOTIFY_SIMULATION_EMAIL_FAILURERATE),
+    # para o profile de benchmark da Fase 4 neutralizar as falhas (D-08)
     email:
       latency-min: 50ms
       latency-max: 200ms

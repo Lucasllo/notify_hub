@@ -8,7 +8,15 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 /**
  * Simulação por canal em {@code notify.simulation.<email|sms|webhook>.*}: {@code latency-min},
  * {@code latency-max} e {@code failure-rate}. Os padrões da Fase 1 são 50ms, 200ms e 0.0, porque o
- * caminho de retry só chega na Fase 2.
+ * caminho de retry só chega na Fase 2. Tudo pode ser sobrescrito por ENV (ex.:
+ * {@code NOTIFY_SIMULATION_EMAIL_FAILURERATE}), o que o profile de benchmark da Fase 4 usa (D-08).
+ *
+ * <p>{@code notify.simulation.magic-recipients} (padrão {@code true}, ENV
+ * {@code NOTIFY_SIMULATION_MAGIC_RECIPIENTS}) liga os destinatários mágicos de {@link MagicRecipients}.
+ * É um recurso de demo e de teste: fora da demo pode ser desligado, e então nenhum destinatário falha
+ * de propósito (T-02-18).
+ *
+ * @param magicRecipients reconhecimento de destinatários mágicos nos três adapters
  */
 @ConfigurationProperties("notify.simulation")
 public record SimulationProperties(
