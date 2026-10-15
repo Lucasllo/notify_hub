@@ -17,5 +17,5 @@ public interface ChannelAdapter {
      *
      * @throws RuntimeException se o envio falhar
      */
-    void send(String recipient, RenderedContent content);
+    void send(String recipient, RenderedContent content, AttemptContext context);
 }

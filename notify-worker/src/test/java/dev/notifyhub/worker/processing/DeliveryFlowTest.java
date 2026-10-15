@@ -114,8 +114,13 @@ class DeliveryFlowTest {
     }
 
     private static NotificationDocument processingDoc(String templateCode, int retryCount, int attemptCount) {
+        return processingDoc(templateCode, retryCount, attemptCount, "ana@exemplo.com");
+    }
+
+    private static NotificationDocument processingDoc(String templateCode, int retryCount, int attemptCount,
+                                                      String recipient) {
         return new NotificationDocument(
-                "n-1", Channel.EMAIL, "ana@exemplo.com", templateCode, Map.of("name", "Ana"),
+                "n-1", Channel.EMAIL, recipient, templateCode, Map.of("name", "Ana"),
                 NotificationStatus.PROCESSING, retryCount, attemptCount, null, null, List.of(),
                 NOW, NOW, NOW, NOW.plus(Duration.ofMinutes(5)), null);
     }
@@ -214,7 +219,7 @@ class DeliveryFlowTest {
                 new NotificationMessage("n-1", Channel.EMAIL, "nao-existe", NOW), null, null))
                 .doesNotThrowAnyException();
 
-        verify(emailAdapter, never()).send(anyString(), any());
+        verify(emailAdapter, never()).send(anyString(), any(), any());
     }
 
     @Test
@@ -403,6 +408,56 @@ class DeliveryFlowTest {
                     any(MessagePostProcessor.class), any(CorrelationData.class));
         }
         order.verify(rabbit).convertAndSend(eq("notify.dlx"), eq("email.dlq"), any(Object.class),
+                any(MessagePostProcessor.class), any(CorrelationData.class));
+    }
+
+    // ------------------------------------------------------------ destinatários mágicos (DLV-02, D-02)
+
+    private static final String FAIL_TWICE = "fail-2-then-ok@fail.test";
+
+    @Test
+    void failTwiceThenOkFailsTransientlyOnTheFirstDeliveryEvenWithFailureRateZero() {
+        claimReturns(processingDoc("welcome", 0, 0, FAIL_TWICE));
+
+        listeners.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), null, null);
+
+        Document bson = MongoBson.update(captureResult().update());
+        assertThat(bson.get("$set", Document.class).get("status")).isEqualTo("RETRYING");
+        Document attempt = (Document) bson.get("$push", Document.class)
+                .get("attempts", Document.class).get("$each", List.class).get(0);
+        assertThat(attempt.get("errorCode")).isEqualTo("SIMULATED_TRANSIENT");
+        assertThat(attempt.get("outcome")).isEqualTo("TRANSIENT_FAILURE");
+
+        MessageProperties props = applied(captureRetryPublish("email.retry.5s").postProcessor());
+        assertThat((Object) props.getHeader("notify-retry-count")).isEqualTo(1);
+    }
+
+    @Test
+    void failTwiceThenOkFailsAgainOnTheFirstRetryLevel() {
+        claimReturns(processingDoc("welcome", 1, 1, FAIL_TWICE));
+
+        listeners.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), "1", null);
+
+        Document set = MongoBson.update(captureResult().update()).get("$set", Document.class);
+        assertThat(set.get("status")).isEqualTo("RETRYING");
+        MessageProperties props = applied(captureRetryPublish("email.retry.25s").postProcessor());
+        assertThat((Object) props.getHeader("notify-retry-count")).isEqualTo(2);
+    }
+
+    @Test
+    void failTwiceThenOkIsDeliveredOnTheThirdAttemptAtLevelTwo() {
+        claimReturns(processingDoc("welcome", 2, 2, FAIL_TWICE));
+
+        listeners.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), "2", null);
+
+        Document bson = MongoBson.update(captureResult().update());
+        assertThat(bson.get("$set", Document.class).get("status")).isEqualTo("SENT");
+        Document attempt = (Document) bson.get("$push", Document.class)
+                .get("attempts", Document.class).get("$each", List.class).get(0);
+        assertThat(attempt.get("outcome")).isEqualTo("SUCCESS");
+        assertThat(attempt.get("retryLevel")).isEqualTo(2);
+        assertThat(attempt.get("number")).isEqualTo(3);
+        verify(rabbit, never()).convertAndSend(anyString(), anyString(), any(Object.class),
                 any(MessagePostProcessor.class), any(CorrelationData.class));
     }
 }

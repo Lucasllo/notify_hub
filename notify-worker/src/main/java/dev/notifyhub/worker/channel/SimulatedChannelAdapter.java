@@ -46,7 +46,7 @@ public class SimulatedChannelAdapter implements ChannelAdapter {
     }
 
     @Override
-    public void send(String recipient, RenderedContent content) {
+    public void send(String recipient, RenderedContent content, AttemptContext context) {
         RandomGenerator rnd = random.get();
         long latencyMs = drawLatencyMs(rnd);
         try {

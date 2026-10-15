@@ -17,6 +17,7 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 class SimulatedChannelAdapterTest {
 
     private static final RenderedContent CONTENT = new RenderedContent(null, "Olá, Ana!");
+    private static final AttemptContext FIRST = new AttemptContext(0, 1);
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
             .withUserConfiguration(SimulationConfiguration.class);
@@ -26,7 +27,7 @@ class SimulatedChannelAdapterTest {
         SimulatedChannelAdapter adapter = adapter(Channel.SMS, simulation(0, 0, 1.0));
 
         for (int i = 0; i < 10; i++) {
-            assertThatThrownBy(() -> adapter.send("+5511999990000", CONTENT))
+            assertThatThrownBy(() -> adapter.send("+5511999990000", CONTENT, FIRST))
                     .isInstanceOf(SimulatedDeliveryException.class)
                     .hasMessageContaining("sms");
         }
@@ -37,7 +38,7 @@ class SimulatedChannelAdapterTest {
         SimulatedChannelAdapter adapter = adapter(Channel.EMAIL, simulation(0, 0, 0.0));
 
         for (int i = 0; i < 20; i++) {
-            assertThatCode(() -> adapter.send("ana@exemplo.com", CONTENT)).doesNotThrowAnyException();
+            assertThatCode(() -> adapter.send("ana@exemplo.com", CONTENT, FIRST)).doesNotThrowAnyException();
         }
     }
 
@@ -46,7 +47,7 @@ class SimulatedChannelAdapterTest {
         SimulatedChannelAdapter adapter = adapter(Channel.WEBHOOK, simulation(30, 30, 0.0));
 
         long start = System.nanoTime();
-        adapter.send("https://hooks.exemplo.com/notify", CONTENT);
+        adapter.send("https://hooks.exemplo.com/notify", CONTENT, FIRST);
         long elapsedMs = Duration.ofNanos(System.nanoTime() - start).toMillis();
 
         assertThat(elapsedMs).isGreaterThanOrEqualTo(30);
@@ -57,7 +58,7 @@ class SimulatedChannelAdapterTest {
         SimulatedChannelAdapter adapter = adapter(Channel.EMAIL, simulation(0, 0, 0.0));
 
         long start = System.nanoTime();
-        adapter.send("ana@exemplo.com", CONTENT);
+        adapter.send("ana@exemplo.com", CONTENT, FIRST);
         long elapsedMs = Duration.ofNanos(System.nanoTime() - start).toMillis();
 
         assertThat(elapsedMs).isLessThan(200);
@@ -69,12 +70,51 @@ class SimulatedChannelAdapterTest {
 
         Thread.currentThread().interrupt();
         try {
-            assertThatThrownBy(() -> adapter.send("ana@exemplo.com", CONTENT))
+            assertThatThrownBy(() -> adapter.send("ana@exemplo.com", CONTENT, FIRST))
                     .isInstanceOf(SimulatedDeliveryException.class);
             assertThat(Thread.currentThread().isInterrupted()).isTrue();
         } finally {
             Thread.interrupted();
         }
+    }
+
+    // ------------------------------------------------------------ destinatários mágicos (D-01, D-02, D-04)
+
+    @Test
+    void failOneThenOkFailsTransientlyOnTheFirstLevel() {
+        SimulatedChannelAdapter adapter = adapter(Channel.EMAIL, simulation(0, 0, 0.0));
+
+        assertThatThrownBy(() -> adapter.send("fail-1-then-ok@fail.test", CONTENT, new AttemptContext(0, 1)))
+                .isInstanceOf(SimulatedDeliveryException.class)
+                .hasMessageContaining("email")
+                .hasMessageNotContaining("fail-1-then-ok");
+    }
+
+    @Test
+    void failOneThenOkSucceedsOnceRetryCountReachesN() {
+        SimulatedChannelAdapter adapter = adapter(Channel.EMAIL, simulation(0, 0, 0.0));
+
+        assertThatCode(() -> adapter.send("fail-1-then-ok@fail.test", CONTENT, new AttemptContext(1, 2)))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void magicFailureIsThrownOnlyAfterTheSimulatedLatency() {
+        SimulatedChannelAdapter adapter = adapter(Channel.EMAIL, simulation(50, 50, 0.0));
+
+        long start = System.nanoTime();
+        assertThatThrownBy(() -> adapter.send("fail-1-then-ok@fail.test", CONTENT, new AttemptContext(0, 1)))
+                .isInstanceOf(SimulatedDeliveryException.class);
+        long elapsedMs = Duration.ofNanos(System.nanoTime() - start).toMillis();
+
+        assertThat(elapsedMs).isGreaterThanOrEqualTo(50);
+    }
+
+    @Test
+    void attemptContextRejectsNegativeLevelAndAttemptBelowOne() {
+        assertThatThrownBy(() -> new AttemptContext(-1, 1)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new AttemptContext(0, 0)).isInstanceOf(IllegalArgumentException.class);
+        assertThatCode(() -> new AttemptContext(0, 1)).doesNotThrowAnyException();
     }
 
     @Test

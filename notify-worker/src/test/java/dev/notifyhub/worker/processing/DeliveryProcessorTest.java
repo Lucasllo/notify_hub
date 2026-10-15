@@ -26,6 +26,7 @@ import dev.notifyhub.common.persistence.AttemptEntry;
 import dev.notifyhub.common.persistence.LastError;
 import dev.notifyhub.common.persistence.NotificationDocument;
 import dev.notifyhub.common.persistence.RenderedContent;
+import dev.notifyhub.worker.channel.AttemptContext;
 import dev.notifyhub.worker.channel.ChannelAdapter;
 import dev.notifyhub.worker.channel.SimulatedDeliveryException;
 import dev.notifyhub.worker.failure.FailureClassifier;
@@ -99,7 +100,7 @@ class DeliveryProcessorTest {
         assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 0, false)).doesNotThrowAnyException();
 
         verifyNoInteractions(catalog, renderer);
-        verify(email, never()).send(anyString(), any());
+        verify(email, never()).send(anyString(), any(), any());
         verify(state, never()).markSent(anyString(), anyInt(), any(), any());
     }
 
@@ -113,7 +114,7 @@ class DeliveryProcessorTest {
 
         verify(state).claim("n-1", 0, true);
         verify(state, never()).claim("n-1", 0, false);
-        verify(email).send("ana@exemplo.com", RENDERED);
+        verify(email).send(eq("ana@exemplo.com"), eq(RENDERED), any());
         verify(state).markSent(eq("n-1"), eq(0), eq(RENDERED), any());
     }
 
@@ -154,7 +155,7 @@ class DeliveryProcessorTest {
         assertThat(attempt.getValue().durationMs()).isZero();
         assertThat(lastError.getValue().code()).isEqualTo("TEMPLATE_NOT_FOUND");
         verify(publisher).publishToDlq(Channel.EMAIL, emailMessage(), FailureClass.PERMANENT, 0);
-        verify(email, never()).send(anyString(), any());
+        verify(email, never()).send(anyString(), any(), any());
         verify(state, never()).markSent(anyString(), anyInt(), any(), any());
     }
 
@@ -162,7 +163,7 @@ class DeliveryProcessorTest {
     void transientAdapterFailureIsMarkedRetryingAndRepublishedWithoutThrowing() {
         claimReturns(claimedEmail(0, 0));
         doThrow(new SimulatedDeliveryException("falha simulada no canal email"))
-                .when(email).send("ana@exemplo.com", RENDERED);
+                .when(email).send(eq("ana@exemplo.com"), eq(RENDERED), any());
         when(state.markRetrying(eq("n-1"), eq(0), any(), any())).thenReturn(true);
         when(publisher.publishToRetry(any(), any(), anyInt(), any())).thenReturn(PublishOutcome.acked());
 
@@ -183,7 +184,7 @@ class DeliveryProcessorTest {
     private void adapterFailsTransiently(int retryCount) {
         claimReturns(claimedEmail(retryCount, retryCount));
         doThrow(new SimulatedDeliveryException("falha simulada no canal email"))
-                .when(email).send("ana@exemplo.com", RENDERED);
+                .when(email).send(eq("ana@exemplo.com"), eq(RENDERED), any());
     }
 
     @Test
@@ -299,7 +300,7 @@ class DeliveryProcessorTest {
     @Test
     void unknownAdapterExceptionIsMarkedFailedUnknownAndCopiedToTheDlq() {
         claimReturns(claimedEmail(0, 0));
-        doThrow(new IllegalStateException("boom")).when(email).send("ana@exemplo.com", RENDERED);
+        doThrow(new IllegalStateException("boom")).when(email).send(eq("ana@exemplo.com"), eq(RENDERED), any());
         when(state.markFailed(eq("n-1"), eq(0), any(), any())).thenReturn(true);
         when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.acked());
 
@@ -342,7 +343,7 @@ class DeliveryProcessorTest {
     @Test
     void errorFromTheAdapterPropagatesWithoutBeingClassified() {
         claimReturns(claimedEmail(0, 0));
-        doThrow(new AssertionError("erro de JVM")).when(email).send("ana@exemplo.com", RENDERED);
+        doThrow(new AssertionError("erro de JVM")).when(email).send(eq("ana@exemplo.com"), eq(RENDERED), any());
 
         assertThatThrownBy(() -> processor.process(Channel.EMAIL, emailMessage(), 0, false))
                 .isInstanceOf(AssertionError.class);
@@ -358,7 +359,7 @@ class DeliveryProcessorTest {
         processor.process(Channel.EMAIL, emailMessage(), 2, false);
 
         verify(renderer).render(TEMPLATE, Channel.EMAIL, VARIABLES, "n-1");
-        verify(email).send("ana@exemplo.com", RENDERED);
+        verify(email).send("ana@exemplo.com", RENDERED, new AttemptContext(2, 4));
         ArgumentCaptor<AttemptEntry> attempt = ArgumentCaptor.forClass(AttemptEntry.class);
         verify(state).markSent(eq("n-1"), eq(2), eq(RENDERED), attempt.capture());
         assertThat(attempt.getValue().number()).isEqualTo(4);
@@ -370,13 +371,22 @@ class DeliveryProcessorTest {
     }
 
     @Test
+    void firstDeliveryPassesLevelZeroAndAttemptOneToTheAdapter() {
+        claimReturns(claimedEmail(0, 0));
+
+        processor.process(Channel.EMAIL, emailMessage(), 0, false);
+
+        verify(email).send("ana@exemplo.com", RENDERED, new AttemptContext(0, 1));
+    }
+
+    @Test
     void onlyTheAdapterOfTheDocumentChannelIsCalled() {
         claimReturns(claimedEmail(0, 0));
 
         processor.process(Channel.EMAIL, emailMessage(), 0, false);
 
-        verify(sms, never()).send(anyString(), any());
-        verify(webhook, never()).send(anyString(), any());
+        verify(sms, never()).send(anyString(), any(), any());
+        verify(webhook, never()).send(anyString(), any(), any());
     }
 
     @Test

@@ -146,7 +146,7 @@ public class DeliveryProcessor {
             startedAt = Instant.now();
             adapterStart = System.nanoTime();
             adapterCalled = true;
-            adapter.send(doc.recipient(), rendered);
+            adapter.send(doc.recipient(), rendered, null);
             durationMs = elapsedMs(adapterStart);
         } catch (RuntimeException e) {
             // nunca Throwable/Error: um OutOfMemoryError não pode virar FAILED
