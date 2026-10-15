@@ -9,7 +9,6 @@ import dev.notifyhub.common.persistence.LastError;
 import dev.notifyhub.common.persistence.NotificationDocument;
 import dev.notifyhub.common.persistence.RenderedContent;
 import dev.notifyhub.worker.channel.ChannelAdapter;
-import dev.notifyhub.worker.failure.DeliveryFailureException;
 import dev.notifyhub.worker.failure.FailureClassifier;
 import dev.notifyhub.worker.failure.FailureClassifier.Classification;
 import dev.notifyhub.worker.messaging.DeliveryRoutingPublisher;
@@ -41,7 +40,8 @@ import org.springframework.stereotype.Service;
  *   <li>falha depois do claim (template, renderização ou adapter) → {@link FailureClassifier}; toda
  *       falha grava exatamente uma tentativa, com {@code durationMs = 0} se o adapter não foi
  *       chamado (D-14);</li>
- *   <li>falha permanente → FAILED atômico e cópia confirmada na DLQ do canal com
+ *   <li>falha permanente ou desconhecida (UNKNOWN, D-13) → FAILED atômico, sem gastar retries, e
+ *       cópia confirmada na DLQ do canal com
  *       {@code x-failure-class}; só então o retorno normal confirma a original (D-10). Se a cópia
  *       não for confirmada, {@link AmqpRejectAndDontRequeueException} estaciona a original na DLQ
  *       pela DLX da fila principal; nunca há requeue;</li>
@@ -132,7 +132,8 @@ public class DeliveryProcessor {
             adapterCalled = true;
             adapter.send(doc.recipient(), rendered);
             durationMs = elapsedMs(adapterStart);
-        } catch (DeliveryFailureException e) {
+        } catch (RuntimeException e) {
+            // nunca Throwable/Error: um OutOfMemoryError não pode virar FAILED
             long failedDurationMs = adapterCalled ? elapsedMs(adapterStart) : 0L;
             onFailure(e, message, doc, retryCount, attemptNumber, startedAt, failedDurationMs);
             return;
@@ -159,7 +160,7 @@ public class DeliveryProcessor {
         switch (c.failureClass()) {
             // a escada de delay é do plano 02-02; até lá a transitória rejeita para a DLQ como na Fase 1
             case TRANSIENT -> throw e;
-            case PERMANENT -> onTerminalFailure(message, doc, retryCount, attempt, lastError, c);
+            case PERMANENT, UNKNOWN -> onTerminalFailure(message, doc, retryCount, attempt, lastError, c);
         }
     }
 
