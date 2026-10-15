@@ -1,18 +1,36 @@
 package dev.notifyhub.worker.template;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectReader;
 import com.samskivert.mustache.Mustache;
 import dev.notifyhub.common.domain.Channel;
 import dev.notifyhub.common.persistence.RenderedContent;
+import dev.notifyhub.worker.failure.ErrorCode;
+import dev.notifyhub.worker.failure.PermanentDeliveryException;
 import java.util.HashMap;
 import java.util.Map;
 import org.springframework.stereotype.Component;
 
 /**
- * Renderiza a variante de um template para um canal com JMustache.
+ * Renderiza a variante de um template para um canal com JMustache, com escape por canal (TPL-03,
+ * D-16).
  *
- * <p>Dois compiladores imutáveis: {@link #HTML} (escape HTML padrão) só para o corpo do EMAIL, e
- * {@link #PLAIN} ({@code escapeHTML(false)}) para o assunto do EMAIL, o SMS e o WEBHOOK — o WEBHOOK
- * não pode sair com {@code &quot;} (o escape JSON dos valores é da Fase 2, TPL-03).
+ * <p>Três compiladores imutáveis:
+ * <ul>
+ *   <li>{@link #HTML} (escape HTML padrão do JMustache: {@code & ' " < > ` =}) só para o corpo do
+ *       EMAIL;</li>
+ *   <li>{@link #PLAIN} ({@code escapeHTML(false)}) para o assunto do EMAIL e o SMS;</li>
+ *   <li>{@link #JSON} ({@link JsonValueEscaper}) para o corpo do WEBHOOK: cada valor sai escapado
+ *       como string JSON. Nunca encadeie {@code escapeHTML(...)} depois de {@code withEscaper}: o
+ *       JMustache sobrescreve o escaper sem aviso.</li>
+ * </ul>
+ *
+ * <p>Depois de renderizar, o corpo do WEBHOOK passa por um parse estrito ({@link #STRICT_JSON}, com
+ * {@code FAIL_ON_TRAILING_TOKENS}) e precisa ser um objeto JSON. Se não for, a renderização falha com
+ * {@link ErrorCode#INVALID_WEBHOOK_PAYLOAD} e nenhum corpo corrompido sai.
  *
  * <p>Nenhum valor substituto é configurado para variável ausente ou nula: o padrão do JMustache
  * lança exceção, e a renderização nunca sai em branco.
@@ -28,11 +46,19 @@ public class TemplateRenderer {
 
     private static final Mustache.Compiler HTML = Mustache.compiler();
     private static final Mustache.Compiler PLAIN = Mustache.compiler().escapeHTML(false);
+    private static final Mustache.Compiler JSON =
+            Mustache.compiler().withEscaper(new JsonValueEscaper()).strictSections(true);
+
+    /** Parse estrito: o {@code readTree} padrão aceita lixo depois do objeto. */
+    private static final ObjectReader STRICT_JSON =
+            new ObjectMapper().reader().with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
 
     /**
      * Renderiza a variante do canal.
      *
      * @throws TemplateNotFoundException se o template não tiver variante para o canal
+     * @throws PermanentDeliveryException com {@link ErrorCode#INVALID_WEBHOOK_PAYLOAD} se o corpo do
+     *         webhook não for um objeto JSON válido
      * @throws com.samskivert.mustache.MustacheException se faltar uma variável no contexto
      */
     public RenderedContent render(TemplateDocument template, Channel channel,
@@ -49,11 +75,35 @@ public class TemplateRenderer {
             case EMAIL -> new RenderedContent(
                     variant.subject() == null ? null : execute(PLAIN, variant.subject(), context),
                     execute(HTML, variant.body(), context));
-            case SMS, WEBHOOK -> new RenderedContent(null, execute(PLAIN, variant.body(), context));
+            case SMS -> new RenderedContent(null, execute(PLAIN, variant.body(), context));
+            case WEBHOOK -> new RenderedContent(null,
+                    requireJsonObject(template.id(), execute(JSON, variant.body(), context)));
         };
     }
 
     private static String execute(Mustache.Compiler compiler, String text, Map<String, Object> context) {
         return compiler.compile(text).execute(context);
+    }
+
+    /**
+     * Garante que o corpo do webhook é um único objeto JSON. A causa do Jackson não é anexada: a
+     * mensagem dela cita trechos do corpo, que podem conter dados do cliente.
+     */
+    private static String requireJsonObject(String templateId, String body) {
+        JsonNode node;
+        try {
+            node = STRICT_JSON.readTree(body);
+        } catch (JsonProcessingException e) {
+            throw invalidWebhookPayload(templateId);
+        }
+        if (node == null || !node.isObject()) {
+            throw invalidWebhookPayload(templateId);
+        }
+        return body;
+    }
+
+    private static PermanentDeliveryException invalidWebhookPayload(String templateId) {
+        return new PermanentDeliveryException(ErrorCode.INVALID_WEBHOOK_PAYLOAD,
+                "corpo do webhook do template " + templateId + " não é um objeto JSON válido");
     }
 }
