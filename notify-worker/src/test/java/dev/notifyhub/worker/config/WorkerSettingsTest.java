@@ -70,6 +70,12 @@ class WorkerSettingsTest {
     }
 
     @Test
+    void actuatorExposesThePrometheusScrapeEndpoint() {
+        assertThat(base.getProperty("management.endpoints.web.exposure.include"))
+                .isEqualTo("health,info,prometheus");
+    }
+
+    @Test
     void demoProfileUsesTheSameShortRetryLevelsAsTheApi() {
         assertThat(demo.getProperty("notify.topology.retry-levels")).isEqualTo("1s,5s,25s");
     }

@@ -17,6 +17,7 @@ import dev.notifyhub.worker.failure.FailureClassifier;
 import dev.notifyhub.worker.failure.FailureClassifier.Classification;
 import dev.notifyhub.worker.messaging.DeliveryRoutingPublisher;
 import dev.notifyhub.worker.messaging.DeliveryRoutingPublisher.PublishOutcome;
+import dev.notifyhub.worker.metrics.DeliveryMetrics;
 import dev.notifyhub.worker.processing.RetryPolicy.RetryDecision;
 import dev.notifyhub.worker.resilience.ChannelGateway;
 import dev.notifyhub.worker.template.TemplateCatalog;
@@ -65,16 +66,18 @@ public class DeliveryProcessor {
     private final FailureClassifier classifier;
     private final DeliveryRoutingPublisher publisher;
     private final TopologyProperties topology;
+    private final DeliveryMetrics metrics;
     private final AtomicBoolean firstMessage = new AtomicBoolean(true);
 
     /**
      * @param gateway  envio pelo canal, já protegido por bulkhead e circuit breaker (RES-01, RES-02)
      * @param topology níveis da escada de delay; os mesmos {@code Duration} que declararam as filas
+     * @param metrics  contadores de resultado do D-15, incrementados só quando o resultado é real
      */
     public DeliveryProcessor(NotificationStateService state, TemplateCatalog catalog,
                              TemplateRenderer renderer, ChannelGateway gateway,
                              FailureClassifier classifier, DeliveryRoutingPublisher publisher,
-                             TopologyProperties topology) {
+                             TopologyProperties topology, DeliveryMetrics metrics) {
         this.state = state;
         this.catalog = catalog;
         this.renderer = renderer;
@@ -82,6 +85,7 @@ public class DeliveryProcessor {
         this.classifier = classifier;
         this.publisher = publisher;
         this.topology = topology;
+        this.metrics = metrics;
     }
 
     /**

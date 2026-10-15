@@ -31,6 +31,7 @@ import dev.notifyhub.worker.channel.SimulatedDeliveryException;
 import dev.notifyhub.worker.failure.FailureClassifier;
 import dev.notifyhub.worker.messaging.DeliveryRoutingPublisher;
 import dev.notifyhub.worker.messaging.DeliveryRoutingPublisher.PublishOutcome;
+import dev.notifyhub.worker.metrics.DeliveryMetrics;
 import dev.notifyhub.worker.resilience.ChannelGateway;
 import dev.notifyhub.worker.template.TemplateCatalog;
 import dev.notifyhub.worker.template.TemplateDocument;
@@ -68,8 +69,9 @@ class DeliveryProcessorTest {
     private final ChannelGateway gateway = mock(ChannelGateway.class);
     private final FailureClassifier classifier = new FailureClassifier();
     private final DeliveryRoutingPublisher publisher = mock(DeliveryRoutingPublisher.class);
+    private final DeliveryMetrics metrics = mock(DeliveryMetrics.class);
     private final DeliveryProcessor processor =
-            new DeliveryProcessor(state, catalog, renderer, gateway, classifier, publisher, TOPOLOGY);
+            new DeliveryProcessor(state, catalog, renderer, gateway, classifier, publisher, TOPOLOGY, metrics);
 
     private static NotificationMessage emailMessage() {
         return new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW);
@@ -111,6 +113,25 @@ class DeliveryProcessorTest {
         verify(state, never()).claim("n-1", 0, false);
         verify(gateway).send(eq(Channel.EMAIL), eq("ana@exemplo.com"), eq(RENDERED), any());
         verify(state).markSent(eq("n-1"), eq(0), eq(RENDERED), any());
+    }
+
+    @Test
+    void sentIsCountedOnlyAfterTheSentUpdateWinsTheFence() {
+        claimReturns(claimedEmail(0, 0));
+
+        processor.process(Channel.EMAIL, emailMessage(), 0, false);
+
+        verify(metrics).sent(Channel.EMAIL);
+    }
+
+    @Test
+    void lostFenceOnSentCountsNothing() {
+        claimReturns(claimedEmail(0, 0));
+        when(state.markSent(eq("n-1"), anyInt(), any(), any())).thenReturn(false);
+
+        processor.process(Channel.EMAIL, emailMessage(), 0, false);
+
+        verify(metrics, never()).sent(any());
     }
 
     @Test

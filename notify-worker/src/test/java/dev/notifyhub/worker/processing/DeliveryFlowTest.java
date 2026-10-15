@@ -27,6 +27,7 @@ import dev.notifyhub.worker.channel.SimulationProperties.ChannelSimulation;
 import dev.notifyhub.worker.failure.FailureClassifier;
 import dev.notifyhub.worker.listener.ChannelListeners;
 import dev.notifyhub.worker.messaging.DeliveryRoutingPublisher;
+import dev.notifyhub.worker.metrics.DeliveryMetrics;
 import dev.notifyhub.worker.resilience.ChannelGateway;
 import dev.notifyhub.worker.resilience.ResilienceFixtures;
 import dev.notifyhub.worker.template.TemplateCatalog;
@@ -36,6 +37,7 @@ import dev.notifyhub.worker.template.TemplateSeeder;
 import io.github.resilience4j.bulkhead.BulkheadRegistry;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -74,6 +76,7 @@ class DeliveryFlowTest {
     private ChannelAdapter emailAdapter;
     private CircuitBreakerRegistry circuitBreakers;
     private BulkheadRegistry bulkheads;
+    private SimpleMeterRegistry meters;
     private ChannelListeners listeners;
 
     @BeforeEach
@@ -114,10 +117,15 @@ class DeliveryFlowTest {
         bulkheads = ResilienceFixtures.yamlBulkheads();
         ChannelGateway gateway = new ChannelGateway(adapters, circuitBreakers, bulkheads, TOPOLOGY);
 
+        // métricas reais sobre um registry em memória (D-15)
+        meters = new SimpleMeterRegistry();
+        DeliveryMetrics metrics = new DeliveryMetrics(meters, TOPOLOGY, new FailureClassifier());
+
         NotificationStateService state = new NotificationStateService(mongo, Duration.ofMinutes(5));
         DeliveryProcessor processor = new DeliveryProcessor(
                 state, new TemplateCatalog(mongo), new TemplateRenderer(), gateway,
-                new FailureClassifier(), new DeliveryRoutingPublisher(rabbit, Duration.ofSeconds(2)), TOPOLOGY);
+                new FailureClassifier(), new DeliveryRoutingPublisher(rabbit, Duration.ofSeconds(2)), TOPOLOGY,
+                metrics);
         return new ChannelListeners(processor);
     }
 
@@ -164,6 +172,12 @@ class DeliveryFlowTest {
         return new Published(body.getValue(), mpp.getValue(), cd.getValue());
     }
 
+    private double outcomeCount(String outcome, String failureClass) {
+        return meters.get("notify.delivery.outcomes")
+                .tags("channel", "email", "outcome", outcome, "failure_class", failureClass)
+                .counter().count();
+    }
+
     private static MessageProperties applied(MessagePostProcessor mpp) {
         return mpp.postProcessMessage(new Message(new byte[0], new MessageProperties())).getMessageProperties();
     }
@@ -190,6 +204,25 @@ class DeliveryFlowTest {
         assertThat(attempt.get("retryLevel")).isEqualTo(0);
         assertThat(attempt.get("outcome")).isEqualTo("SUCCESS");
         assertThat(attempt.getString("thread")).isNotBlank();
+    }
+
+    // ------------------------------------------------------------ métricas (OBS-01, D-15)
+
+    @Test
+    void happyPathCountsOneSentEmailOutcome() {
+        listeners.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), null, null);
+
+        assertThat(outcomeCount("sent", "none")).isEqualTo(1.0);
+    }
+
+    @Test
+    void lostFenceOnSentCountsNothing() {
+        when(mongo.updateFirst(any(Query.class), any(UpdateDefinition.class), eq(NotificationDocument.class)))
+                .thenReturn(UpdateResult.acknowledged(0, 0L, null));
+
+        listeners.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), null, null);
+
+        assertThat(outcomeCount("sent", "none")).isZero();
     }
 
     @Test
