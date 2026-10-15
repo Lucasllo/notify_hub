@@ -51,6 +51,7 @@ public class FailureClassifier {
             return switch (failureClass) {
                 case TRANSIENT -> AttemptOutcome.TRANSIENT_FAILURE;
                 case PERMANENT -> AttemptOutcome.PERMANENT_FAILURE;
+                case UNKNOWN -> AttemptOutcome.UNKNOWN_FAILURE;
             };
         }
     }

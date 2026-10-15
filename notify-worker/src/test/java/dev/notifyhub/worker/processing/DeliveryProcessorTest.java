@@ -125,7 +125,7 @@ class DeliveryProcessorTest {
     }
 
     @Test
-    void adapterFailurePropagatesAndResultIsNotWritten() {
+    void transientAdapterFailureStillPropagatesAndNothingIsWritten() {
         claimReturns(claimedEmail(0, 0));
         doThrow(new SimulatedDeliveryException("falha simulada no canal email"))
                 .when(email).send("ana@exemplo.com", RENDERED);
@@ -134,6 +134,38 @@ class DeliveryProcessorTest {
                 .isInstanceOf(SimulatedDeliveryException.class);
 
         verify(state, never()).markSent(anyString(), anyInt(), any(), any());
+        verify(state, never()).markFailed(anyString(), anyInt(), any(), any());
+        verifyNoInteractions(publisher);
+    }
+
+    @Test
+    void unknownAdapterExceptionIsMarkedFailedUnknownAndCopiedToTheDlq() {
+        claimReturns(claimedEmail(0, 0));
+        doThrow(new IllegalStateException("boom")).when(email).send("ana@exemplo.com", RENDERED);
+        when(state.markFailed(eq("n-1"), eq(0), any(), any())).thenReturn(true);
+        when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.acked());
+
+        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 0)).doesNotThrowAnyException();
+
+        ArgumentCaptor<AttemptEntry> attempt = ArgumentCaptor.forClass(AttemptEntry.class);
+        verify(state).markFailed(eq("n-1"), eq(0), attempt.capture(), any(LastError.class));
+        assertThat(attempt.getValue().outcome()).isEqualTo(AttemptOutcome.UNKNOWN_FAILURE);
+        assertThat(attempt.getValue().failureClass()).isEqualTo(FailureClass.UNKNOWN);
+        assertThat(attempt.getValue().errorCode()).isEqualTo("UNEXPECTED");
+        verify(publisher).publishToDlq(Channel.EMAIL, emailMessage(), FailureClass.UNKNOWN, 0);
+        verify(state, never()).markSent(anyString(), anyInt(), any(), any());
+    }
+
+    @Test
+    void errorFromTheAdapterPropagatesWithoutBeingClassified() {
+        claimReturns(claimedEmail(0, 0));
+        doThrow(new AssertionError("erro de JVM")).when(email).send("ana@exemplo.com", RENDERED);
+
+        assertThatThrownBy(() -> processor.process(Channel.EMAIL, emailMessage(), 0))
+                .isInstanceOf(AssertionError.class);
+
+        verify(state, never()).markFailed(anyString(), anyInt(), any(), any());
+        verifyNoInteractions(publisher);
     }
 
     @Test
