@@ -1,10 +1,15 @@
 package dev.notifyhub.worker.metrics;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import dev.notifyhub.common.domain.Channel;
+import dev.notifyhub.common.domain.FailureClass;
 import dev.notifyhub.common.messaging.TopologyProperties;
+import dev.notifyhub.worker.channel.SimulatedDeliveryException;
+import dev.notifyhub.worker.failure.ErrorCode;
 import dev.notifyhub.worker.failure.FailureClassifier;
+import dev.notifyhub.worker.failure.PermanentDeliveryException;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.Tag;
@@ -162,6 +167,78 @@ class DeliveryMetricsTest {
         assertThat(outcome("email", "sent", "none")).isEqualTo(1.0);
         assertThat(outcome("sms", "sent", "none")).isZero();
         assertThat(outcome("email", "retrying", "transient")).isZero();
+    }
+
+    @Test
+    void retryingIncrementsTheRetryingOutcomeAndTheTargetLevel() {
+        DeliveryMetrics metrics = metrics(THREE_LEVELS);
+
+        metrics.retrying(Channel.SMS, 2);
+
+        assertThat(outcome("sms", "retrying", "transient")).isEqualTo(1.0);
+        assertThat(registry.get("notify.delivery.retries").tags("channel", "sms", "level", "2")
+                .counter().count()).isEqualTo(1.0);
+        assertThat(registry.get("notify.delivery.retries").tags("channel", "sms", "level", "1")
+                .counter().count()).isZero();
+    }
+
+    @Test
+    void retryingToALevelOutsideTheLadderIsRejected() {
+        DeliveryMetrics metrics = metrics(THREE_LEVELS);
+
+        assertThatThrownBy(() -> metrics.retrying(Channel.EMAIL, 0)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> metrics.retrying(Channel.EMAIL, 4)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(outcome("email", "retrying", "transient")).isZero();
+    }
+
+    @Test
+    void failedSplitsPermanentAndUnknownAndRefusesTransient() {
+        DeliveryMetrics metrics = metrics(THREE_LEVELS);
+
+        metrics.failed(Channel.WEBHOOK, FailureClass.PERMANENT);
+        metrics.failed(Channel.WEBHOOK, FailureClass.UNKNOWN);
+        metrics.failed(Channel.WEBHOOK, FailureClass.UNKNOWN);
+
+        assertThat(outcome("webhook", "failed", "permanent")).isEqualTo(1.0);
+        assertThat(outcome("webhook", "failed", "unknown")).isEqualTo(2.0);
+        assertThatThrownBy(() -> metrics.failed(Channel.WEBHOOK, FailureClass.TRANSIENT))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void deadLetteredAndRejectedIncrementTheirOwnSeries() {
+        DeliveryMetrics metrics = metrics(THREE_LEVELS);
+
+        metrics.deadLettered(Channel.EMAIL);
+        metrics.rejected(Channel.EMAIL, DeliveryMetrics.RejectionReason.BULKHEAD_FULL);
+
+        assertThat(outcome("email", "dead_lettered", "transient")).isEqualTo(1.0);
+        assertThat(registry.get("notify.delivery.rejections").tags("channel", "email", "reason", "bulkhead_full")
+                .counter().count()).isEqualTo(1.0);
+        assertThat(registry.get("notify.delivery.rejections").tags("channel", "email", "reason", "circuit_open")
+                .counter().count()).isZero();
+    }
+
+    @Test
+    void adapterCallIsTimedWithTheOutcomeOfItsClassificationAndTheFailureIsRethrown() {
+        DeliveryMetrics metrics = metrics(THREE_LEVELS);
+        SimulatedDeliveryException transientFailure = new SimulatedDeliveryException("falha simulada no canal email");
+
+        metrics.recordAdapterCall(Channel.EMAIL, () -> { });
+        assertThatThrownBy(() -> metrics.recordAdapterCall(Channel.EMAIL, () -> {
+            throw transientFailure;
+        })).isSameAs(transientFailure);
+        assertThatThrownBy(() -> metrics.recordAdapterCall(Channel.EMAIL, () -> {
+            throw new PermanentDeliveryException(ErrorCode.SIMULATED_PERMANENT, "x");
+        })).isInstanceOf(PermanentDeliveryException.class);
+        assertThatThrownBy(() -> metrics.recordAdapterCall(Channel.EMAIL, () -> {
+            throw new IllegalStateException("bug");
+        })).isInstanceOf(IllegalStateException.class);
+
+        for (String outcome : List.of("success", "transient_failure", "permanent_failure", "unknown_failure")) {
+            assertThat(registry.get("notify.delivery.duration").tags("channel", "email", "outcome", outcome)
+                    .timer().count()).as(outcome).isEqualTo(1);
+        }
     }
 
     private double outcome(String channel, String outcome, String failureClass) {

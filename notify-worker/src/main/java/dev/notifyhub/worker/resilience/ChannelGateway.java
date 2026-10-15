@@ -6,6 +6,7 @@ import dev.notifyhub.common.messaging.TtlLabel;
 import dev.notifyhub.common.persistence.RenderedContent;
 import dev.notifyhub.worker.channel.AttemptContext;
 import dev.notifyhub.worker.channel.ChannelAdapter;
+import dev.notifyhub.worker.metrics.DeliveryMetrics;
 import io.github.resilience4j.bulkhead.Bulkhead;
 import io.github.resilience4j.bulkhead.BulkheadRegistry;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
@@ -57,7 +58,8 @@ public class ChannelGateway {
      *                               CB for maior que o 1º nível de retry
      */
     public ChannelGateway(List<ChannelAdapter> adapters, CircuitBreakerRegistry circuitBreakerRegistry,
-                          BulkheadRegistry bulkheadRegistry, TopologyProperties topology) {
+                          BulkheadRegistry bulkheadRegistry, TopologyProperties topology,
+                          DeliveryMetrics metrics) {
         Map<Channel, ChannelAdapter> byChannel = indexByChannel(adapters);
         Duration firstLevel = topology.retryLevels().get(0);
         Map<Channel, Route> resolved = new EnumMap<>(Channel.class);

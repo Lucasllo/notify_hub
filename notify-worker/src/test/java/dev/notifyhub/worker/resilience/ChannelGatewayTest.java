@@ -19,12 +19,15 @@ import dev.notifyhub.worker.channel.AttemptContext;
 import dev.notifyhub.worker.channel.ChannelAdapter;
 import dev.notifyhub.worker.channel.SimulatedDeliveryException;
 import dev.notifyhub.worker.failure.ErrorCode;
+import dev.notifyhub.worker.failure.FailureClassifier;
 import dev.notifyhub.worker.failure.PermanentDeliveryException;
+import dev.notifyhub.worker.metrics.DeliveryMetrics;
 import io.github.resilience4j.bulkhead.BulkheadFullException;
 import io.github.resilience4j.bulkhead.BulkheadRegistry;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -49,6 +52,8 @@ class ChannelGatewayTest {
     private final ChannelAdapter sms = adapter(Channel.SMS);
     private final ChannelAdapter webhook = adapter(Channel.WEBHOOK);
     private final CircuitBreakerRegistry circuitBreakers = ResilienceFixtures.yamlCircuitBreakers();
+    private final SimpleMeterRegistry meters = new SimpleMeterRegistry();
+    private final DeliveryMetrics metrics = new DeliveryMetrics(meters, TOPOLOGY, new FailureClassifier());
 
     private static ChannelAdapter adapter(Channel channel) {
         ChannelAdapter adapter = mock(ChannelAdapter.class);
@@ -58,7 +63,7 @@ class ChannelGatewayTest {
 
     private ChannelGateway gateway() {
         return new ChannelGateway(List.of(email, sms, webhook), circuitBreakers,
-                ResilienceFixtures.yamlBulkheads(), TOPOLOGY);
+                ResilienceFixtures.yamlBulkheads(), TOPOLOGY, metrics);
     }
 
     private CircuitBreaker emailBreaker() {
@@ -163,7 +168,7 @@ class ChannelGatewayTest {
         BulkheadRegistry onePermit = ResilienceFixtures.bulkheads(
                 ResilienceFixtures.bulkheadConfig(1), Channel.values());
         ChannelGateway gateway = new ChannelGateway(List.of(blocking, sms, webhook), circuitBreakers,
-                onePermit, TOPOLOGY);
+                onePermit, TOPOLOGY, metrics);
 
         Thread first = Thread.ofVirtual().start(
                 () -> gateway.send(Channel.EMAIL, "ana@exemplo.com", CONTENT, CONTEXT));
@@ -186,6 +191,106 @@ class ChannelGatewayTest {
         assertThat(emailBreaker().getMetrics().getNumberOfFailedCalls()).isZero();
     }
 
+    // ------------------------------------------------------------ métricas do adapter e recusas (D-15)
+
+    private double durationCount(String outcome) {
+        return meters.get("notify.delivery.duration").tags("channel", "email", "outcome", outcome)
+                .timer().count();
+    }
+
+    private long allDurationCounts() {
+        return meters.find("notify.delivery.duration").timers().stream().mapToLong(t -> t.count()).sum();
+    }
+
+    private double rejections(String reason) {
+        return meters.get("notify.delivery.rejections").tags("channel", "email", "reason", reason)
+                .counter().count();
+    }
+
+    @Test
+    void successfulAdapterCallIsTimedAsSuccess() {
+        gateway().send(Channel.EMAIL, "ana@exemplo.com", CONTENT, CONTEXT);
+
+        assertThat(durationCount("success")).isEqualTo(1);
+        assertThat(allDurationCounts()).isEqualTo(1);
+    }
+
+    @Test
+    void transientAdapterFailureIsTimedAsTransientAndStillReachesTheCaller() {
+        SimulatedDeliveryException failure = new SimulatedDeliveryException("falha simulada no canal email");
+        doThrow(failure).when(email).send(anyString(), any(), any());
+
+        assertThatThrownBy(() -> gateway().send(Channel.EMAIL, "ana@exemplo.com", CONTENT, CONTEXT))
+                .isSameAs(failure);
+
+        assertThat(durationCount("transient_failure")).isEqualTo(1);
+        assertThat(allDurationCounts()).isEqualTo(1);
+    }
+
+    @Test
+    void permanentAdapterFailureIsTimedAsPermanent() {
+        emailAdapterThrows(() -> new PermanentDeliveryException(ErrorCode.SIMULATED_PERMANENT, "x"));
+
+        assertThatThrownBy(() -> gateway().send(Channel.EMAIL, "ana@exemplo.com", CONTENT, CONTEXT))
+                .isInstanceOf(PermanentDeliveryException.class);
+
+        assertThat(durationCount("permanent_failure")).isEqualTo(1);
+    }
+
+    @Test
+    void openCircuitBreakerRefusalIsCountedAsRejectionAndNeverTimed() {
+        ChannelGateway gateway = gateway();
+        emailBreaker().transitionToOpenState();
+
+        assertThatThrownBy(() -> gateway.send(Channel.EMAIL, "ana@exemplo.com", CONTENT, CONTEXT))
+                .isInstanceOf(CallNotPermittedException.class);
+
+        assertThat(rejections("circuit_open")).isEqualTo(1);
+        assertThat(rejections("bulkhead_full")).isZero();
+        assertThat(allDurationCounts()).isZero();
+    }
+
+    @Test
+    void fullBulkheadRefusalIsCountedAsRejectionAndNeverTimed() throws Exception {
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        ChannelAdapter blocking = new ChannelAdapter() {
+            @Override
+            public Channel channel() {
+                return Channel.EMAIL;
+            }
+
+            @Override
+            public void send(String recipient, RenderedContent content, AttemptContext context) {
+                entered.countDown();
+                try {
+                    release.await(5, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        };
+        ChannelGateway gateway = new ChannelGateway(List.of(blocking, sms, webhook), circuitBreakers,
+                ResilienceFixtures.bulkheads(ResilienceFixtures.bulkheadConfig(1), Channel.values()), TOPOLOGY,
+                metrics);
+        Thread first = Thread.ofVirtual().start(
+                () -> gateway.send(Channel.EMAIL, "ana@exemplo.com", CONTENT, CONTEXT));
+        assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+
+        assertThatThrownBy(() -> gateway.send(Channel.EMAIL, "bia@exemplo.com", CONTENT, CONTEXT))
+                .isInstanceOf(BulkheadFullException.class);
+
+        assertThat(rejections("bulkhead_full")).isEqualTo(1);
+        assertThat(rejections("circuit_open")).isZero();
+        // a chamada presa ainda não terminou; a recusa não entrou no timer
+        assertThat(allDurationCounts()).isZero();
+
+        release.countDown();
+        first.join(5_000);
+        assertThat(durationCount("success")).isEqualTo(1);
+        assertThat(allDurationCounts()).isEqualTo(1);
+    }
+
     // ------------------------------------------------------------ validação de startup
 
     @Test
@@ -194,7 +299,7 @@ class ChannelGatewayTest {
                 ResilienceFixtures.yamlCircuitBreakerConfig(), Channel.EMAIL, Channel.WEBHOOK);
 
         assertThatThrownBy(() -> new ChannelGateway(List.of(email, sms, webhook), withoutSms,
-                ResilienceFixtures.yamlBulkheads(), TOPOLOGY))
+                ResilienceFixtures.yamlBulkheads(), TOPOLOGY, metrics))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("circuit breaker")
                 .hasMessageContaining("sms");
@@ -206,7 +311,7 @@ class ChannelGatewayTest {
                 ResilienceFixtures.yamlBulkheadConfig(), Channel.EMAIL, Channel.SMS);
 
         assertThatThrownBy(() -> new ChannelGateway(List.of(email, sms, webhook), circuitBreakers,
-                withoutWebhook, TOPOLOGY))
+                withoutWebhook, TOPOLOGY, metrics))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("bulkhead")
                 .hasMessageContaining("webhook");
@@ -215,7 +320,7 @@ class ChannelGatewayTest {
     @Test
     void missingAdapterRefusesToStart() {
         assertThatThrownBy(() -> new ChannelGateway(List.of(email, sms), circuitBreakers,
-                ResilienceFixtures.yamlBulkheads(), TOPOLOGY))
+                ResilienceFixtures.yamlBulkheads(), TOPOLOGY, metrics))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("WEBHOOK");
     }
@@ -223,7 +328,7 @@ class ChannelGatewayTest {
     @Test
     void duplicateAdapterRefusesToStart() {
         assertThatThrownBy(() -> new ChannelGateway(List.of(email, sms, webhook, email), circuitBreakers,
-                ResilienceFixtures.yamlBulkheads(), TOPOLOGY))
+                ResilienceFixtures.yamlBulkheads(), TOPOLOGY, metrics))
                 .isInstanceOf(IllegalStateException.class);
     }
 
@@ -233,7 +338,7 @@ class ChannelGatewayTest {
                 ResilienceFixtures.circuitBreakerConfig(Duration.ofSeconds(6)), Channel.values());
 
         assertThatThrownBy(() -> new ChannelGateway(List.of(email, sms, webhook), sixSeconds,
-                ResilienceFixtures.yamlBulkheads(), TOPOLOGY))
+                ResilienceFixtures.yamlBulkheads(), TOPOLOGY, metrics))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("wait-duration-in-open-state")
                 .hasMessageContaining("email");
@@ -247,7 +352,7 @@ class ChannelGatewayTest {
         registry.circuitBreaker("webhook");
 
         assertThatThrownBy(() -> new ChannelGateway(List.of(email, sms, webhook), registry,
-                ResilienceFixtures.yamlBulkheads(), TOPOLOGY))
+                ResilienceFixtures.yamlBulkheads(), TOPOLOGY, metrics))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("sms");
     }
@@ -258,7 +363,7 @@ class ChannelGatewayTest {
                 ResilienceFixtures.circuitBreakerConfig(Duration.ofSeconds(5)), Channel.values());
 
         assertThatCode(() -> new ChannelGateway(List.of(email, sms, webhook), fiveSeconds,
-                ResilienceFixtures.yamlBulkheads(), TOPOLOGY))
+                ResilienceFixtures.yamlBulkheads(), TOPOLOGY, metrics))
                 .doesNotThrowAnyException();
     }
 }

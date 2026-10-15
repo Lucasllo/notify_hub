@@ -113,13 +113,13 @@ class DeliveryFlowTest {
                 new SimulatedChannelAdapter(Channel.WEBHOOK, instant, ThreadLocalRandom::current));
 
         // CB e bulkhead reais por canal, com a mesma configuração do application.yml
-        circuitBreakers = ResilienceFixtures.yamlCircuitBreakers();
-        bulkheads = ResilienceFixtures.yamlBulkheads();
-        ChannelGateway gateway = new ChannelGateway(adapters, circuitBreakers, bulkheads, TOPOLOGY);
-
         // métricas reais sobre um registry em memória (D-15)
         meters = new SimpleMeterRegistry();
         DeliveryMetrics metrics = new DeliveryMetrics(meters, TOPOLOGY, new FailureClassifier());
+
+        circuitBreakers = ResilienceFixtures.yamlCircuitBreakers();
+        bulkheads = ResilienceFixtures.yamlBulkheads();
+        ChannelGateway gateway = new ChannelGateway(adapters, circuitBreakers, bulkheads, TOPOLOGY, metrics);
 
         NotificationStateService state = new NotificationStateService(mongo, Duration.ofMinutes(5));
         DeliveryProcessor processor = new DeliveryProcessor(
@@ -545,6 +545,55 @@ class DeliveryFlowTest {
 
         MessageProperties props = applied(captureDlqPublish("email.dlq").postProcessor());
         assertThat((Object) props.getHeader("x-failure-class")).isEqualTo("TRANSIENT");
+    }
+
+    // ------------------------------------------------------------ métricas com gateway real (D-15)
+
+    @Test
+    void openCircuitBreakerCountsACircuitOpenRejectionAndAConfirmedRetry() {
+        circuitBreakers.find("email").orElseThrow().transitionToOpenState();
+
+        listeners.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), null, null);
+
+        assertThat(meters.get("notify.delivery.rejections").tags("channel", "email", "reason", "circuit_open")
+                .counter().count()).isEqualTo(1);
+        assertThat(outcomeCount("retrying", "transient")).isEqualTo(1);
+        assertThat(meters.get("notify.delivery.retries").tags("channel", "email", "level", "1")
+                .counter().count()).isEqualTo(1);
+        // recusa de ~0ms nunca entra no timer de envio
+        assertThat(meters.find("notify.delivery.duration").timers().stream().mapToLong(t -> t.count()).sum())
+                .isZero();
+    }
+
+    @Test
+    void alwaysTransientCountsOneRetryPerLevelAndOneDeadLettered() {
+        ChannelListeners failing = listenersWithEmailFailureRate(1.0);
+        NotificationMessage message = new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW);
+
+        for (int h = 0; h <= 3; h++) {
+            claimReturns(processingDoc("welcome", h, h));
+            failing.onEmail(message, h == 0 ? null : String.valueOf(h), null);
+        }
+
+        for (String level : List.of("1", "2", "3")) {
+            assertThat(meters.get("notify.delivery.retries").tags("channel", "email", "level", level)
+                    .counter().count()).as("level " + level).isEqualTo(1);
+        }
+        assertThat(outcomeCount("retrying", "transient")).isEqualTo(3);
+        assertThat(outcomeCount("dead_lettered", "transient")).isEqualTo(1);
+        assertThat(meters.get("notify.delivery.duration").tags("channel", "email", "outcome", "transient_failure")
+                .timer().count()).isEqualTo(4);
+    }
+
+    @Test
+    void alwaysPermanentCountsOneFailedPermanent() {
+        claimReturns(processingDoc("welcome", 0, 0, "always-permanent@fail.test"));
+
+        listeners.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), null, null);
+
+        assertThat(outcomeCount("failed", "permanent")).isEqualTo(1);
+        assertThat(meters.get("notify.delivery.duration").tags("channel", "email", "outcome", "permanent_failure")
+                .timer().count()).isEqualTo(1);
     }
 
     // ------------------------------------------------------------ circuit breaker e bulkhead (RES-01, D-05)

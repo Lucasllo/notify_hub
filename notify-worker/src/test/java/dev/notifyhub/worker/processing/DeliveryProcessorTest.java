@@ -37,6 +37,7 @@ import dev.notifyhub.worker.template.TemplateCatalog;
 import dev.notifyhub.worker.template.TemplateDocument;
 import dev.notifyhub.worker.template.TemplateNotFoundException;
 import dev.notifyhub.worker.template.TemplateRenderer;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.github.resilience4j.bulkhead.Bulkhead;
 import io.github.resilience4j.bulkhead.BulkheadFullException;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
@@ -69,7 +70,8 @@ class DeliveryProcessorTest {
     private final ChannelGateway gateway = mock(ChannelGateway.class);
     private final FailureClassifier classifier = new FailureClassifier();
     private final DeliveryRoutingPublisher publisher = mock(DeliveryRoutingPublisher.class);
-    private final DeliveryMetrics metrics = mock(DeliveryMetrics.class);
+    private final SimpleMeterRegistry meters = new SimpleMeterRegistry();
+    private final DeliveryMetrics metrics = new DeliveryMetrics(meters, TOPOLOGY, classifier);
     private final DeliveryProcessor processor =
             new DeliveryProcessor(state, catalog, renderer, gateway, classifier, publisher, TOPOLOGY, metrics);
 
@@ -121,7 +123,8 @@ class DeliveryProcessorTest {
 
         processor.process(Channel.EMAIL, emailMessage(), 0, false);
 
-        verify(metrics).sent(Channel.EMAIL);
+        assertThat(outcome("sent", "none")).isEqualTo(1);
+        assertThat(allResultCounters()).isEqualTo(1);
     }
 
     @Test
@@ -131,7 +134,7 @@ class DeliveryProcessorTest {
 
         processor.process(Channel.EMAIL, emailMessage(), 0, false);
 
-        verify(metrics, never()).sent(any());
+        assertThat(allResultCounters()).isZero();
     }
 
     @Test
@@ -404,6 +407,162 @@ class DeliveryProcessorTest {
         verify(gateway).send(eq(Channel.EMAIL), anyString(), any(), any());
         verify(gateway, never()).send(eq(Channel.SMS), anyString(), any(), any());
         verify(gateway, never()).send(eq(Channel.WEBHOOK), anyString(), any(), any());
+    }
+
+    // ------------------------------------------------------------ contadores nos pontos de resultado (D-15)
+
+    private double outcome(String outcome, String failureClass) {
+        return meters.get("notify.delivery.outcomes")
+                .tags("channel", "email", "outcome", outcome, "failure_class", failureClass)
+                .counter().count();
+    }
+
+    private double retries(int level) {
+        return meters.get("notify.delivery.retries")
+                .tags("channel", "email", "level", Integer.toString(level))
+                .counter().count();
+    }
+
+    /** Soma de todos os contadores de resultado e de retry, de todos os canais. */
+    private double allResultCounters() {
+        return meters.find("notify.delivery.outcomes").counters().stream().mapToDouble(c -> c.count()).sum()
+                + meters.find("notify.delivery.retries").counters().stream().mapToDouble(c -> c.count()).sum();
+    }
+
+    @Test
+    void confirmedRetryCountsRetryingAndTheTargetLevel() {
+        adapterFailsTransiently(0);
+        when(state.markRetrying(eq("n-1"), eq(0), any(), any())).thenReturn(true);
+        when(publisher.publishToRetry(any(), any(), anyInt(), any())).thenReturn(PublishOutcome.acked());
+
+        processor.process(Channel.EMAIL, emailMessage(), 0, false);
+
+        assertThat(outcome("retrying", "transient")).isEqualTo(1);
+        assertThat(retries(1)).isEqualTo(1);
+        assertThat(allResultCounters()).isEqualTo(2);
+    }
+
+    @Test
+    void retryFromLevelOneCountsTheSecondLevel() {
+        adapterFailsTransiently(1);
+        when(state.markRetrying(eq("n-1"), eq(1), any(), any())).thenReturn(true);
+        when(publisher.publishToRetry(any(), any(), anyInt(), any())).thenReturn(PublishOutcome.acked());
+
+        processor.process(Channel.EMAIL, emailMessage(), 1, false);
+
+        assertThat(retries(2)).isEqualTo(1);
+        assertThat(retries(1)).isZero();
+    }
+
+    @Test
+    void failedRepublishCountsDeadLetteredAndNoRetry() {
+        adapterFailsTransiently(0);
+        when(state.markRetrying(eq("n-1"), eq(0), any(), any())).thenReturn(true);
+        when(publisher.publishToRetry(any(), any(), anyInt(), any())).thenReturn(PublishOutcome.nacked("x"));
+        when(state.markDeadLetteredAfterRepublishFailure(eq("n-1"), eq(0), any())).thenReturn(true);
+        when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.acked());
+
+        processor.process(Channel.EMAIL, emailMessage(), 0, false);
+
+        assertThat(outcome("retrying", "transient")).isZero();
+        assertThat(retries(1)).isZero();
+        assertThat(outcome("dead_lettered", "transient")).isEqualTo(1);
+    }
+
+    @Test
+    void exhaustedLadderCountsDeadLettered() {
+        adapterFailsTransiently(3);
+        when(state.markDeadLettered(eq("n-1"), eq(3), any(), any())).thenReturn(true);
+        when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.acked());
+
+        processor.process(Channel.EMAIL, emailMessage(), 3, false);
+
+        assertThat(outcome("dead_lettered", "transient")).isEqualTo(1);
+        assertThat(allResultCounters()).isEqualTo(1);
+    }
+
+    @Test
+    void permanentFailureCountsFailedPermanent() {
+        when(state.claim("n-1", 0, false)).thenReturn(Optional.of(claimedEmail(0, 0)));
+        when(catalog.require("welcome")).thenThrow(TemplateNotFoundException.missing("welcome"));
+        when(state.markFailed(eq("n-1"), eq(0), any(), any())).thenReturn(true);
+        when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.acked());
+
+        processor.process(Channel.EMAIL, emailMessage(), 0, false);
+
+        assertThat(outcome("failed", "permanent")).isEqualTo(1);
+        assertThat(allResultCounters()).isEqualTo(1);
+    }
+
+    @Test
+    void unknownFailureCountsFailedUnknown() {
+        claimReturns(claimedEmail(0, 0));
+        doThrow(new IllegalStateException("boom")).when(gateway)
+                .send(eq(Channel.EMAIL), eq("ana@exemplo.com"), eq(RENDERED), any());
+        when(state.markFailed(eq("n-1"), eq(0), any(), any())).thenReturn(true);
+        when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.acked());
+
+        processor.process(Channel.EMAIL, emailMessage(), 0, false);
+
+        assertThat(outcome("failed", "unknown")).isEqualTo(1);
+        assertThat(outcome("failed", "permanent")).isZero();
+    }
+
+    @Test
+    void failedIsCountedEvenWhenTheDlqCopyFallsBackToReject() {
+        when(state.claim("n-1", 0, false)).thenReturn(Optional.of(claimedEmail(0, 0)));
+        when(catalog.require("welcome")).thenThrow(TemplateNotFoundException.missing("welcome"));
+        when(state.markFailed(eq("n-1"), eq(0), any(), any())).thenReturn(true);
+        when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.nacked("x"));
+
+        assertThatThrownBy(() -> processor.process(Channel.EMAIL, emailMessage(), 0, false))
+                .isInstanceOf(AmqpRejectAndDontRequeueException.class);
+
+        // a original chega à DLQ pelo reject: o documento é FAILED do mesmo jeito
+        assertThat(outcome("failed", "permanent")).isEqualTo(1);
+    }
+
+    @Test
+    void lostFenceOnRetryingCountsNothing() {
+        adapterFailsTransiently(0);
+        when(state.markRetrying(eq("n-1"), eq(0), any(), any())).thenReturn(false);
+
+        processor.process(Channel.EMAIL, emailMessage(), 0, false);
+
+        assertThat(allResultCounters()).isZero();
+    }
+
+    @Test
+    void lostFenceOnFailedCountsNothing() {
+        when(state.claim("n-1", 0, false)).thenReturn(Optional.of(claimedEmail(0, 0)));
+        when(catalog.require("welcome")).thenThrow(TemplateNotFoundException.missing("welcome"));
+        when(state.markFailed(eq("n-1"), eq(0), any(), any())).thenReturn(false);
+
+        processor.process(Channel.EMAIL, emailMessage(), 0, false);
+
+        assertThat(allResultCounters()).isZero();
+    }
+
+    @Test
+    void lostFenceOnDeadLetteredCountsNothing() {
+        adapterFailsTransiently(3);
+        when(state.markDeadLettered(eq("n-1"), eq(3), any(), any())).thenReturn(false);
+
+        processor.process(Channel.EMAIL, emailMessage(), 3, false);
+
+        assertThat(allResultCounters()).isZero();
+    }
+
+    @Test
+    void lostFenceAfterFailedRepublishCountsNothing() {
+        adapterFailsTransiently(0);
+        when(state.markRetrying(eq("n-1"), eq(0), any(), any())).thenReturn(true);
+        when(publisher.publishToRetry(any(), any(), anyInt(), any())).thenReturn(PublishOutcome.timeout());
+        when(state.markDeadLetteredAfterRepublishFailure(eq("n-1"), eq(0), any())).thenReturn(false);
+
+        processor.process(Channel.EMAIL, emailMessage(), 0, false);
+
+        assertThat(allResultCounters()).isZero();
     }
 
     // ------------------------------------------------------------ recusas de CB e bulkhead (D-05)
