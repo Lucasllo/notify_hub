@@ -6,6 +6,7 @@ import static org.springframework.data.mongodb.core.query.Query.query;
 import com.mongodb.client.result.UpdateResult;
 import dev.notifyhub.common.domain.NotificationStatus;
 import dev.notifyhub.common.persistence.AttemptEntry;
+import dev.notifyhub.common.persistence.LastError;
 import dev.notifyhub.common.persistence.NotificationDocument;
 import dev.notifyhub.common.persistence.NotificationDocument.Fields;
 import dev.notifyhub.common.persistence.RenderedContent;
@@ -31,9 +32,9 @@ import org.springframework.stereotype.Service;
  *       ({@link NotificationStatus#claimableForDelivery()}) e {@code retryCount ≤ h}. Duas entregas
  *       concorrentes da mesma mensagem produzem no máximo um claim, porque {@code findAndModify}
  *       num único documento é atômico.</li>
- *   <li><b>resultado</b>: {@code updateFirst} cercado por {@code status = PROCESSING} e
- *       {@code retryCount = h} exatos. Se outro worker reivindicou de novo no meio (fence perdido),
- *       nada é gravado.</li>
+ *   <li><b>resultado</b> (SENT ou FAILED): {@code updateFirst} cercado por
+ *       {@code status = PROCESSING} e {@code retryCount = h} exatos. Se outro worker reivindicou de
+ *       novo no meio (fence perdido), nada é gravado.</li>
  * </ul>
  */
 @Service
@@ -107,9 +108,49 @@ public class NotificationStateService {
         return true;
     }
 
-    /** Esqueleto (RED). */
-    public boolean markFailed(String id, int retryCount, AttemptEntry attempt,
-                              dev.notifyhub.common.persistence.LastError lastError) {
-        throw new UnsupportedOperationException("markFailed pendente");
+    /**
+     * Grava FAILED numa única atualização atômica (DLV-06): status, {@code lastError} e
+     * {@code updatedAt}; remove {@code leaseUntil}; incrementa {@code attemptCount} e acrescenta a
+     * tentativa ao fim de {@code attempts[]}, mantendo as últimas 50. {@code retryCount} não muda.
+     *
+     * @return {@code false} se o fence foi perdido; nada é gravado nesse caso
+     */
+    public boolean markFailed(String id, int retryCount, AttemptEntry attempt, LastError lastError) {
+        return recordFailure(id, retryCount, NotificationStatus.FAILED, attempt, lastError);
+    }
+
+    /**
+     * Molde dos resultados de falha a partir de PROCESSING (FAILED aqui; RETRYING e DEAD_LETTERED
+     * no 02-02): mesmo fence do {@link #markSent}, {@code $set} de status/lastError/updatedAt,
+     * {@code $unset} do lease, {@code $inc} de attemptCount e {@code $push} limitado da tentativa.
+     *
+     * @throws IllegalStateException se a tabela de transições não permitir PROCESSING → {@code target}
+     */
+    private boolean recordFailure(String id, int retryCount, NotificationStatus target, AttemptEntry attempt,
+                                  LastError lastError) {
+        NotificationStatus from = NotificationStatus.PROCESSING;
+        if (!from.canTransitionTo(target)) {
+            throw new IllegalStateException("transição não permitida: " + from + " -> " + target);
+        }
+        Instant now = Instant.now();
+        Query fence = query(where(Fields.ID).is(id)
+                .and(Fields.STATUS).is(from)
+                .and(Fields.RETRY_COUNT).is(retryCount));
+        Update failed = new Update()
+                .set(Fields.STATUS, target)
+                .set(Fields.LAST_ERROR, lastError)
+                .set(Fields.UPDATED_AT, now)
+                .unset(Fields.LEASE_UNTIL)
+                .inc(Fields.ATTEMPT_COUNT, 1);
+        // $slice exige $each: slice(...) antes de each(...) monta os dois modificadores do $push
+        failed.push(Fields.ATTEMPTS).slice(-50).each(attempt);
+
+        UpdateResult result = mongo.updateFirst(fence, failed, NotificationDocument.class);
+        if (result.getModifiedCount() == 0) {
+            log.warn("fence perdido: resultado {} não gravado id={} retryCount={} (reclaim concorrente)",
+                    target, id, retryCount);
+            return false;
+        }
+        return true;
     }
 }

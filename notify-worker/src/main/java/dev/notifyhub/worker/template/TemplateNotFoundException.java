@@ -1,15 +1,19 @@
 package dev.notifyhub.worker.template;
 
+import dev.notifyhub.worker.failure.ErrorCode;
+import dev.notifyhub.worker.failure.PermanentDeliveryException;
+
 /**
  * O template pedido não existe na coleção {@code templates}, ou existe sem variante para o canal.
- * A Fase 2 classifica esta falha como permanente; na Fase 1 qualquer exceção rejeita para a DLQ.
+ * Falha permanente ({@link ErrorCode#TEMPLATE_NOT_FOUND}): retry não faz o template aparecer, então
+ * a notificação vai direto para FAILED e para a DLQ do canal.
  */
-public class TemplateNotFoundException extends RuntimeException {
+public class TemplateNotFoundException extends PermanentDeliveryException {
 
     private final String templateCode;
 
     public TemplateNotFoundException(String templateCode, String message) {
-        super(message);
+        super(ErrorCode.TEMPLATE_NOT_FOUND, message);
         this.templateCode = templateCode;
     }
 
