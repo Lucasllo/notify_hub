@@ -106,4 +106,10 @@ public class NotificationStateService {
         }
         return true;
     }
+
+    /** Esqueleto (RED). */
+    public boolean markFailed(String id, int retryCount, AttemptEntry attempt,
+                              dev.notifyhub.common.persistence.LastError lastError) {
+        throw new UnsupportedOperationException("markFailed pendente");
+    }
 }

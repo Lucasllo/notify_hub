@@ -52,7 +52,9 @@ public class DeliveryProcessor {
      * @throws IllegalStateException se faltar adapter para algum canal ou houver dois para o mesmo
      */
     public DeliveryProcessor(NotificationStateService state, TemplateCatalog catalog,
-                             TemplateRenderer renderer, List<ChannelAdapter> adapters) {
+                             TemplateRenderer renderer, List<ChannelAdapter> adapters,
+                             dev.notifyhub.worker.failure.FailureClassifier classifier,
+                             dev.notifyhub.worker.messaging.DeliveryRoutingPublisher publisher) {
         this.state = state;
         this.catalog = catalog;
         this.renderer = renderer;

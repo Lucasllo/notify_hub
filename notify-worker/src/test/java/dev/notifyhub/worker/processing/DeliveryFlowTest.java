@@ -1,9 +1,14 @@
 package dev.notifyhub.worker.processing;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -16,7 +21,9 @@ import dev.notifyhub.common.persistence.NotificationDocument;
 import dev.notifyhub.worker.channel.ChannelAdapter;
 import dev.notifyhub.worker.channel.SimulatedChannelAdapter;
 import dev.notifyhub.worker.channel.SimulationProperties.ChannelSimulation;
+import dev.notifyhub.worker.failure.FailureClassifier;
 import dev.notifyhub.worker.listener.ChannelListeners;
+import dev.notifyhub.worker.messaging.DeliveryRoutingPublisher;
 import dev.notifyhub.worker.template.TemplateCatalog;
 import dev.notifyhub.worker.template.TemplateDocument;
 import dev.notifyhub.worker.template.TemplateRenderer;
@@ -30,6 +37,11 @@ import org.bson.Document;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.amqp.core.Message;
+import org.springframework.amqp.core.MessagePostProcessor;
+import org.springframework.amqp.core.MessageProperties;
+import org.springframework.amqp.rabbit.connection.CorrelationData;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.data.mongodb.core.FindAndModifyOptions;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Query;
@@ -37,13 +49,16 @@ import org.springframework.data.mongodb.core.query.UpdateDefinition;
 
 /**
  * Caminho inteiro do worker sem broker nem banco: listener EMAIL → claim → template do seed →
- * renderização → adapter simulado → SENT numa única atualização com a tentativa registrada.
+ * renderização → adapter simulado → resultado numa única atualização com a tentativa registrada.
+ * Na falha permanente, o resultado é FAILED e uma cópia confirmada vai para a DLQ do canal.
  */
 class DeliveryFlowTest {
 
     private static final Instant NOW = Instant.parse("2026-10-12T10:00:00Z");
 
     private final MongoTemplate mongo = mock(MongoTemplate.class);
+    private final RabbitTemplate rabbit = mock(RabbitTemplate.class);
+    private ChannelAdapter emailAdapter;
     private ChannelListeners listeners;
 
     @BeforeEach
@@ -54,35 +69,77 @@ class DeliveryFlowTest {
                 .orElseThrow();
         when(mongo.findById("welcome", TemplateDocument.class)).thenReturn(welcome);
 
-        NotificationDocument processing = new NotificationDocument(
-                "n-1", Channel.EMAIL, "ana@exemplo.com", "welcome", Map.of("name", "Ana"),
-                NotificationStatus.PROCESSING, 0, 0, null, null, List.of(),
-                NOW, NOW, NOW, NOW.plus(Duration.ofMinutes(5)), null);
-        when(mongo.findAndModify(any(Query.class), any(UpdateDefinition.class),
-                any(FindAndModifyOptions.class), eq(NotificationDocument.class)))
-                .thenReturn(processing);
+        claimReturns(processingDoc("welcome", 0));
         when(mongo.updateFirst(any(Query.class), any(UpdateDefinition.class), eq(NotificationDocument.class)))
                 .thenReturn(UpdateResult.acknowledged(1, 1L, null));
 
+        // o broker confirma toda publicação
+        doAnswer(invocation -> {
+            CorrelationData cd = invocation.getArgument(4);
+            cd.getFuture().complete(new CorrelationData.Confirm(true, null));
+            return null;
+        }).when(rabbit).convertAndSend(anyString(), anyString(), any(Object.class),
+                any(MessagePostProcessor.class), any(CorrelationData.class));
+
         ChannelSimulation instant = new ChannelSimulation(Duration.ZERO, Duration.ZERO, 0.0);
+        emailAdapter = spy(new SimulatedChannelAdapter(Channel.EMAIL, instant, ThreadLocalRandom::current));
         List<ChannelAdapter> adapters = List.of(
-                new SimulatedChannelAdapter(Channel.EMAIL, instant, ThreadLocalRandom::current),
+                emailAdapter,
                 new SimulatedChannelAdapter(Channel.SMS, instant, ThreadLocalRandom::current),
                 new SimulatedChannelAdapter(Channel.WEBHOOK, instant, ThreadLocalRandom::current));
 
         NotificationStateService state = new NotificationStateService(mongo, Duration.ofMinutes(5));
         DeliveryProcessor processor = new DeliveryProcessor(
-                state, new TemplateCatalog(mongo), new TemplateRenderer(), adapters);
+                state, new TemplateCatalog(mongo), new TemplateRenderer(), adapters,
+                new FailureClassifier(), new DeliveryRoutingPublisher(rabbit, Duration.ofSeconds(2)));
         listeners = new ChannelListeners(processor);
     }
+
+    private static NotificationDocument processingDoc(String templateCode, int retryCount) {
+        return new NotificationDocument(
+                "n-1", Channel.EMAIL, "ana@exemplo.com", templateCode, Map.of("name", "Ana"),
+                NotificationStatus.PROCESSING, retryCount, 0, null, null, List.of(),
+                NOW, NOW, NOW, NOW.plus(Duration.ofMinutes(5)), null);
+    }
+
+    private void claimReturns(NotificationDocument doc) {
+        when(mongo.findAndModify(any(Query.class), any(UpdateDefinition.class),
+                any(FindAndModifyOptions.class), eq(NotificationDocument.class)))
+                .thenReturn(doc);
+    }
+
+    private record Result(Query query, UpdateDefinition update) {
+    }
+
+    private Result captureResult() {
+        ArgumentCaptor<Query> query = ArgumentCaptor.forClass(Query.class);
+        ArgumentCaptor<UpdateDefinition> update = ArgumentCaptor.forClass(UpdateDefinition.class);
+        verify(mongo).updateFirst(query.capture(), update.capture(), eq(NotificationDocument.class));
+        return new Result(query.getValue(), update.getValue());
+    }
+
+    private record Published(Object body, MessagePostProcessor postProcessor, CorrelationData correlation) {
+    }
+
+    private Published captureDlqPublish(String routingKey) {
+        ArgumentCaptor<Object> body = ArgumentCaptor.forClass(Object.class);
+        ArgumentCaptor<MessagePostProcessor> mpp = ArgumentCaptor.forClass(MessagePostProcessor.class);
+        ArgumentCaptor<CorrelationData> cd = ArgumentCaptor.forClass(CorrelationData.class);
+        verify(rabbit).convertAndSend(eq("notify.dlx"), eq(routingKey), body.capture(), mpp.capture(), cd.capture());
+        return new Published(body.getValue(), mpp.getValue(), cd.getValue());
+    }
+
+    private static MessageProperties applied(MessagePostProcessor mpp) {
+        return mpp.postProcessMessage(new Message(new byte[0], new MessageProperties())).getMessageProperties();
+    }
+
+    // ------------------------------------------------------------ caminho feliz
 
     @Test
     void emailMessageEndsSentInASingleAtomicUpdateWithTheAttemptRecorded() {
         listeners.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), null);
 
-        ArgumentCaptor<UpdateDefinition> update = ArgumentCaptor.forClass(UpdateDefinition.class);
-        verify(mongo).updateFirst(any(Query.class), update.capture(), eq(NotificationDocument.class));
-        Document bson = MongoBson.update(update.getValue());
+        Document bson = MongoBson.update(captureResult().update());
 
         Document set = bson.get("$set", Document.class);
         assertThat(set.get("status")).isEqualTo("SENT");
@@ -111,5 +168,83 @@ class DeliveryFlowTest {
 
         assertThat(filter.get("_id")).isEqualTo("n-1");
         assertThat(filter.get("retryCount", Document.class).get("$lte")).isEqualTo(0);
+    }
+
+    // ------------------------------------------------------------ falha permanente
+
+    @Test
+    void missingTemplateEndsWithoutExceptionAndNeverCallsTheAdapter() {
+        claimReturns(processingDoc("nao-existe", 0));
+        assertThat(mongo.findById("nao-existe", TemplateDocument.class)).isNull();
+
+        assertThatCode(() -> listeners.onEmail(
+                new NotificationMessage("n-1", Channel.EMAIL, "nao-existe", NOW), null))
+                .doesNotThrowAnyException();
+
+        verify(emailAdapter, never()).send(anyString(), any());
+    }
+
+    @Test
+    void missingTemplateIsWrittenAsFailedInOneFencedUpdateWithTheAttempt() {
+        claimReturns(processingDoc("nao-existe", 0));
+
+        listeners.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "nao-existe", NOW), null);
+
+        Result result = captureResult();
+        assertThat(MongoBson.query(result.query())).isEqualTo(new Document("_id", "n-1")
+                .append("status", "PROCESSING")
+                .append("retryCount", 0));
+
+        Document bson = MongoBson.update(result.update());
+        Document set = bson.get("$set", Document.class);
+        assertThat(set.get("status")).isEqualTo("FAILED");
+        Document lastError = set.get("lastError", Document.class);
+        assertThat(lastError.getString("code")).isEqualTo("TEMPLATE_NOT_FOUND");
+        assertThat(lastError.get("failureClass")).isEqualTo("PERMANENT");
+        assertThat(bson.get("$unset", Document.class).keySet()).contains("leaseUntil");
+        assertThat(bson.get("$inc", Document.class).get("attemptCount")).isEqualTo(1);
+
+        Document push = bson.get("$push", Document.class).get("attempts", Document.class);
+        assertThat(push.get("$slice")).isEqualTo(-50);
+        List<?> each = push.get("$each", List.class);
+        assertThat(each).hasSize(1);
+        Document attempt = (Document) each.get(0);
+        assertThat(attempt.get("number")).isEqualTo(1);
+        assertThat(attempt.get("retryLevel")).isEqualTo(0);
+        assertThat(attempt.get("outcome")).isEqualTo("PERMANENT_FAILURE");
+        assertThat(attempt.get("errorCode")).isEqualTo("TEMPLATE_NOT_FOUND");
+        assertThat(attempt.get("failureClass")).isEqualTo("PERMANENT");
+        assertThat(((Number) attempt.get("durationMs")).longValue()).isZero();
+    }
+
+    @Test
+    void missingTemplateSendsAConfirmedCopyToTheChannelDlqWithTheFailureClass() {
+        claimReturns(processingDoc("nao-existe", 0));
+        NotificationMessage message = new NotificationMessage("n-1", Channel.EMAIL, "nao-existe", NOW);
+
+        listeners.onEmail(message, null);
+
+        Published published = captureDlqPublish("email.dlq");
+        assertThat(published.body()).isEqualTo(message);
+        MessageProperties props = applied(published.postProcessor());
+        assertThat(props.getMessageId()).isEqualTo("n-1");
+        assertThat((Object) props.getHeader("x-failure-class")).isEqualTo("PERMANENT");
+        assertThat((Object) props.getHeader("notify-retry-count")).isEqualTo(0);
+        assertThat(published.correlation().getId()).isNotEqualTo("n-1");
+    }
+
+    @Test
+    void retryLevelFromTheHeaderIsRecordedInTheAttemptAndCarriedToTheDlqCopy() {
+        claimReturns(processingDoc("nao-existe", 2));
+
+        listeners.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "nao-existe", NOW), "2");
+
+        Document bson = MongoBson.update(captureResult().update());
+        Document attempt = (Document) bson.get("$push", Document.class)
+                .get("attempts", Document.class).get("$each", List.class).get(0);
+        assertThat(attempt.get("retryLevel")).isEqualTo(2);
+
+        MessageProperties props = applied(captureDlqPublish("email.dlq").postProcessor());
+        assertThat((Object) props.getHeader("notify-retry-count")).isEqualTo(2);
     }
 }
