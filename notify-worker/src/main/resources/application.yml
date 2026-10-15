@@ -4,6 +4,9 @@ server:
 spring:
   application:
     name: notify-worker
+  autoconfigure:
+    # O worker renderiza strings do Mongo com JMustache; não usa view Mustache do MVC
+    exclude: org.springframework.boot.autoconfigure.mustache.MustacheAutoConfiguration
   threads:
     virtual:
       # Listeners, @Async e Tomcat em virtual threads (WRK-05). O benchmark da Fase 4 só muda isto.
@@ -21,6 +24,10 @@ spring:
     publisher-returns: true
     template:
       mandatory: true
+    cache:
+      channel:
+        # Publicações confirmadas concorrentes dos 30 consumidores (RESEARCH Armadilha 10)
+        size: 50
     listener:
       simple:
         # Iniciado pelo runner depois dos índices e do seed (Armadilha 1)
@@ -51,6 +58,8 @@ notify:
         concurrency: 10
     # Lease gravado no claim; a recuperação de PROCESSING preso é da Fase 2 (WRK-03)
     lease: 5m
+    # Espera máxima do confirm de retry/DLQ dentro do listener; estourou = falha da publicação
+    confirm-timeout: 5s
   simulation:
     email:
       latency-min: 50ms
