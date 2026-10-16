@@ -70,7 +70,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. Com taxa de falha alta, o circuit breaker do canal abre durante a demo e o bulkhead recusa o excesso de concorrência, e em ambos os casos a notificação vira RETRYING (transitória), nunca FAILED; o `/actuator/prometheus` do worker mostra contadores por canal de enviadas, falhas e retries e o timer de latência de envio
   5. O e-mail sai com HTML escapado, o SMS sem escape HTML e o webhook com JSON válido mesmo quando as variáveis contêm aspas; `./mvnw test` roda os testes unitários do renderizador sem precisar de Docker
 
-**Plans**: 6/7 plans executed
+**Plans**: 7/7 plans executed
 **Wave 1**
 
 - [x] 02-01-PLAN.md — falha permanente/desconhecida → FAILED + cópia confirmada na DLQ com `x-failure-class` (classificador, publicador do worker)
@@ -94,7 +94,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 6** *(blocked on Wave 5 completion)*
 
-- [ ] 02-07-PLAN.md — smoke da fase com Docker (critérios 1-5, worker derrubado antes do ack, regressão da Fase 1)
+- [x] 02-07-PLAN.md — smoke da fase com Docker (critérios 1-5, worker derrubado antes do ack, regressão da Fase 1)
 
 **Notas de pesquisa**: fase sinalizada para pesquisa. Dimensionar circuit breaker e bulkhead em relação à concorrência do listener e à escada de delay (janela, mínimo de chamadas, tempo de abertura não maior que o primeiro nível); decidir se `CallNotPermitted` consome um nível; confirmar com teste o comportamento de DLX/`x-death` no RabbitMQ 4.3. Os destinatários mágicos (DLV-02) são pré-requisito dos ITs da Fase 3; os contadores entram nos pontos de resultado conforme cada resultado é construído.
 
@@ -139,6 +139,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Entrega ponta a ponta no caminho feliz | 7/7 | Complete    | 2026-10-13 |
-| 2. Falhas, retry com backoff e resiliência | 6/7 | In Progress|  |
+| 2. Falhas, retry com backoff e resiliência | 7/7 | In Progress|  |
 | 3. Reprocessamento, API operacional e testes de integração | 0/TBD | Not started | - |
 | 4. Observabilidade, demo e documentação | 0/TBD | Not started | - |
