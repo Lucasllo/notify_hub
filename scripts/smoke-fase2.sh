@@ -8,7 +8,12 @@
 #     com 4 tentativas e cópia na DLQ com x-failure-class: TRANSIENT;
 #   - critério 2: falhas permanentes (always-permanent, template inexistente, variável obrigatória
 #     faltando) vão direto para FAILED com 1 tentativa e cópia na DLQ com x-failure-class: PERMANENT;
-#   - critério 5: webhook com aspas e barra invertida nas variáveis chega a SENT (JSON válido).
+#   - critério 5: webhook com aspas e barra invertida nas variáveis chega a SENT (JSON válido);
+#   - critério 3: fail-2-then-ok chega a SENT na 3ª tentativa (nível 2), e um worker derrubado à força
+#     antes do ack retoma a reentrega sem envio duplicado (WRK-03, D-12);
+#   - critério 4: rajada de always-transient abre o circuit breaker do webhook e o bulkhead do SMS
+#     recusa o excesso, sem nenhuma notificação FAILED; /actuator/prometheus expõe as séries do D-15
+#     e do Resilience4j; os logs do worker não têm erro de topologia nem aviso do Mustache do MVC.
 #
 # Uso (a partir de qualquer diretório; o script faz cd para a raiz do repositório):
 #   bash scripts/smoke-fase2.sh [--sem-build]
@@ -72,6 +77,46 @@ exige_contagem() {
 exige_texto() {
   local id=$1 texto=$2
   grep -qF -- "$texto" <<<"$NOTIFICACAO" || falhou "GET de $id não contém $texto: $NOTIFICACAO"
+}
+
+# Faz polling até todas as notificações dadas chegarem a <status> (timeout em segundos). Falha na hora
+# se alguma virar FAILED. Deixa em ULTIMOS_GETS os corpos finais, um por linha.
+esperar_todas() {
+  local esperado=$1 timeout=$2
+  shift 2
+  local limite=$((SECONDS + timeout))
+  local pendentes=("$@") restantes id corpo
+  ULTIMOS_GETS=""
+  while ((${#pendentes[@]} > 0)); do
+    restantes=()
+    for id in "${pendentes[@]}"; do
+      corpo=$(get_notificacao "$id")
+      if grep -qF "\"status\":\"$esperado\"" <<<"$corpo"; then
+        ULTIMOS_GETS+="$corpo"$'\n'
+      elif grep -qF '"status":"FAILED"' <<<"$corpo"; then
+        falhou "$id terminou FAILED (esperado $esperado): $corpo"
+      else
+        restantes+=("$id")
+      fi
+    done
+    pendentes=("${restantes[@]}")
+    ((${#pendentes[@]} == 0)) && break
+    ((SECONDS < limite)) \
+      || falhou "${#pendentes[@]} notificação(ões) não chegaram a $esperado em ${timeout}s: ${pendentes[*]}"
+    sleep 1
+  done
+}
+
+# Faz polling até a métrica (linha exata do scrape do worker) ficar maior que zero (timeout em s).
+esperar_metrica_positiva() {
+  local linha=$1 timeout=$2
+  local limite=$((SECONDS + timeout)) valor=0
+  while ((SECONDS < limite)); do
+    valor=$(valor_metrica "$linha")
+    maior_que_zero "$valor" && { METRICA_VALOR=$valor; return 0; }
+    sleep 1
+  done
+  falhou "$linha continua em $valor depois de ${timeout}s"
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -185,9 +230,144 @@ esperar_status "$ASPAS_ID" SENT 15
 ok "WEBHOOK com aspas e barra invertida ($ASPAS_ID) chegou a SENT (corpo JSON válido)"
 
 # ---------------------------------------------------------------------------------------------
+# 7. Critério 3a: fail-2-then-ok se recupera na 3ª tentativa, no nível 2 (D-02)
+# ---------------------------------------------------------------------------------------------
+postar_202 "EMAIL fail-2-then-ok" \
+  '{"channel":"EMAIL","recipient":"fail-2-then-ok@fail.test","templateCode":"welcome","variables":{"name":"Ana"}}'
+RECUPERA_ID=$ULTIMO_ID
+esperar_status "$RECUPERA_ID" SENT 30
+exige_contagem "$RECUPERA_ID" '"number":' 3
+exige_contagem "$RECUPERA_ID" '"errorCode":"SIMULATED_TRANSIENT"' 2
+# Campos na ordem do AttemptView: number, retryLevel, timestamp, durationMs, outcome
+grep -qE '"number":3,"retryLevel":2,"timestamp":"[^"]*","durationMs":[0-9]+,"outcome":"SUCCESS"' <<<"$NOTIFICACAO" \
+  || falhou "a 3ª tentativa de $RECUPERA_ID não é SUCCESS no retryLevel 2: $NOTIFICACAO"
+ok "fail-2-then-ok ($RECUPERA_ID): SENT com 3 tentativas, 2 SIMULATED_TRANSIENT e a última SUCCESS no nível 2"
+
+# ---------------------------------------------------------------------------------------------
+# 8. Critério 3b: worker derrubado antes do ack retoma sem envio duplicado (WRK-03, D-09, D-12)
+# ---------------------------------------------------------------------------------------------
+parar_processo "$WORKER_PID" "notify-worker"
+WORKER_PID=""
+info "subindo notify-worker com latência de webhook 8s (log em target/smoke/fase2-worker-2.log)"
+iniciar_worker "$SMOKE_DIR/fase2-worker-2.log" \
+  --notify.simulation.webhook.latency-min=8s --notify.simulation.webhook.latency-max=8s
+
+postar_202 "WEBHOOK com latência de 8s" \
+  '{"channel":"WEBHOOK","recipient":"https://example.test/hooks/notify","templateCode":"password-reset","variables":{"name":"Ana","resetCode":"123456"}}'
+KILL_ID=$ULTIMO_ID
+esperar_status "$KILL_ID" PROCESSING 10
+ok "WEBHOOK $KILL_ID em PROCESSING (adapter dentro dos 8s de latência)"
+matar_abruptamente "$WORKER_PID" "notify-worker"
+WORKER_PID=""
+status_depois_kill=$(get_notificacao "$KILL_ID" | grep -o '"status":"[A-Z_]*"' | head -n 1 | cut -d'"' -f4 || true)
+[ "$status_depois_kill" = "PROCESSING" ] \
+  || falhou "$KILL_ID deveria continuar PROCESSING depois do kill (veio ${status_depois_kill:-nada}): o ack saiu antes?"
+ok "worker derrubado com $KILL_ID ainda PROCESSING (mensagem sem ack volta para a fila)"
+
+info "subindo notify-worker com a latência padrão (log em target/smoke/fase2-worker-3.log)"
+iniciar_worker "$SMOKE_DIR/fase2-worker-3.log"
+esperar_status "$KILL_ID" SENT 30
+exige_contagem "$KILL_ID" '"number":' 1
+exige_texto "$KILL_ID" '"outcome":"SUCCESS"'
+entregas_2=$(grep -cF "Notificação entregue id=$KILL_ID" "$SMOKE_DIR/fase2-worker-2.log" || true)
+entregas_3=$(grep -cF "Notificação entregue id=$KILL_ID" "$SMOKE_DIR/fase2-worker-3.log" || true)
+[ $(( ${entregas_2:-0} + ${entregas_3:-0} )) -eq 1 ] \
+  || falhou "logs dos workers 2 e 3 somam $(( ${entregas_2:-0} + ${entregas_3:-0} )) linhas 'Notificação entregue id=$KILL_ID' (esperado 1)"
+grep -qF "reentrega retomada id=$KILL_ID" "$SMOKE_DIR/fase2-worker-3.log" \
+  || falhou "fase2-worker-3.log não registrou 'reentrega retomada id=$KILL_ID'"
+ok "$KILL_ID retomado (redelivered) e SENT com 1 tentativa SUCCESS; uma única linha 'Notificação entregue' nos dois logs"
+
+# ---------------------------------------------------------------------------------------------
+# 9. Critério 4a: rajada de always-transient abre o circuit breaker do webhook (D-04, D-05, D-06)
+# ---------------------------------------------------------------------------------------------
+CB_IDS=()
+for i in $(seq 1 20); do
+  postar_202 "WEBHOOK always-transient #$i" \
+    '{"channel":"WEBHOOK","recipient":"https://fail.test/always-transient","templateCode":"password-reset","variables":{"name":"Ana","resetCode":"123456"}}'
+  CB_IDS+=("$ULTIMO_ID")
+done
+ok "20 WEBHOOK para https://fail.test/always-transient aceitos (202)"
+
+esperar_metrica_positiva 'notify_delivery_rejections_total{channel="webhook",reason="circuit_open"}' 20
+ok "notify_delivery_rejections_total{channel=\"webhook\",reason=\"circuit_open\"} = $METRICA_VALOR"
+
+esperar_todas DEAD_LETTERED 90 "${CB_IDS[@]}"
+grep -qF '"errorCode":"CIRCUIT_OPEN"' <<<"$ULTIMOS_GETS" \
+  || falhou "nenhuma das 20 notificações da rajada tem tentativa CIRCUIT_OPEN"
+cb_recusas=$(contar '"errorCode":"CIRCUIT_OPEN"' "$ULTIMOS_GETS")
+ok "as 20 da rajada terminaram DEAD_LETTERED, nenhuma FAILED; $cb_recusas tentativa(s) CIRCUIT_OPEN"
+
+NORMAIS_IDS=()
+for i in 1 2 3 4 5; do
+  postar_202 "WEBHOOK comum #$i" \
+    '{"channel":"WEBHOOK","recipient":"https://example.test/hooks/notify","templateCode":"password-reset","variables":{"name":"Ana","resetCode":"123456"}}'
+  NORMAIS_IDS+=("$ULTIMO_ID")
+done
+esperar_todas SENT 45 "${NORMAIS_IDS[@]}"
+ok "5 WEBHOOK comuns enviados depois da rajada chegaram a SENT, nenhum FAILED"
+
+# ---------------------------------------------------------------------------------------------
+# 10. Critério 4b: bulkhead do SMS recusa o excesso sem nenhum FAILED (D-07, D-08)
+# ---------------------------------------------------------------------------------------------
+parar_processo "$WORKER_PID" "notify-worker"
+WORKER_PID=""
+info "subindo notify-worker com bulkhead 2 e latência de SMS 1s (log em target/smoke/fase2-worker-4.log)"
+export NOTIFY_BULKHEAD_MAX_CONCURRENT=2
+iniciar_worker "$SMOKE_DIR/fase2-worker-4.log" \
+  --notify.simulation.sms.latency-min=1s --notify.simulation.sms.latency-max=1s
+unset NOTIFY_BULKHEAD_MAX_CONCURRENT
+
+BH_IDS=()
+for i in 1 2 3 4 5 6; do
+  postar_202 "SMS order-shipped #$i" \
+    '{"channel":"SMS","recipient":"+5511999998888","templateCode":"order-shipped","variables":{"name":"Ana","orderId":"PED-1"}}'
+  BH_IDS+=("$ULTIMO_ID")
+done
+esperar_todas SENT 45 "${BH_IDS[@]}"
+grep -qF '"errorCode":"BULKHEAD_FULL"' <<<"$ULTIMOS_GETS" \
+  || falhou "nenhum dos 6 SMS tem tentativa BULKHEAD_FULL"
+bh_recusas=$(contar '"errorCode":"BULKHEAD_FULL"' "$ULTIMOS_GETS")
+bh_metrica=$(valor_metrica 'notify_delivery_rejections_total{channel="sms",reason="bulkhead_full"}')
+maior_que_zero "$bh_metrica" \
+  || falhou "notify_delivery_rejections_total{channel=\"sms\",reason=\"bulkhead_full\"} = $bh_metrica (esperado > 0)"
+ok "6 SMS SENT, nenhum FAILED; $bh_recusas tentativa(s) BULKHEAD_FULL e rejections{sms,bulkhead_full} = $bh_metrica"
+
+parar_processo "$WORKER_PID" "notify-worker"
+WORKER_PID=""
+info "subindo notify-worker com os padrões do profile demo (log em target/smoke/fase2-worker-5.log)"
+iniciar_worker "$SMOKE_DIR/fase2-worker-5.log"
+
+# ---------------------------------------------------------------------------------------------
+# 11. Métricas no /actuator/prometheus do worker (D-15, OBS-01)
+# ---------------------------------------------------------------------------------------------
+outcomes=$(metrica '^notify_delivery_outcomes_total\{' | sort -u | wc -l | tr -d ' ')
+[ "$outcomes" = "15" ] || falhou "o scrape do worker tem $outcomes séries notify_delivery_outcomes_total (esperado 15)"
+for nivel in 1 2 3; do
+  [ -n "$(metrica "^notify_delivery_retries_total\\{.*level=\"$nivel\"")" ] \
+    || falhou "o scrape do worker não tem notify_delivery_retries_total com level=\"$nivel\""
+done
+for serie in notify_delivery_duration_seconds_bucket notify_delivery_rejections_total \
+  resilience4j_circuitbreaker_state resilience4j_bulkhead_available_concurrent_calls; do
+  [ -n "$(metrica "^$serie\\{")" ] || falhou "o scrape do worker não tem $serie"
+done
+ok "$WORKER_URL/actuator/prometheus: 15 séries de outcomes, retries nos níveis 1/2/3, histograma de duração, rejections, estado do CB e bulkhead"
+
+# ---------------------------------------------------------------------------------------------
+# 12. Logs dos workers
+# ---------------------------------------------------------------------------------------------
+for log in "$SMOKE_DIR"/fase2-worker-*.log; do
+  for proibido in 'Consumer failed to start' 'PRECONDITION_FAILED' 'Cannot find template location'; do
+    if grep -qF "$proibido" "$log"; then
+      falhou "$(basename "$log") contém '$proibido'"
+    fi
+  done
+done
+ok "logs fase2-worker-*.log sem 'Consumer failed to start', PRECONDITION_FAILED nem aviso de template location"
+
+# ---------------------------------------------------------------------------------------------
 # Fim
 # ---------------------------------------------------------------------------------------------
-info "notificações criadas: always-transient $TRANSIENT_ID, webhook com aspas $ASPAS_ID"
+info "notificações criadas: always-transient $TRANSIENT_ID, webhook com aspas $ASPAS_ID, fail-2-then-ok $RECUPERA_ID, retomada $KILL_ID"
 
 # Encerra as apps antes da linha final, para que "SMOKE FASE 2: OK" seja a última linha da saída.
 # A infra continua no ar para inspeção.
