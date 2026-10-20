@@ -2,17 +2,17 @@
 gsd_state_version: "1.0"
 current_phase: 02
 current_phase_name: Falhas, retry com backoff e resiliência
-status: executing
-stopped_at: Completed 02-07-PLAN.md
-last_updated: "2026-10-20T23:01:24.832Z"
+status: verifying
+stopped_at: Completed 02-08-PLAN.md
+last_updated: "2026-10-20T23:38:11.660Z"
 last_activity: 2026-10-15
 last_activity_desc: Phase 02 execution started
-state_head: 6fb62e660bdb8dcda8e2f76b65659253bb733c27
+state_head: 287ef65713c6d1a5ea349522c03bcd4dcaa0703f
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 15
-  completed_plans: 14
+  completed_plans: 15
   percent: 25
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-13)
 
 Phase: 02 (Falhas, retry com backoff e resiliência) — READY TO EXECUTE
 Plan: 7 of 7
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-10-15 — Phase 02 execution started
 
 Progress: [███░░░░░░░] 25%
@@ -70,6 +70,7 @@ Progress: [███░░░░░░░] 25%
 | Phase 02 P05 | 12min | 2 tasks | 14 files |
 | Phase 02 P06 | 10min | 2 tasks | 10 files |
 | Phase 02 P07 | 15min | 2 tasks | 2 files |
+| Phase 02 P08 | 11min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -111,6 +112,9 @@ Recent decisions affecting current work:
 - [Phase 02]: 02-06: failed e deadLettered contam depois do fence e antes da cópia na DLQ (reject leva a original à DLQ do mesmo jeito); retrying só depois do confirm, com nível h+1 validado em 1..N
 - [Phase 02]: 02-06: timer notify.delivery.duration por dentro de bulkhead e CB, em volta só do adapter; CallNotPermitted/BulkheadFull incrementam notify.delivery.rejections e são relançadas
 - [Phase 02]: Smoke da Fase 2 (02-07): helpers compartilhados em scripts/smoke-lib.sh; DLQ lida inteira com ack_requeue_true (volumes nunca apagados); worker pronto só com health UP + 'Listeners iniciados'
+- [Phase 02]: 02-08: RetryPolicy testa h >= N antes do +1; RetryHeaders sem teto (teto recriaria o CR-01), header 2147483647 termina DEAD_LETTERED com cópia TRANSIENT
+- [Phase 02]: 02-08: WR-01 fechado com advanceRetryLevel (RETRYING h -> retryCount h+1, fence RETRYING + retryCount = h) entre o confirm e o ack; falha ou fence perdido no avanço só gera log, nunca DLQ; filtro do claim e markRetrying inalterados
+- [Phase 02]: 02-08: CR-01 adiado para a Fase 3 (deferred-items.md); o reprocessamento precisa aceitar PENDING/RETRYING/PROCESSING com a mensagem na DLQ ou criar um sweeper de lease (WR-08)
 
 ### Pending Todos
 
@@ -135,6 +139,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-16T00:13:40.726Z
-Stopped at: Completed 02-07-PLAN.md
+Last session: 2026-10-20T23:38:11.542Z
+Stopped at: Completed 02-08-PLAN.md
 Resume file: None

@@ -70,11 +70,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. Com taxa de falha alta, o circuit breaker do canal abre durante a demo e o bulkhead recusa o excesso de concorrência, e em ambos os casos a notificação vira RETRYING (transitória), nunca FAILED; o `/actuator/prometheus` do worker mostra contadores por canal de enviadas, falhas e retries e o timer de latência de envio
   5. O e-mail sai com HTML escapado, o SMS sem escape HTML e o webhook com JSON válido mesmo quando as variáveis contêm aspas; `./mvnw test` roda os testes unitários do renderizador sem precisar de Docker
 
-**Plans**: 7/8 plans executed
+**Plans**: 8/8 plans executed
 **Wave 1**
 
 - [x] 02-01-PLAN.md — falha permanente/desconhecida → FAILED + cópia confirmada na DLQ com `x-failure-class` (classificador, publicador do worker)
-- [ ] 02-08-PLAN.md — gap closure WR-02/WR-01: `notify-retry-count` = 2147483647 termina DEAD_LETTERED sem overflow; cópia reentregue do nível h depois do token h+1 confirmado é descartada (fence avançado); CR-01 registrado para a Fase 3
+- [x] 02-08-PLAN.md — gap closure WR-02/WR-01: `notify-retry-count` = 2147483647 termina DEAD_LETTERED sem overflow; cópia reentregue do nível h depois do token h+1 confirmado é descartada (fence avançado); CR-01 registrado para a Fase 3
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -140,6 +140,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Entrega ponta a ponta no caminho feliz | 7/7 | Complete    | 2026-10-13 |
-| 2. Falhas, retry com backoff e resiliência | 7/7 | In Progress|  |
+| 2. Falhas, retry com backoff e resiliência | 8/8 | In Progress|  |
 | 3. Reprocessamento, API operacional e testes de integração | 0/TBD | Not started | - |
 | 4. Observabilidade, demo e documentação | 0/TBD | Not started | - |

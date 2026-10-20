@@ -35,7 +35,7 @@
 
 - [x] **WRK-01**: O worker consome uma fila por canal (um container de listener por canal), com `default-requeue-rejected=false`, retry interno do Spring desativado e prefetch baixo
 - [x] **WRK-02**: O worker reivindica cada mensagem com um `findAndModify` condicional (PENDING/RETRYING → PROCESSING, cercado pelo contador de tentativas). Mensagens duplicadas ou obsoletas são descartadas sem novo envio
-- [ ] **WRK-03**: Notificações presas em PROCESSING (ex.: worker morreu antes do ack) são recuperáveis na redelivery, via flag `redelivered` ou lease expirado
+- [x] **WRK-03**: Notificações presas em PROCESSING (ex.: worker morreu antes do ack) são recuperáveis na redelivery, via flag `redelivered` ou lease expirado
 - [x] **WRK-04**: Cada resultado (SENT, RETRYING, FAILED, DEAD_LETTERED) é gravado numa única atualização atômica (`$set` status + `$push` tentativa com timestamp, duração, erro e classe da falha)
 - [x] **WRK-05**: Virtual threads estão habilitadas no worker (`spring.threads.virtual.enabled=true`), com concorrência de listener configurável
 
@@ -50,8 +50,8 @@
 - [x] **DLV-01**: Há um adapter simulado por canal, com latência bloqueante e taxa de falha aleatória configuráveis
 - [ ] **DLV-02**: Destinatários "mágicos" injetam falhas determinísticas: sempre transitória, sempre permanente e "falha N vezes e depois sucede"
 - [ ] **DLV-03**: Um classificador exaustivo separa falhas transitórias (timeout/5xx simulado, circuit breaker aberto, bulkhead cheio, timeout do Mongo) de permanentes (destinatário inválido, template ausente, variável faltando). Exceção desconhecida vai para a DLQ
-- [ ] **DLV-04**: Uma falha transitória com níveis restantes é republicada na fila de delay do próximo nível com o header `notify-retry-count` (sem depender de `x-death`), aguardando confirm antes do ack da original. O status vira RETRYING
-- [ ] **DLV-05**: Quando os retries se esgotam, o status vira DEAD_LETTERED e a mensagem é rejeitada para a DLQ
+- [x] **DLV-04**: Uma falha transitória com níveis restantes é republicada na fila de delay do próximo nível com o header `notify-retry-count` (sem depender de `x-death`), aguardando confirm antes do ack da original. O status vira RETRYING
+- [x] **DLV-05**: Quando os retries se esgotam, o status vira DEAD_LETTERED e a mensagem é rejeitada para a DLQ
 - [ ] **DLV-06**: Uma falha permanente marca FAILED sem gastar retries e a mensagem é rejeitada para a DLQ com o header `x-failure-class: PERMANENT`
 
 ### Resiliência (RES)
@@ -145,7 +145,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | API-08 | Phase 3 | Pending |
 | WRK-01 | Phase 1 | Complete |
 | WRK-02 | Phase 1 | Complete |
-| WRK-03 | Phase 2 | Gaps Found |
+| WRK-03 | Phase 2 | Complete |
 | WRK-04 | Phase 1 | Complete |
 | WRK-05 | Phase 1 | Complete |
 | TPL-01 | Phase 1 | Complete |
@@ -154,8 +154,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DLV-01 | Phase 1 | Complete |
 | DLV-02 | Phase 2 | Gaps Found |
 | DLV-03 | Phase 2 | Gaps Found |
-| DLV-04 | Phase 2 | Gaps Found |
-| DLV-05 | Phase 2 | Gaps Found |
+| DLV-04 | Phase 2 | Complete |
+| DLV-05 | Phase 2 | Complete |
 | DLV-06 | Phase 2 | Gaps Found |
 | RES-01 | Phase 2 | Gaps Found |
 | RES-02 | Phase 2 | Gaps Found |
