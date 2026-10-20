@@ -53,6 +53,7 @@ import org.springframework.amqp.core.MessagePostProcessor;
 import org.springframework.amqp.core.MessageProperties;
 import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.data.mongodb.core.FindAndModifyOptions;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Query;
@@ -159,6 +160,30 @@ class DeliveryFlowTest {
         ArgumentCaptor<UpdateDefinition> update = ArgumentCaptor.forClass(UpdateDefinition.class);
         verify(mongo).updateFirst(query.capture(), update.capture(), eq(NotificationDocument.class));
         return new Result(query.getValue(), update.getValue());
+    }
+
+    /**
+     * Entrega transitória com nível restante: exatamente dois {@code updateFirst}, o resultado
+     * RETRYING e o avanço do fence depois do confirm (WR-01). Valida o avanço e devolve o resultado.
+     */
+    private Result captureRetryResult(int retryCount) {
+        ArgumentCaptor<Query> query = ArgumentCaptor.forClass(Query.class);
+        ArgumentCaptor<UpdateDefinition> update = ArgumentCaptor.forClass(UpdateDefinition.class);
+        verify(mongo, times(2)).updateFirst(query.capture(), update.capture(), eq(NotificationDocument.class));
+        assertAdvance(new Result(query.getAllValues().get(1), update.getAllValues().get(1)), retryCount);
+        return new Result(query.getAllValues().get(0), update.getAllValues().get(0));
+    }
+
+    /** Avanço do fence: RETRYING no nível h passa a h+1, só com retryCount e updatedAt. */
+    private static void assertAdvance(Result advance, int retryCount) {
+        assertThat(MongoBson.query(advance.query())).isEqualTo(new Document("_id", "n-1")
+                .append("status", "RETRYING")
+                .append("retryCount", retryCount));
+        Document bson = MongoBson.update(advance.update());
+        assertThat(bson.keySet()).containsExactly("$set");
+        Document set = bson.get("$set", Document.class);
+        assertThat(set.keySet()).containsExactlyInAnyOrder("retryCount", "updatedAt");
+        assertThat(set.get("retryCount")).isEqualTo(retryCount + 1);
     }
 
     private record Published(Object body, MessagePostProcessor postProcessor, CorrelationData correlation) {
@@ -347,7 +372,7 @@ class DeliveryFlowTest {
 
         failing.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), null, null);
 
-        Result result = captureResult();
+        Result result = captureRetryResult(0);
         assertThat(MongoBson.query(result.query())).isEqualTo(new Document("_id", "n-1")
                 .append("status", "PROCESSING")
                 .append("retryCount", 0));
@@ -388,6 +413,10 @@ class DeliveryFlowTest {
         order.verify(mongo).updateFirst(any(Query.class), any(UpdateDefinition.class), eq(NotificationDocument.class));
         order.verify(rabbit).convertAndSend(eq("notify.retry"), eq("email.retry.5s"), any(Object.class),
                 any(MessagePostProcessor.class), any(CorrelationData.class));
+        // avanço do fence entre o confirm e o ack (WR-01)
+        order.verify(mongo).updateFirst(any(Query.class), any(UpdateDefinition.class), eq(NotificationDocument.class));
+        Result result = captureRetryResult(0);
+        assertThat(MongoBson.update(result.update()).get("$set", Document.class).get("status")).isEqualTo("RETRYING");
         verify(rabbit, never()).convertAndSend(eq("notify.dlx"), anyString(), any(Object.class),
                 any(MessagePostProcessor.class), any(CorrelationData.class));
     }
@@ -438,9 +467,16 @@ class DeliveryFlowTest {
             failing.onEmail(message, h == 0 ? null : String.valueOf(h), null);
         }
 
+        // 4 resultados (com $push) e 3 avanços do fence (só $set de retryCount e updatedAt)
         ArgumentCaptor<UpdateDefinition> updates = ArgumentCaptor.forClass(UpdateDefinition.class);
-        verify(mongo, times(4)).updateFirst(any(Query.class), updates.capture(), eq(NotificationDocument.class));
-        List<Document> bson = updates.getAllValues().stream().map(MongoBson::update).toList();
+        verify(mongo, times(7)).updateFirst(any(Query.class), updates.capture(), eq(NotificationDocument.class));
+        List<Document> all = updates.getAllValues().stream().map(MongoBson::update).toList();
+        List<Document> bson = all.stream().filter(b -> b.containsKey("$push")).toList();
+        List<Document> advances = all.stream().filter(b -> !b.containsKey("$push")).toList();
+        assertThat(advances).extracting(b -> b.get("$set", Document.class).get("retryCount"))
+                .containsExactly(1, 2, 3);
+        assertThat(advances).allSatisfy(b -> assertThat(b.get("$set", Document.class).keySet())
+                .containsExactlyInAnyOrder("retryCount", "updatedAt"));
         assertThat(bson).extracting(b -> b.get("$set", Document.class).get("status"))
                 .containsExactly("RETRYING", "RETRYING", "RETRYING", "DEAD_LETTERED");
         assertThat(bson).extracting(b -> ((Document) b.get("$push", Document.class).get("attempts", Document.class)
@@ -500,7 +536,7 @@ class DeliveryFlowTest {
 
         listeners.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), null, null);
 
-        Document bson = MongoBson.update(captureResult().update());
+        Document bson = MongoBson.update(captureRetryResult(0).update());
         assertThat(bson.get("$set", Document.class).get("status")).isEqualTo("RETRYING");
         Document attempt = (Document) bson.get("$push", Document.class)
                 .get("attempts", Document.class).get("$each", List.class).get(0);
@@ -517,7 +553,7 @@ class DeliveryFlowTest {
 
         listeners.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), "1", null);
 
-        Document set = MongoBson.update(captureResult().update()).get("$set", Document.class);
+        Document set = MongoBson.update(captureRetryResult(1).update()).get("$set", Document.class);
         assertThat(set.get("status")).isEqualTo("RETRYING");
         MessageProperties props = applied(captureRetryPublish("email.retry.25s").postProcessor());
         assertThat((Object) props.getHeader("notify-retry-count")).isEqualTo(2);
@@ -640,7 +676,7 @@ class DeliveryFlowTest {
         assertThatCode(() -> listeners.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), null, null))
                 .doesNotThrowAnyException();
 
-        Document bson = MongoBson.update(captureResult().update());
+        Document bson = MongoBson.update(captureRetryResult(0).update());
         Document set = bson.get("$set", Document.class);
         assertThat(set.get("status")).isEqualTo("RETRYING");
         assertThat(set.get("lastError", Document.class).getString("code")).isEqualTo("CIRCUIT_OPEN");
@@ -669,5 +705,129 @@ class DeliveryFlowTest {
         assertThat(emailBreaker.getState()).isEqualTo(CircuitBreaker.State.CLOSED);
         assertThat(emailBreaker.getMetrics().getNumberOfSuccessfulCalls()).isEqualTo(1);
         assertThat(bulkheads.find("email").orElseThrow().getMetrics().getAvailableConcurrentCalls()).isEqualTo(8);
+    }
+
+    // ------------------------------------------------------------ reentrega depois do confirm (WR-01, WRK-03)
+
+    private void verifyRetryPublishes(int times) {
+        verify(rabbit, times(times)).convertAndSend(eq("notify.retry"), anyString(), any(Object.class),
+                any(MessagePostProcessor.class), any(CorrelationData.class));
+    }
+
+    @Test
+    void redeliveredOriginalAfterTheConfirmedTokenIsDiscardedWithoutSendingAgain() {
+        SingleNotificationStore store = SingleNotificationStore.of(NotificationStatus.PENDING, 0, 0).install(mongo);
+        ChannelListeners failing = listenersWithEmailFailureRate(1.0);
+        NotificationMessage message = new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW);
+
+        failing.onEmail(message, null, null);
+
+        captureRetryPublish("email.retry.5s");
+        assertThat(store.status()).isEqualTo("RETRYING");
+        assertThat(store.retryCount()).isEqualTo(1);
+
+        // o canal caiu depois do confirm do token 1 e antes do ack: a original volta com redelivered
+        assertThatCode(() -> failing.onEmail(message, null, true)).doesNotThrowAnyException();
+
+        verify(emailAdapter, times(1)).send(anyString(), any(), any());
+        verifyRetryPublishes(1);
+        assertThat(store.attempts()).hasSize(1);
+        assertThat(store.attemptCount()).isEqualTo(1);
+
+        // o próprio token 1 continua reivindicando o documento avançado
+        failing.onEmail(message, "1", null);
+
+        verify(emailAdapter, times(2)).send(anyString(), any(), any());
+        captureRetryPublish("email.retry.25s");
+        assertThat(store.status()).isEqualTo("RETRYING");
+        assertThat(store.retryCount()).isEqualTo(2);
+        assertThat(store.attempts()).hasSize(2);
+    }
+
+    @Test
+    void secondCopyOfTheSameTokenIsDiscardedOnceTheNextLevelWasConfirmed() {
+        SingleNotificationStore store = SingleNotificationStore.of(NotificationStatus.RETRYING, 1, 1).install(mongo);
+        ChannelListeners failing = listenersWithEmailFailureRate(1.0);
+        NotificationMessage message = new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW);
+
+        failing.onEmail(message, "1", null);
+        failing.onEmail(message, "1", null);
+
+        verify(emailAdapter, times(1)).send(anyString(), any(), any());
+        verifyRetryPublishes(1);
+        captureRetryPublish("email.retry.25s");
+        assertThat(store.status()).isEqualTo("RETRYING");
+        assertThat(store.retryCount()).isEqualTo(2);
+        assertThat(store.attempts()).hasSize(1);
+        assertThat(store.attemptCount()).isEqualTo(2);
+    }
+
+    @Test
+    void redeliveredOriginalStillRetriesWhenTheWorkerDiedBeforeTheRetryPublish() {
+        // o worker caiu entre o update RETRYING e o publish: retryCount continua h (Armadilha 2)
+        SingleNotificationStore store = SingleNotificationStore.of(NotificationStatus.RETRYING, 0, 1).install(mongo);
+        ChannelListeners failing = listenersWithEmailFailureRate(1.0);
+
+        failing.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), null, true);
+
+        verify(emailAdapter, times(1)).send(anyString(), any(), any());
+        captureRetryPublish("email.retry.5s");
+        assertThat(store.status()).isEqualTo("RETRYING");
+        assertThat(store.retryCount()).isEqualTo(1);
+        assertThat(store.attemptCount()).isEqualTo(2);
+    }
+
+    @Test
+    void stuckProcessingIsStillResumedByARedeliveredCopy() {
+        SingleNotificationStore store = SingleNotificationStore.of(NotificationStatus.PROCESSING, 0, 0,
+                Instant.now().plus(Duration.ofMinutes(5)), "ana@exemplo.com").install(mongo);
+        NotificationMessage message = new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW);
+
+        // lease vigente: uma primeira entrega não toma o documento de um worker ativo
+        listeners.onEmail(message, null, null);
+
+        verify(emailAdapter, never()).send(anyString(), any(), any());
+        assertThat(store.status()).isEqualTo("PROCESSING");
+
+        listeners.onEmail(message, null, true);
+
+        verify(emailAdapter, times(1)).send(anyString(), any(), any());
+        assertThat(store.status()).isEqualTo("SENT");
+        assertThat(store.attemptCount()).isEqualTo(1);
+    }
+
+    @Test
+    void lostFenceOnTheAdvanceStillAcksWithoutTouchingTheDlq() {
+        ChannelListeners failing = listenersWithEmailFailureRate(1.0);
+        // resultado RETRYING grava; o avanço depois do confirm perde o fence
+        when(mongo.updateFirst(any(Query.class), any(UpdateDefinition.class), eq(NotificationDocument.class)))
+                .thenReturn(UpdateResult.acknowledged(1, 1L, null))
+                .thenReturn(UpdateResult.acknowledged(0, 0L, null));
+
+        assertThatCode(() -> failing.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), null, null))
+                .doesNotThrowAnyException();
+
+        verify(mongo, times(2)).updateFirst(any(Query.class), any(UpdateDefinition.class), eq(NotificationDocument.class));
+        verify(rabbit, never()).convertAndSend(eq("notify.dlx"), anyString(), any(Object.class),
+                any(MessagePostProcessor.class), any(CorrelationData.class));
+        assertThat(meters.get("notify.delivery.retries").tags("channel", "email", "level", "1")
+                .counter().count()).isEqualTo(1);
+    }
+
+    @Test
+    void storeFailureOnTheAdvanceStillAcksWithoutTouchingTheDlq() {
+        ChannelListeners failing = listenersWithEmailFailureRate(1.0);
+        when(mongo.updateFirst(any(Query.class), any(UpdateDefinition.class), eq(NotificationDocument.class)))
+                .thenReturn(UpdateResult.acknowledged(1, 1L, null))
+                .thenThrow(new DataAccessResourceFailureException("mongo fora do ar"));
+
+        assertThatCode(() -> failing.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), null, null))
+                .doesNotThrowAnyException();
+
+        verify(mongo, times(2)).updateFirst(any(Query.class), any(UpdateDefinition.class), eq(NotificationDocument.class));
+        verify(rabbit, never()).convertAndSend(eq("notify.dlx"), anyString(), any(Object.class),
+                any(MessagePostProcessor.class), any(CorrelationData.class));
+        assertThat(meters.get("notify.delivery.retries").tags("channel", "email", "level", "1")
+                .counter().count()).isEqualTo(1);
     }
 }

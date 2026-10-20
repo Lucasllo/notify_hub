@@ -171,6 +171,48 @@ class NotificationStateServiceTest {
         assertThat(service.claim("n-1", 1, true)).isEqualTo(Optional.of(processing));
     }
 
+    // ---------------------------------------------------------------- casamento do claim (WR-01, D-09)
+
+    private Document claimFilter(int retryCount, boolean redelivered) {
+        Document filter = MongoBson.query(captureClaim(retryCount, redelivered).query());
+        clearInvocations(mongo);
+        return filter;
+    }
+
+    private static Document doc(NotificationStatus status, int retryCount, Instant leaseUntil) {
+        return SingleNotificationStore.of(status, retryCount, 0, leaseUntil, "ana@exemplo.com").snapshot();
+    }
+
+    @Test
+    void retryingWhoseFenceAdvancedIsNotClaimedByTheLevelBelow() {
+        Document advanced = doc(NotificationStatus.RETRYING, 1, null);
+
+        assertThat(SingleNotificationStore.matches(claimFilter(0, true), advanced)).isFalse();
+        assertThat(SingleNotificationStore.matches(claimFilter(0, false), advanced)).isFalse();
+        assertThat(SingleNotificationStore.matches(claimFilter(1, false), advanced)).isTrue();
+    }
+
+    @Test
+    void retryingAtTheSameLevelIsStillClaimedByTheRedeliveredOriginal() {
+        assertThat(SingleNotificationStore.matches(claimFilter(0, true),
+                doc(NotificationStatus.RETRYING, 0, null))).isTrue();
+    }
+
+    @Test
+    void processingWithALiveLeaseIsOnlyClaimedByARedeliveredCopy() {
+        Document live = doc(NotificationStatus.PROCESSING, 0, Instant.now().plus(LEASE));
+
+        assertThat(SingleNotificationStore.matches(claimFilter(0, true), live)).isTrue();
+        assertThat(SingleNotificationStore.matches(claimFilter(0, false), live)).isFalse();
+    }
+
+    @Test
+    void processingWithAnExpiredLeaseIsClaimedByAFirstDelivery() {
+        Document expired = doc(NotificationStatus.PROCESSING, 0, Instant.now().minus(Duration.ofMinutes(1)));
+
+        assertThat(SingleNotificationStore.matches(claimFilter(0, false), expired)).isTrue();
+    }
+
     // ---------------------------------------------------------------- markSent
 
     private static final RenderedContent RENDERED = new RenderedContent("Olá, Ana", "<p>Olá, Ana</p>");
