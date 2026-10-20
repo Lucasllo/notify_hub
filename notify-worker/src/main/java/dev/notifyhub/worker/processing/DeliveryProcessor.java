@@ -30,6 +30,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 
 /**
@@ -48,7 +49,9 @@ import org.springframework.stereotype.Service;
  *       não for confirmada, {@link AmqpRejectAndDontRequeueException} estaciona a original na DLQ
  *       pela DLX da fila principal; nunca há requeue;</li>
  *   <li>falha transitória com níveis restantes → RETRYING sem mexer em {@code retryCount} e token
- *       {@code h+1} confirmado na fila de delay do próximo nível ({@link RetryPolicy}, D-11); escada
+ *       {@code h+1} confirmado na fila de delay do próximo nível ({@link RetryPolicy}, D-11); entre
+ *       o confirm e o ack, o documento RETRYING avança para {@code retryCount = h+1}, e a original
+ *       de nível {@code h} reentregue depois disso é descartada sem novo envio (WR-01); escada
  *       esgotada ou republicação falha → DEAD_LETTERED com cópia TRANSIENT na DLQ; nunca FAILED;</li>
  *   <li>falha do Mongo no claim ou no update de resultado não passa pelo classificador: sobe para o
  *       container (reject → DLQ) e o documento continua recuperável.</li>
@@ -176,7 +179,9 @@ public class DeliveryProcessor {
      * <ol>
      *   <li>Com nível restante ({@link RetryPolicy}): PROCESSING → RETRYING com a tentativa, sem mexer
      *       em {@code retryCount}; publish confirmado do token {@code h+1} na fila de delay do próximo
-     *       nível; retorno normal, que confirma a original.</li>
+     *       nível; avanço do fence ({@code retryCount = h+1} no documento RETRYING, WR-01), tolerante
+     *       a fence perdido e a {@link DataAccessException}; retorno normal, que confirma a
+     *       original.</li>
      *   <li>Escada esgotada: PROCESSING → DEAD_LETTERED com a tentativa e cópia TRANSIENT na DLQ.</li>
      *   <li>Republicação negada, devolvida, sem confirm ou com exceção: RETRYING → DEAD_LETTERED com
      *       {@code lastError} REPUBLISH_FAILED, sem tentativa extra (D-17), e cópia TRANSIENT na DLQ.</li>
@@ -212,6 +217,8 @@ public class DeliveryProcessor {
         PublishOutcome outcome = publisher.publishToRetry(message.channel(), message,
                 decision.nextRetryCount(), decision.nextLevel());
         if (outcome.ok()) {
+            // entre o confirm e o ack: a reentrega da original (nível h) passa a ser cercada (WR-01)
+            advanceRetryFence(id, retryCount, decision.nextRetryCount());
             // só depois do confirm: um retry sem token na fila de delay não conta
             metrics.retrying(message.channel(), decision.nextRetryCount());
             log.info("Notificação RETRYING id={} canal={} nivel={} tentativa={}",
@@ -219,6 +226,22 @@ public class DeliveryProcessor {
             return;
         }
         onRepublishFailure(message, retryCount, levelLabel, outcome);
+    }
+
+    /**
+     * Avança o fence do retry depois do confirm do token {@code h+1} (WR-01). Fence perdido ou
+     * {@link DataAccessException} nunca mudam o roteamento: o token já está confirmado na fila de
+     * delay, e rejeitar a original deixaria a mesma notificação na DLQ e na escada ao mesmo tempo. Sem
+     * o avanço, só volta o at-least-once documentado: a reentrega do nível {@code h} pode repetir a
+     * tentativa.
+     */
+    private void advanceRetryFence(String id, int retryCount, int nextRetryCount) {
+        try {
+            state.advanceRetryLevel(id, retryCount, nextRetryCount);
+        } catch (DataAccessException e) {
+            log.warn("fence do retry não avançado id={} nivel={}: reentrega do nível {} pode repetir a "
+                    + "tentativa (at-least-once)", id, nextRetryCount, retryCount);
+        }
     }
 
     /** Escada esgotada (h ≥ N): DEAD_LETTERED com a última tentativa e cópia TRANSIENT na DLQ. */

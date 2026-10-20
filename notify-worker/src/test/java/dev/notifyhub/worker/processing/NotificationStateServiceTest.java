@@ -418,6 +418,38 @@ class NotificationStateServiceTest {
         assertThat(service.markDeadLettered("n-1", 1, TRANSIENT_ATTEMPT, TRANSIENT_ERROR)).isFalse();
     }
 
+    // ---------------------------------------------------------------- avanço do fence do retry (WR-01)
+
+    @Test
+    void advanceRetryLevelIsOneUpdateFencedByRetryingAndTheSameLevel() {
+        updateFirstModifies(1);
+
+        assertThat(service.advanceRetryLevel("n-1", 1, 2)).isTrue();
+
+        Result result = captureResult();
+        Document filter = MongoBson.query(result.query());
+        assertThat(filter.keySet()).containsExactly("_id", "status", "retryCount");
+        assertThat(filter).isEqualTo(new Document("_id", "n-1")
+                .append("status", "RETRYING")
+                .append("retryCount", 1));
+        Document raw = result.update().getUpdateObject();
+        // não é transição de status: só o nível e updatedAt
+        assertThat(raw.keySet()).containsExactly("$set");
+        Document set = raw.get("$set", Document.class);
+        assertThat(set.keySet()).containsExactlyInAnyOrder("retryCount", "updatedAt");
+        assertThat(set.get("retryCount")).isEqualTo(2);
+        verifyNoMoreInteractions(mongo);
+    }
+
+    @Test
+    void advanceRetryLevelWithLostFenceReturnsFalseWithoutThrowing() {
+        updateFirstModifies(0);
+
+        assertThat(service.advanceRetryLevel("n-1", 1, 2)).isFalse();
+        verify(mongo).updateFirst(any(Query.class), any(UpdateDefinition.class), eq(NotificationDocument.class));
+        verifyNoMoreInteractions(mongo);
+    }
+
     // ---------------------------------------------------------------- republicação falha (D-11, D-17)
 
     private static final LastError REPUBLISH_ERROR = new LastError(

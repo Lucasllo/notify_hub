@@ -40,6 +40,11 @@ import org.springframework.stereotype.Service;
  *       {@code retryCount}.</li>
  *   <li><b>republicação falha</b>: RETRYING → DEAD_LETTERED cercado por {@code status = RETRYING}
  *       e {@code retryCount = h}, só com {@code lastError} (D-11, D-17).</li>
+ *   <li><b>avanço do fence do retry</b>: depois do confirm do token {@code h+1}, o documento
+ *       RETRYING no nível {@code h} passa a {@code retryCount = h+1}, cercado por
+ *       {@code status = RETRYING} e {@code retryCount = h} (WR-01). Não é transição de status. A
+ *       partir daí o GET mostra no RETRYING o {@code retryCount} do token que espera na fila de
+ *       delay.</li>
  * </ul>
  */
 @Service
@@ -75,6 +80,14 @@ public class NotificationStateService {
      * mesmo nível; o fence {@code status} + {@code retryCount} dos resultados garante que só um
      * resultado é gravado, mas o envio pode ter acontecido duas vezes. Endurecer o fence com
      * {@code claimedAt} fica para depois; o trade-off é documentado na Fase 4.
+     *
+     * <p><b>Reentrega depois do confirm (WR-01):</b> se o canal cai depois do confirm do token
+     * {@code h+1} e antes do ack, a original de nível {@code h} volta com {@code redelivered=true}.
+     * Como o {@link #advanceRetryLevel} já gravou {@code h+1} no documento RETRYING, o fence
+     * {@code retryCount ≤ h} deste filtro recusa a cópia e ela é confirmada como obsoleta, sem novo
+     * envio. Resta a janela entre o confirm e o avanço (um round-trip ao Mongo): uma queda ali ainda
+     * permite uma tentativa extra no nível {@code h}, e isso continua at-least-once (sem outbox;
+     * trade-off da DOC-03).
      *
      * @param redelivered flag {@code redelivered} da entrega AMQP
      * @return o documento já em PROCESSING, ou vazio se a mensagem for duplicada ou obsoleta (o
@@ -150,7 +163,8 @@ public class NotificationStateService {
      * Grava RETRYING numa única atualização atômica (D-11, passo 1): mesmo molde do
      * {@link #markFailed}, com a tentativa no histórico e o {@code lastError} visível no GET.
      *
-     * <p>{@code retryCount} <b>não</b> muda aqui: quem grava {@code h+1} é o claim do próximo token.
+     * <p>{@code retryCount} <b>não</b> muda aqui: quem grava {@code h+1} é o
+     * {@link #advanceRetryLevel}, só depois do confirm do token, ou o claim do próximo token.
      * Se este update gravasse {@code h+1} e o worker caísse antes do publish, a reentrega da original
      * ({@code h}) seria cercada por {@code retryCount ≤ h} e a notificação ficaria RETRYING sem
      * mensagem em fila nenhuma (RESEARCH Armadilha 2).
@@ -199,6 +213,39 @@ public class NotificationStateService {
         UpdateResult result = mongo.updateFirst(fence, deadLettered, NotificationDocument.class);
         if (result.getModifiedCount() == 0) {
             log.warn("fence perdido: DEAD_LETTERED após republicação falha não gravado id={} retryCount={}",
+                    id, retryCount);
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Avança o fence do retry depois do confirm do token {@code h+1} (WR-01): {@code updateFirst}
+     * cercado por {@code status = RETRYING} e {@code retryCount = h} exatos, só com {@code $set} de
+     * {@code retryCount = nextRetryCount} e {@code updatedAt}.
+     *
+     * <p>Não é transição de status: RETRYING continua RETRYING. O status do fence é o que o
+     * {@link #markRetrying} gravou, e a igualdade em {@code retryCount} impede regredir um documento
+     * que o próprio token {@code h+1} já reivindicou ou avançou. Com o avanço, o claim
+     * ({@code retryCount ≤ h}) passa a recusar a original de nível {@code h} reentregue ou atrasada
+     * e cópias repetidas do token {@code h+1} depois que ele mesmo avançou para {@code h+2}.
+     *
+     * <p>Não captura exceção do Mongo: quem decide o que fazer é o processor.
+     *
+     * @return {@code false} se o fence foi perdido (o token já reivindicou o documento ou ele mudou);
+     *         nada é gravado nesse caso
+     */
+    public boolean advanceRetryLevel(String id, int retryCount, int nextRetryCount) {
+        Query fence = query(where(Fields.ID).is(id)
+                .and(Fields.STATUS).is(NotificationStatus.RETRYING)
+                .and(Fields.RETRY_COUNT).is(retryCount));
+        Update advance = new Update()
+                .set(Fields.RETRY_COUNT, nextRetryCount)
+                .set(Fields.UPDATED_AT, Instant.now());
+
+        UpdateResult result = mongo.updateFirst(fence, advance, NotificationDocument.class);
+        if (result.getModifiedCount() == 0) {
+            log.info("fence do retry não avançado id={} retryCount={} (token já reivindicado ou documento mudou)",
                     id, retryCount);
             return false;
         }
