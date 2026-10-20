@@ -15,6 +15,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 
 import dev.notifyhub.common.domain.AttemptOutcome;
 import dev.notifyhub.common.domain.Channel;
@@ -49,7 +50,9 @@ import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
+import org.springframework.dao.DataAccessResourceFailureException;
 
 /**
  * Orquestração do processador: duplicatas, canal errado, classificação das falhas, FAILED + cópia na
@@ -605,5 +608,89 @@ class DeliveryProcessorTest {
         assertThat(attempt.getValue().failureClass()).isEqualTo(FailureClass.TRANSIENT);
         verify(publisher).publishToRetry(Channel.EMAIL, emailMessage(), 1, Duration.ofSeconds(5));
         verify(state, never()).markFailed(anyString(), anyInt(), any(), any());
+    }
+
+    // ------------------------------------------------------------ avanço do fence do retry (WR-01, WR-02)
+
+    @Test
+    void confirmedRetryAdvancesTheFenceToTheNextLevelAfterThePublish() {
+        adapterFailsTransiently(0);
+        when(state.markRetrying(eq("n-1"), eq(0), any(), any())).thenReturn(true);
+        when(publisher.publishToRetry(any(), any(), anyInt(), any())).thenReturn(PublishOutcome.acked());
+        when(state.advanceRetryLevel("n-1", 0, 1)).thenReturn(true);
+
+        processor.process(Channel.EMAIL, emailMessage(), 0, false);
+
+        InOrder order = inOrder(state, publisher);
+        order.verify(state).markRetrying(eq("n-1"), eq(0), any(), any());
+        order.verify(publisher).publishToRetry(Channel.EMAIL, emailMessage(), 1, Duration.ofSeconds(5));
+        order.verify(state).advanceRetryLevel("n-1", 0, 1);
+    }
+
+    @Test
+    void confirmedRetryFromLevelOneAdvancesTheFenceToLevelTwo() {
+        adapterFailsTransiently(1);
+        when(state.markRetrying(eq("n-1"), eq(1), any(), any())).thenReturn(true);
+        when(publisher.publishToRetry(any(), any(), anyInt(), any())).thenReturn(PublishOutcome.acked());
+        when(state.advanceRetryLevel("n-1", 1, 2)).thenReturn(true);
+
+        processor.process(Channel.EMAIL, emailMessage(), 1, false);
+
+        InOrder order = inOrder(state, publisher);
+        order.verify(state).markRetrying(eq("n-1"), eq(1), any(), any());
+        order.verify(publisher).publishToRetry(Channel.EMAIL, emailMessage(), 2, Duration.ofSeconds(25));
+        order.verify(state).advanceRetryLevel("n-1", 1, 2);
+    }
+
+    @Test
+    void failedRepublishNeverAdvancesTheFence() {
+        adapterFailsTransiently(1);
+        when(state.markRetrying(eq("n-1"), eq(1), any(), any())).thenReturn(true);
+        when(publisher.publishToRetry(any(), any(), anyInt(), any())).thenReturn(PublishOutcome.returned("NO_ROUTE"));
+        when(state.markDeadLetteredAfterRepublishFailure(eq("n-1"), eq(1), any())).thenReturn(true);
+        when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.acked());
+
+        processor.process(Channel.EMAIL, emailMessage(), 1, false);
+
+        verify(state, never()).advanceRetryLevel(anyString(), anyInt(), anyInt());
+        verify(state).markDeadLetteredAfterRepublishFailure(eq("n-1"), eq(1), any());
+        verify(publisher).publishToDlq(Channel.EMAIL, emailMessage(), FailureClass.TRANSIENT, 1);
+    }
+
+    @Test
+    void storeFailureOnTheAdvanceStillAcksWithoutTouchingTheDlq() {
+        adapterFailsTransiently(0);
+        when(state.markRetrying(eq("n-1"), eq(0), any(), any())).thenReturn(true);
+        when(publisher.publishToRetry(any(), any(), anyInt(), any())).thenReturn(PublishOutcome.acked());
+        when(state.advanceRetryLevel("n-1", 0, 1)).thenThrow(new DataAccessResourceFailureException("mongo fora do ar"));
+
+        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 0, false)).doesNotThrowAnyException();
+
+        verify(publisher, never()).publishToDlq(any(), any(), any(), anyInt());
+        verify(state, never()).markDeadLetteredAfterRepublishFailure(anyString(), anyInt(), any());
+        assertThat(retries(1)).isEqualTo(1);
+    }
+
+    @Test
+    void integerMaxValueLevelIsDeadLetteredWithExactlyOneAttemptAndATransientDlqCopy() {
+        // attemptCount vem do documento (0), não do header: adapterFailsTransiently usaria h como attemptCount
+        claimReturns(claimedEmail(Integer.MAX_VALUE, 0));
+        doThrow(new SimulatedDeliveryException("falha simulada no canal email"))
+                .when(gateway).send(eq(Channel.EMAIL), eq("ana@exemplo.com"), eq(RENDERED), any());
+        when(state.markDeadLettered(eq("n-1"), eq(Integer.MAX_VALUE), any(), any())).thenReturn(true);
+        when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.acked());
+
+        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), Integer.MAX_VALUE, false))
+                .doesNotThrowAnyException();
+
+        ArgumentCaptor<AttemptEntry> attempt = ArgumentCaptor.forClass(AttemptEntry.class);
+        verify(state, times(1)).markDeadLettered(eq("n-1"), eq(Integer.MAX_VALUE), attempt.capture(), any());
+        assertThat(attempt.getValue().number()).isEqualTo(1);
+        assertThat(attempt.getValue().retryLevel()).isEqualTo(Integer.MAX_VALUE);
+        assertThat(attempt.getValue().outcome()).isEqualTo(AttemptOutcome.TRANSIENT_FAILURE);
+        verify(publisher).publishToDlq(Channel.EMAIL, emailMessage(), FailureClass.TRANSIENT, Integer.MAX_VALUE);
+        verify(state, never()).markRetrying(anyString(), anyInt(), any(), any());
+        verify(publisher, never()).publishToRetry(any(), any(), anyInt(), any());
+        verify(state, never()).advanceRetryLevel(anyString(), anyInt(), anyInt());
     }
 }

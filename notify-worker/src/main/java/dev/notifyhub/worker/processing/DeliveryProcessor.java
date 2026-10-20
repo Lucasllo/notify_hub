@@ -54,7 +54,10 @@ import org.springframework.stereotype.Service;
  *       de nível {@code h} reentregue depois disso é descartada sem novo envio (WR-01); escada
  *       esgotada ou republicação falha → DEAD_LETTERED com cópia TRANSIENT na DLQ; nunca FAILED;</li>
  *   <li>falha do Mongo no claim ou no update de resultado não passa pelo classificador: sobe para o
- *       container (reject → DLQ) e o documento continua recuperável.</li>
+ *       container (reject → DLQ). O documento fica no estado em que estava (PENDING, RETRYING ou
+ *       PROCESSING com lease) e a mensagem vai para a DLQ; nada nesta fase o recupera sozinho. A
+ *       recuperação é do reprocessamento da Fase 3 (CR-01 do 02-REVIEW, registrado em
+ *       {@code deferred-items.md}).</li>
  * </ul>
  *
  * <p>Métricas (D-15): cada resultado incrementa seu contador em {@link DeliveryMetrics} só quando é
