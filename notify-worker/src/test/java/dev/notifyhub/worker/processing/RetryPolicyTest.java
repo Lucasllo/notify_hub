@@ -50,6 +50,25 @@ class RetryPolicyTest {
     }
 
     @Test
+    void integerMaxValueLevelIsExhaustedWithoutOverflow() {
+        // header "2147483647" publicado pelo painel (T-01-24): esgotado testado antes do +1
+        RetryDecision decision = RetryPolicy.decide(Integer.MAX_VALUE, THREE);
+
+        assertExhausted(decision);
+        assertThat(decision.nextRetryCount()).isEqualTo(Integer.MAX_VALUE);
+    }
+
+    @Test
+    void levelJustBelowIntegerMaxValueIsExhausted() {
+        assertExhausted(RetryPolicy.decide(Integer.MAX_VALUE - 1, THREE));
+    }
+
+    @Test
+    void integerMaxValueLevelIsExhaustedOnASingleLevelLadder() {
+        assertExhausted(RetryPolicy.decide(Integer.MAX_VALUE, List.of(Duration.ofSeconds(1))));
+    }
+
+    @Test
     void singleLevelLadderHasOneRetry() {
         List<Duration> one = List.of(Duration.ofSeconds(1));
 

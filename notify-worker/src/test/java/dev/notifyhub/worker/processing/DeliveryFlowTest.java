@@ -456,6 +456,40 @@ class DeliveryFlowTest {
                 any(MessagePostProcessor.class), any(CorrelationData.class));
     }
 
+    @Test
+    void integerMaxValueRetryHeaderEndsDeadLetteredWithOneAttemptAndATransientDlqCopy() {
+        // attemptCount vem do documento, não do header: 0 aqui, para não estourar o número da tentativa
+        claimReturns(processingDoc("welcome", Integer.MAX_VALUE, 0));
+        ChannelListeners failing = listenersWithEmailFailureRate(1.0);
+
+        assertThatCode(() -> failing.onEmail(
+                new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), "2147483647", null))
+                .doesNotThrowAnyException();
+
+        Result result = captureResult();
+        assertThat(MongoBson.query(result.query())).isEqualTo(new Document("_id", "n-1")
+                .append("status", "PROCESSING")
+                .append("retryCount", 2147483647));
+        Document bson = MongoBson.update(result.update());
+        Document set = bson.get("$set", Document.class);
+        assertThat(set.get("status")).isEqualTo("DEAD_LETTERED");
+        assertThat(set.get("lastError", Document.class).get("failureClass")).isEqualTo("TRANSIENT");
+        assertThat(bson.get("$inc", Document.class).get("attemptCount")).isEqualTo(1);
+        List<?> each = bson.get("$push", Document.class).get("attempts", Document.class).get("$each", List.class);
+        assertThat(each).hasSize(1);
+        Document attempt = (Document) each.get(0);
+        assertThat(attempt.get("number")).isEqualTo(1);
+        assertThat(attempt.get("retryLevel")).isEqualTo(2147483647);
+        assertThat(attempt.get("outcome")).isEqualTo("TRANSIENT_FAILURE");
+        assertThat(attempt.get("errorCode")).isEqualTo("SIMULATED_TRANSIENT");
+
+        MessageProperties props = applied(captureDlqPublish("email.dlq").postProcessor());
+        assertThat((Object) props.getHeader("x-failure-class")).isEqualTo("TRANSIENT");
+        assertThat((Object) props.getHeader("notify-retry-count")).isEqualTo(2147483647);
+        verify(rabbit, never()).convertAndSend(eq("notify.retry"), anyString(), any(Object.class),
+                any(MessagePostProcessor.class), any(CorrelationData.class));
+    }
+
     // ------------------------------------------------------------ destinatários mágicos (DLV-02, D-02)
 
     private static final String FAIL_TWICE = "fail-2-then-ok@fail.test";

@@ -28,6 +28,13 @@ class RetryHeadersTest {
         assertThat(RetryHeaders.parse(" 5 ")).isEqualTo(5);
     }
 
+    @Test
+    void integerMaxValueIsAcceptedWithoutACeiling() {
+        // sem teto, por decisão do 02-08: o documento chega a DEAD_LETTERED em vez de parar antes do claim
+        assertThat(RetryHeaders.parse("2147483647")).isEqualTo(Integer.MAX_VALUE);
+        assertThat(RetryHeaders.parse(Integer.MAX_VALUE)).isEqualTo(Integer.MAX_VALUE);
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"abc", "", "-1", "1.5", "99999999999"})
     void invalidStringsAreRejectedToTheDlq(String header) {
