@@ -76,6 +76,14 @@ class WorkerSettingsTest {
     }
 
     @Test
+    void magicRecipientsAreOffInTheBaseProfileAndOnInTheDemoProfile() {
+        assertThat(base.getProperty("notify.simulation.magic-recipients"))
+                .isEqualTo("${NOTIFY_SIMULATION_MAGIC_RECIPIENTS:false}");
+        assertThat(demo.getProperty("notify.simulation.magic-recipients"))
+                .isEqualTo("${NOTIFY_SIMULATION_MAGIC_RECIPIENTS:true}");
+    }
+
+    @Test
     void demoProfileUsesTheSameShortRetryLevelsAsTheApi() {
         assertThat(demo.getProperty("notify.topology.retry-levels")).isEqualTo("1s,5s,25s");
     }

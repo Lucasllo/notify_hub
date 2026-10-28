@@ -11,10 +11,10 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * caminho de retry só chega na Fase 2. Tudo pode ser sobrescrito por ENV (ex.:
  * {@code NOTIFY_SIMULATION_EMAIL_FAILURERATE}), o que o profile de benchmark da Fase 4 usa (D-08).
  *
- * <p>{@code notify.simulation.magic-recipients} (padrão {@code true}, ENV
- * {@code NOTIFY_SIMULATION_MAGIC_RECIPIENTS}) liga os destinatários mágicos de {@link MagicRecipients}.
- * É um recurso de demo e de teste: fora da demo pode ser desligado, e então nenhum destinatário falha
- * de propósito (T-02-18).
+ * <p>{@code notify.simulation.magic-recipients} (padrão {@code false}; o profile {@code demo} liga;
+ * ENV {@code NOTIFY_SIMULATION_MAGIC_RECIPIENTS}) liga os destinatários mágicos de
+ * {@link MagicRecipients}. É um recurso de demo e de teste: desligado, nenhum destinatário falha de
+ * propósito (T-02-18, WR-07).
  *
  * @param magicRecipients reconhecimento de destinatários mágicos nos três adapters
  */
@@ -23,7 +23,7 @@ public record SimulationProperties(
         @DefaultValue ChannelSimulation email,
         @DefaultValue ChannelSimulation sms,
         @DefaultValue ChannelSimulation webhook,
-        @DefaultValue("true") boolean magicRecipients) {
+        @DefaultValue("false") boolean magicRecipients) {
 
     /** Configuração de simulação do canal informado. */
     public ChannelSimulation forChannel(Channel channel) {

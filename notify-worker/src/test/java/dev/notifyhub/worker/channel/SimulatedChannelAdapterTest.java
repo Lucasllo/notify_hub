@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.ConfigDataApplicationContextInitializer;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 class SimulatedChannelAdapterTest {
@@ -22,6 +23,11 @@ class SimulatedChannelAdapterTest {
     private static final AttemptContext FIRST = new AttemptContext(0, 1);
 
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
+            .withUserConfiguration(SimulationConfiguration.class);
+
+    /** Carrega o application.yml real (e o profile ativo), como o worker em produção (WR-07). */
+    private final ApplicationContextRunner yamlRunner = new ApplicationContextRunner()
+            .withInitializer(new ConfigDataApplicationContextInitializer())
             .withUserConfiguration(SimulationConfiguration.class);
 
     @Test
@@ -235,13 +241,39 @@ class SimulatedChannelAdapterTest {
     }
 
     @Test
-    void magicRecipientsAreEnabledByDefault() {
+    void magicRecipientsAreDisabledByDefault() {
         contextRunner.run(context -> {
-            assertThat(context.getBean(SimulationProperties.class).magicRecipients()).isTrue();
+            assertThat(context.getBean(SimulationProperties.class).magicRecipients()).isFalse();
             SimulatedChannelAdapter email = adaptersByChannel(context).get(Channel.EMAIL);
-            assertThatThrownBy(() -> email.send("always-permanent@fail.test", CONTENT, FIRST))
+            assertThatCode(() -> email.send("always-permanent@fail.test", CONTENT, FIRST))
+                    .doesNotThrowAnyException();
+        });
+    }
+
+    @Test
+    void magicRecipientsPropertyTurnsTheFeatureOnForEveryAdapter() {
+        contextRunner.withPropertyValues("notify.simulation.magic-recipients=true").run(context -> {
+            assertThat(context.getBean(SimulationProperties.class).magicRecipients()).isTrue();
+            Map<Channel, SimulatedChannelAdapter> adapters = adaptersByChannel(context);
+            assertThatThrownBy(() -> adapters.get(Channel.EMAIL).send("always-permanent@fail.test", CONTENT, FIRST))
+                    .isInstanceOf(PermanentDeliveryException.class);
+            assertThatThrownBy(() -> adapters.get(Channel.SMS).send("+550000000002", CONTENT, FIRST))
+                    .isInstanceOf(PermanentDeliveryException.class);
+            assertThatThrownBy(() -> adapters.get(Channel.WEBHOOK).send("https://fail.test/always-permanent", CONTENT, FIRST))
                     .isInstanceOf(PermanentDeliveryException.class);
         });
+    }
+
+    @Test
+    void baseProfileYamlKeepsMagicRecipientsOff() {
+        yamlRunner.run(context ->
+                assertThat(context.getBean(SimulationProperties.class).magicRecipients()).isFalse());
+    }
+
+    @Test
+    void demoProfileYamlTurnsMagicRecipientsOn() {
+        yamlRunner.withPropertyValues("spring.profiles.active=demo").run(context ->
+                assertThat(context.getBean(SimulationProperties.class).magicRecipients()).isTrue());
     }
 
     @Test

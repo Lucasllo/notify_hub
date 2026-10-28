@@ -67,8 +67,10 @@ notify:
     # Destinatários mágicos (falhas determinísticas da demo e dos ITs): e-mail <regra>@fail.test,
     # webhook http(s)://fail.test/<regra> e SMS +550000000<código>. Tabela em MagicRecipients.
     # fail-<N>-then-ok volta a falhar depois de um reprocessamento, que zera o retryCount.
-    # Desligue fora da demo com NOTIFY_SIMULATION_MAGIC_RECIPIENTS=false.
-    magic-recipients: ${NOTIFY_SIMULATION_MAGIC_RECIPIENTS:true}
+    # Desligados por padrão: fora da demo, qualquer cliente da API poderia forçar FAILED/DEAD_LETTERED
+    # e abrir o circuit breaker do canal inteiro (WR-07). O profile demo liga; os ITs da Fase 3 e o
+    # compose da Fase 4 precisam ativar o profile demo ou NOTIFY_SIMULATION_MAGIC_RECIPIENTS=true.
+    magic-recipients: ${NOTIFY_SIMULATION_MAGIC_RECIPIENTS:false}
     # Latência e failure-rate de cada canal aceitam ENV (ex.: NOTIFY_SIMULATION_EMAIL_FAILURERATE),
     # para o profile de benchmark da Fase 4 neutralizar as falhas (D-08)
     email:
