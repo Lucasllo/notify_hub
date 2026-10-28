@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-13)
 Phase: 02 (Falhas, retry com backoff e resiliência) — READY TO EXECUTE
 Plan: 7 of 7
 Status: Phase complete — ready for verification
-Last activity: 2026-10-15 — Phase 02 execution started
+Last activity: 2026-10-28 - Completed quick task 261020-tm3: corrigir WR-05/T-02-01, WR-09 e WR-07
 
 Progress: [███░░░░░░░] 25%
 
@@ -128,6 +128,12 @@ None yet.
 - [Phase 2]: Decidir ack mode (AUTO com espera do confirm dentro do listener vs MANUAL) no discuss-phase
 - [Phase 2]: Mensagem rejeitada para a DLQ deixa a notificação em PROCESSING (lacuna conhecida do smoke 01-06, fecha com FAILED/DEAD_LETTERED)
 - [Phase 4]: Benchmark VT precisa de spike de desenho (alvo, varredura de concorrência, executor k6, JFR)
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 261020-tm3 | Corrigir WR-05/T-02-01 (lastError de REPUBLISH_FAILED com motivo enumerado e truncado), WR-09 (fence tolera RuntimeException) e WR-07 (destinatários mágicos só no profile demo) | 2026-10-28 | 07b5fb1 | [261020-tm3-corrigir-wr-05-t-02-01-lasterror-de-repu](./quick/261020-tm3-corrigir-wr-05-t-02-01-lasterror-de-repu/) |
 
 ## Deferred Items
 
