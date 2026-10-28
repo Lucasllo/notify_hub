@@ -1,9 +1,9 @@
 ---
 phase: "02"
 slug: "falhas-retry-com-backoff-e-resili-ncia"
-status: draft
+status: verified
 # threats_open = count of OPEN threats at or above workflow.security_block_on severity (the blocking gate)
-threats_open: 1
+threats_open: 0
 asvs_level: 1
 created: "2026-10-21"
 ---
@@ -34,7 +34,7 @@ created: "2026-10-21"
 
 | Threat ID | Category | Component | Severity | Disposition | Mitigation | Status |
 |-----------|----------|-----------|----------|-------------|------------|--------|
-| T-02-01 | Information Disclosure | cópia na DLQ, `lastError`, `attempts[].errorMessage`, logs | high | mitigate | Classificador com mensagens próprias truncadas em 300 e `RecipientRules.mask` — **mas o caminho REPUBLISH_FAILED (`DeliveryProcessor.onRepublishFailure` + `DeliveryRoutingPublisher`) grava `AmqpException.getMessage()`/causa do `ExecutionException` sem truncar (02-REVIEW WR-05)** | open |
+| T-02-01 | Information Disclosure | cópia na DLQ, `lastError`, `attempts[].errorMessage`, logs | high | mitigate | Classificador com mensagens próprias truncadas em 300 e `RecipientRules.mask`; caminho REPUBLISH_FAILED corrigido na quick 261020-tm3 (`fe60ac2`): `DeliveryRoutingPublisher.PublishOutcome` só emite motivo de conjunto fechado (`NACK`, `RETURNED:<code>`, `CONFIRM_TIMEOUT`, `SEND_FAILED:<tipo>`, `CONFIRM_FAILED:<tipo>`) sem ler texto do broker/exceção, e `DeliveryProcessor.onRepublishFailure` aplica `FailureClassifier.truncate`; testes `DeliveryFlowTest.nackedRepublishRecordsOnlyTheEnumeratedReasonWithoutBrokerText` e `DeliveryProcessorTest.failedRepublishLastErrorIsTruncatedToTheClassifierLimit` | closed |
 | T-02-02 | Denial of Service | mensagem venenosa em loop | high | mitigate | Confirma original após cópia na DLQ; fallback `AmqpRejectAndDontRequeueException`; `default-requeue-rejected: false` | closed |
 | T-02-03 | Tampering | confirm associado à publicação errada | medium | mitigate | `new CorrelationData()` por publicação em `DeliveryRoutingPublisher`; `getReturned()` antes de `isAck()` | closed |
 | T-02-04 | Denial of Service | listener bloqueado esperando confirm | medium | mitigate | `notify.worker.confirm-timeout` (5s) | closed |
@@ -51,7 +51,7 @@ created: "2026-10-21"
 | T-02-15 | Elevation of Privilege | SSTI / bypass do escaper | high | mitigate | Só templates do seed; `SeedTemplatesTest` proíbe `{{{` e `{{&` | closed |
 | T-02-16 | Information Disclosure | mensagem de erro de variável/JSON | medium | mitigate | Mensagens citam só nome da variável/código | closed |
 | T-02-17 | Tampering | destinatário real tratado como mágico | medium | mitigate | Casamento exato `fail.test` (TLD reservado) em `MagicRecipients`; tabela de parecidos no teste | closed |
-| T-02-18 | Elevation of Privilege | recurso de demo ativo fora da demo | low | mitigate | Interruptor `notify.simulation.magic-recipients` existe — default ainda `true` em `application.yml:71` (02-REVIEW WR-07, recomendação de correção) | closed |
+| T-02-18 | Elevation of Privilege | recurso de demo ativo fora da demo | low | mitigate | Interruptor `notify.simulation.magic-recipients` com default `false` em `application.yml:73` e `SimulationProperties`; só o profile `demo` (`application-demo.yml:8`) ou `NOTIFY_SIMULATION_MAGIC_RECIPIENTS=true` liga (quick 261020-tm3, `07b5fb1`, WR-07) | closed |
 | T-02-19 | Information Disclosure | destinatário em logs/erros | medium | mitigate | Exceções mágicas não citam destinatário; logs com `RecipientRules.mask` | closed |
 | T-02-20 | Denial of Service | provedor lento derruba consumidores | high | mitigate | Bulkhead por semáforo (espera 0) + CB por canal (`ChannelGateway`) | closed |
 | T-02-21 | Denial of Service | CB com defaults | medium | mitigate | `registry.find(...)` falha ao subir; `ResilienceSettingsTest` | closed |
@@ -66,7 +66,7 @@ created: "2026-10-21"
 | T-02-29 | Tampering | DLQ alterada pela inspeção | low | mitigate | `ackmode: ack_requeue_true` | closed |
 | T-02-30 | Tampering | `notify-retry-count` = 2147483647 → overflow | high | mitigate | `retryCount >= levels.size()` antes do +1 em `RetryPolicy`; testes de fronteira e de fluxo (02-08) | closed |
 | T-02-31 | Tampering / DoS | cópia de nível h reivindica RETRYING após token h+1 | medium | mitigate | `advanceRetryLevel` com fence RETRYING + `retryCount = h` (02-08) | closed |
-| T-02-32 | Repudiation | falha do Mongo no avanço manda original à DLQ | medium | mitigate | `advanceRetryFence` registra e ignora `DataAccessException`/fence perdido (outras `RuntimeException` ainda escapam — 02-REVIEW WR-09) | closed |
+| T-02-32 | Repudiation | falha do Mongo no avanço manda original à DLQ | medium | mitigate | `advanceRetryFence` registra (com a causa) e ignora qualquer `RuntimeException`/fence perdido; `Error` continua subindo (quick 261020-tm3, `7cb7ce6`, WR-09) | closed |
 | T-02-33 | Tampering | header com h enorme encurta a escada | low | accept | Exige credencial no broker; resultado terminal visível e reprocessável | closed |
 | T-02-34 | Repudiation | janela entre confirm e avanço | low | accept | At-least-once documentado; sem SENT duplo nem perda | closed |
 | T-02-35 | Denial of Service | CR-01: documento não terminal com mensagem na DLQ | medium | transfer | Transferido para a Fase 3 (ADM-01) via `deferred-items.md` (open, target Phase 3) | closed |
@@ -98,6 +98,17 @@ created: "2026-10-21"
 | Audit Date | Threats Total | Closed | Open | Run By |
 |------------|---------------|--------|------|--------|
 | 2026-10-21 | 36 | 35 | 1 (T-02-01, high) | orquestrador /gsd-secure-phase (verificação L1 por grep + 02-REVIEW) |
+| 2026-10-28 | 36 | 36 | 0 | orquestrador /gsd-secure-phase (L1 por grep após quick 261020-tm3; `./mvnw test` 465/0 falhas) |
+
+## Security Audit 2026-10-28
+
+| Metric | Count |
+|--------|-------|
+| Threats found | 36 |
+| Closed | 36 |
+| Open | 0 |
+
+T-02-01 fechada pela quick 261020-tm3 (WR-05); textos de T-02-18 (WR-07) e T-02-32 (WR-09) atualizados para o código corrente. Observação não bloqueante: o `log.warn` de `advanceRetryFence` inclui o stack trace da exceção do Mongo (não carrega o texto do adapter nem o destinatário da notificação).
 
 ---
 
@@ -105,7 +116,7 @@ created: "2026-10-21"
 
 - [x] All threats have a disposition (mitigate / accept / transfer)
 - [x] Accepted risks documented in Accepted Risks Log
-- [ ] `threats_open: 0` confirmed
-- [ ] `status: verified` set in frontmatter
+- [x] `threats_open: 0` confirmed
+- [x] `status: verified` set in frontmatter
 
-**Approval:** pending — T-02-01 aguardando correção (usuário escolheu corrigir agora)
+**Approval:** verified 2026-10-28
