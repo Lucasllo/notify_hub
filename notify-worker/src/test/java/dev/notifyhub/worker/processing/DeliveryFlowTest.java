@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -38,6 +39,7 @@ import io.github.resilience4j.bulkhead.BulkheadRegistry;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.net.ConnectException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -48,6 +50,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
+import org.springframework.amqp.AmqpConnectException;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessagePostProcessor;
 import org.springframework.amqp.core.MessageProperties;
@@ -430,6 +433,61 @@ class DeliveryFlowTest {
 
         MessageProperties props = applied(captureRetryPublish("email.retry.25s").postProcessor());
         assertThat((Object) props.getHeader("notify-retry-count")).isEqualTo(2);
+    }
+
+    // ------------------------------------------------------------ republicação falha (T-02-01, WR-05)
+
+    /** Segundo {@code updateFirst}: RETRYING → DEAD_LETTERED com o lastError REPUBLISH_FAILED. */
+    private Document republishFailureLastError() {
+        ArgumentCaptor<UpdateDefinition> update = ArgumentCaptor.forClass(UpdateDefinition.class);
+        verify(mongo, times(2)).updateFirst(any(Query.class), update.capture(), eq(NotificationDocument.class));
+        Document set = MongoBson.update(update.getAllValues().get(1)).get("$set", Document.class);
+        assertThat(set.get("status")).isEqualTo("DEAD_LETTERED");
+        return set.get("lastError", Document.class);
+    }
+
+    @Test
+    void nackedRepublishRecordsOnlyTheEnumeratedReasonWithoutBrokerText() {
+        ChannelListeners failing = listenersWithEmailFailureRate(1.0);
+        String brokerReason = "canal fechado ana@exemplo.com " + "x".repeat(1000);
+        doAnswer(invocation -> {
+            CorrelationData cd = invocation.getArgument(4);
+            boolean retry = "notify.retry".equals(invocation.getArgument(0));
+            cd.getFuture().complete(retry
+                    ? new CorrelationData.Confirm(false, brokerReason)
+                    : new CorrelationData.Confirm(true, null));
+            return null;
+        }).when(rabbit).convertAndSend(anyString(), anyString(), any(Object.class),
+                any(MessagePostProcessor.class), any(CorrelationData.class));
+
+        assertThatCode(() -> failing.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), null, null))
+                .doesNotThrowAnyException();
+
+        Document lastError = republishFailureLastError();
+        assertThat(lastError.getString("code")).isEqualTo("REPUBLISH_FAILED");
+        assertThat(lastError.getString("message"))
+                .isEqualTo("republicação para retry.5s falhou: NACK")
+                .doesNotContain("ana@exemplo.com")
+                .hasSizeLessThanOrEqualTo(300);
+        captureDlqPublish("email.dlq");
+    }
+
+    @Test
+    void republishSendFailureRecordsOnlyTheExceptionType() {
+        ChannelListeners failing = listenersWithEmailFailureRate(1.0);
+        doThrow(new AmqpConnectException(new ConnectException("Connection refused ana@exemplo.com")))
+                .when(rabbit).convertAndSend(eq("notify.retry"), anyString(), any(Object.class),
+                        any(MessagePostProcessor.class), any(CorrelationData.class));
+
+        assertThatCode(() -> failing.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), null, null))
+                .doesNotThrowAnyException();
+
+        Document lastError = republishFailureLastError();
+        assertThat(lastError.getString("code")).isEqualTo("REPUBLISH_FAILED");
+        assertThat(lastError.getString("message"))
+                .isEqualTo("republicação para retry.5s falhou: SEND_FAILED:AmqpConnectException")
+                .doesNotContain("ana@exemplo.com");
+        captureDlqPublish("email.dlq");
     }
 
     // ------------------------------------------------------------ escada esgotada (DLV-05)

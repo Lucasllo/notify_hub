@@ -266,9 +266,9 @@ public class DeliveryProcessor {
     private void onRepublishFailure(NotificationMessage message, int retryCount, String levelLabel,
                                     PublishOutcome outcome) {
         String id = message.notificationId();
-        // mensagem curta e sem PII: só o rótulo do nível e o motivo do broker
+        // motivo enumerado do PublishOutcome, sem texto do broker, truncado em 300 (T-02-01, WR-05)
         LastError republishError = new LastError(ErrorCode.REPUBLISH_FAILED.name(),
-                "republicação para retry." + levelLabel + " falhou: " + outcome.reason(),
+                FailureClassifier.truncate("republicação para retry." + levelLabel + " falhou: " + outcome.reason()),
                 FailureClass.TRANSIENT, Instant.now());
         if (!state.markDeadLetteredAfterRepublishFailure(id, retryCount, republishError)) {
             log.warn("DEAD_LETTERED após republicação falha não gravado (fence perdido) id={} retryCount={}",

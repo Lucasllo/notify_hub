@@ -87,31 +87,37 @@ public class DeliveryRoutingPublisher {
                 return m; // delivery mode PERSISTENT é o padrão
             }, cd);
         } catch (AmqpException e) {
-            return PublishOutcome.failed(e.getMessage());
+            return PublishOutcome.sendFailed(e);
         }
         try {
             CorrelationData.Confirm confirm = cd.getFuture().get(confirmTimeout.toMillis(), TimeUnit.MILLISECONDS);
             ReturnedMessage returned = cd.getReturned();
             if (returned != null) {
-                return PublishOutcome.returned(returned.getReplyText());
+                return PublishOutcome.returned(returned.getReplyCode());
             }
-            return confirm.isAck() ? PublishOutcome.acked() : PublishOutcome.nacked(confirm.getReason());
+            return confirm.isAck() ? PublishOutcome.acked() : PublishOutcome.nacked();
         } catch (TimeoutException e) {
             return PublishOutcome.timeout();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return PublishOutcome.timeout();
         } catch (ExecutionException e) {
-            Throwable cause = e.getCause() != null ? e.getCause() : e;
-            return PublishOutcome.nacked(cause.getMessage());
+            return PublishOutcome.confirmFailed(e.getCause() != null ? e.getCause() : e);
         }
     }
 
     /**
      * Resultado de uma publicação confirmada.
      *
+     * <p>O motivo vem de um conjunto fechado e entra no {@code lastError} REPUBLISH_FAILED gravado no
+     * Mongo: o texto do nack, o reply text da devolução e a mensagem de exceção nunca são lidos, porque
+     * podem trazer destinatário ou outro texto livre (T-02-01, WR-05).
+     *
      * @param ok     {@code true} só com ack do broker e sem devolução
-     * @param reason motivo da falha; nulo quando {@code ok}
+     * @param reason {@code NACK}, {@code RETURNED:<replyCode>}, {@code CONFIRM_TIMEOUT},
+     *               {@code SEND_FAILED:<tipo>} ou {@code CONFIRM_FAILED:<tipo>}, onde {@code <tipo>} é
+     *               o nome simples da classe da exceção; nulo quando {@code ok}; nunca contém texto
+     *               livre do broker ou de exceção (T-02-01)
      */
     public record PublishOutcome(boolean ok, String reason) {
 
@@ -119,20 +125,33 @@ public class DeliveryRoutingPublisher {
             return new PublishOutcome(true, null);
         }
 
-        public static PublishOutcome nacked(String reason) {
-            return new PublishOutcome(false, "nack: " + reason);
+        /** Nack do broker; o motivo do nack é descartado. */
+        public static PublishOutcome nacked() {
+            return new PublishOutcome(false, "NACK");
         }
 
-        public static PublishOutcome returned(String replyText) {
-            return new PublishOutcome(false, "devolvida: " + replyText);
+        /** Devolução ({@code mandatory}); só o reply code numérico, nunca o reply text. */
+        public static PublishOutcome returned(int replyCode) {
+            return new PublishOutcome(false, "RETURNED:" + replyCode);
         }
 
         public static PublishOutcome timeout() {
-            return new PublishOutcome(false, "timeout do confirm");
+            return new PublishOutcome(false, "CONFIRM_TIMEOUT");
         }
 
-        public static PublishOutcome failed(String reason) {
-            return new PublishOutcome(false, "falha ao publicar: " + reason);
+        /** Exceção no envio; só o tipo da exceção. */
+        public static PublishOutcome sendFailed(Throwable cause) {
+            return new PublishOutcome(false, "SEND_FAILED:" + typeOf(cause));
+        }
+
+        /** Future do confirm completado com exceção; só o tipo da exceção. */
+        public static PublishOutcome confirmFailed(Throwable cause) {
+            return new PublishOutcome(false, "CONFIRM_FAILED:" + typeOf(cause));
+        }
+
+        private static String typeOf(Throwable t) {
+            String simple = t.getClass().getSimpleName();
+            return simple.isEmpty() ? t.getClass().getName() : simple; // classe anônima
         }
     }
 }

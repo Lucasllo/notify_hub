@@ -71,13 +71,33 @@ class DeliveryRoutingPublisherTest {
     }
 
     @Test
-    void nackIsNotOkAndCarriesTheReason() {
-        onSend(cd -> cd.getFuture().complete(new CorrelationData.Confirm(false, "x")));
+    void nackIsNotOkWithOnlyTheEnumeratedReason() {
+        onSend(cd -> cd.getFuture().complete(new CorrelationData.Confirm(false, "canal fechado: ana@exemplo.com")));
 
         PublishOutcome outcome = publishToDlq(publisher);
 
         assertThat(outcome.ok()).isFalse();
-        assertThat(outcome.reason()).contains("x");
+        assertThat(outcome.reason()).isEqualTo("NACK");
+    }
+
+    @Test
+    void nackWithoutReasonNeverRecordsNull() {
+        onSend(cd -> cd.getFuture().complete(new CorrelationData.Confirm(false, null)));
+
+        PublishOutcome outcome = publishToDlq(publisher);
+
+        assertThat(outcome.ok()).isFalse();
+        assertThat(outcome.reason()).isEqualTo("NACK").doesNotContain("null");
+    }
+
+    @Test
+    void failedConfirmFutureRecordsOnlyTheExceptionType() {
+        onSend(cd -> cd.getFuture().completeExceptionally(new IllegalStateException("texto livre ana@exemplo.com")));
+
+        PublishOutcome outcome = publishToDlq(publisher);
+
+        assertThat(outcome.ok()).isFalse();
+        assertThat(outcome.reason()).isEqualTo("CONFIRM_FAILED:IllegalStateException");
     }
 
     @Test
@@ -91,7 +111,7 @@ class DeliveryRoutingPublisherTest {
         PublishOutcome outcome = publishToDlq(publisher);
 
         assertThat(outcome.ok()).isFalse();
-        assertThat(outcome.reason()).contains("devolvida").contains("NO_ROUTE");
+        assertThat(outcome.reason()).isEqualTo("RETURNED:312");
     }
 
     @Test
@@ -103,18 +123,19 @@ class DeliveryRoutingPublisherTest {
 
         assertThat(outcome).isEqualTo(PublishOutcome.timeout());
         assertThat(outcome.ok()).isFalse();
+        assertThat(outcome.reason()).isEqualTo("CONFIRM_TIMEOUT");
     }
 
     @Test
     void brokerFailureOnSendIsNotOkAndDoesNotPropagate() {
-        doThrow(new AmqpConnectException(new ConnectException("Connection refused")))
+        doThrow(new AmqpConnectException(new ConnectException("Connection refused ana@exemplo.com")))
                 .when(rabbit).convertAndSend(anyString(), anyString(), any(Object.class),
                         any(MessagePostProcessor.class), any(CorrelationData.class));
 
         PublishOutcome outcome = publishToDlq(publisher);
 
         assertThat(outcome.ok()).isFalse();
-        assertThat(outcome.reason()).isNotBlank();
+        assertThat(outcome.reason()).isEqualTo("SEND_FAILED:AmqpConnectException");
     }
 
     @Test

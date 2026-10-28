@@ -38,7 +38,7 @@ import org.springframework.stereotype.Component;
 public class FailureClassifier {
 
     /** Tamanho máximo da mensagem gravada em {@code lastError} e {@code attempts[].errorMessage}. */
-    static final int MAX_MESSAGE = 300;
+    public static final int MAX_MESSAGE = 300;
 
     public Classification classify(RuntimeException e) {
         if (e instanceof CallNotPermittedException) {
@@ -84,7 +84,11 @@ public class FailureClassifier {
         return new Classification(failureClass, code, truncate(message));
     }
 
-    private static String truncate(String message) {
+    /**
+     * Corta a mensagem em {@value #MAX_MESSAGE} caracteres; nulo continua nulo. Utilitário
+     * compartilhado com o lastError REPUBLISH_FAILED do DeliveryProcessor (WR-05).
+     */
+    public static String truncate(String message) {
         if (message == null) {
             return null;
         }

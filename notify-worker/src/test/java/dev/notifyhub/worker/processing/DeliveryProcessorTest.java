@@ -277,7 +277,7 @@ class DeliveryProcessorTest {
     void failedRepublishMovesRetryingToDeadLetteredAndCopiesToTheDlq() {
         adapterFailsTransiently(1);
         when(state.markRetrying(eq("n-1"), eq(1), any(), any())).thenReturn(true);
-        when(publisher.publishToRetry(any(), any(), anyInt(), any())).thenReturn(PublishOutcome.returned("NO_ROUTE"));
+        when(publisher.publishToRetry(any(), any(), anyInt(), any())).thenReturn(PublishOutcome.returned(312));
         when(state.markDeadLetteredAfterRepublishFailure(eq("n-1"), eq(1), any())).thenReturn(true);
         when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.acked());
 
@@ -287,7 +287,7 @@ class DeliveryProcessorTest {
         ArgumentCaptor<LastError> lastError = ArgumentCaptor.forClass(LastError.class);
         verify(state).markDeadLetteredAfterRepublishFailure(eq("n-1"), eq(1), lastError.capture());
         assertThat(lastError.getValue().code()).isEqualTo("REPUBLISH_FAILED");
-        assertThat(lastError.getValue().message()).contains("republicação para retry.25s falhou");
+        assertThat(lastError.getValue().message()).isEqualTo("republicação para retry.25s falhou: RETURNED:312");
         assertThat(lastError.getValue().failureClass()).isEqualTo(FailureClass.TRANSIENT);
         verify(publisher).publishToDlq(Channel.EMAIL, emailMessage(), FailureClass.TRANSIENT, 1);
         // transitória nunca vira FAILED
@@ -296,12 +296,30 @@ class DeliveryProcessorTest {
     }
 
     @Test
+    void failedRepublishLastErrorIsTruncatedToTheClassifierLimit() {
+        adapterFailsTransiently(0);
+        when(state.markRetrying(eq("n-1"), eq(0), any(), any())).thenReturn(true);
+        when(publisher.publishToRetry(any(), any(), anyInt(), any()))
+                .thenReturn(new PublishOutcome(false, "x".repeat(1000)));
+        when(state.markDeadLetteredAfterRepublishFailure(eq("n-1"), eq(0), any())).thenReturn(true);
+        when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.acked());
+
+        processor.process(Channel.EMAIL, emailMessage(), 0, false);
+
+        ArgumentCaptor<LastError> lastError = ArgumentCaptor.forClass(LastError.class);
+        verify(state).markDeadLetteredAfterRepublishFailure(eq("n-1"), eq(0), lastError.capture());
+        assertThat(lastError.getValue().message())
+                .hasSize(FailureClassifier.MAX_MESSAGE)
+                .startsWith("republicação para retry.5s falhou: ");
+    }
+
+    @Test
     void failedRepublishWithUnconfirmedDlqCopyFallsBackToReject() {
         adapterFailsTransiently(0);
         when(state.markRetrying(eq("n-1"), eq(0), any(), any())).thenReturn(true);
-        when(publisher.publishToRetry(any(), any(), anyInt(), any())).thenReturn(PublishOutcome.nacked("x"));
+        when(publisher.publishToRetry(any(), any(), anyInt(), any())).thenReturn(PublishOutcome.nacked());
         when(state.markDeadLetteredAfterRepublishFailure(eq("n-1"), eq(0), any())).thenReturn(true);
-        when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.nacked("y"));
+        when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.nacked());
 
         assertThatThrownBy(() -> processor.process(Channel.EMAIL, emailMessage(), 0, false))
                 .isInstanceOf(AmqpRejectAndDontRequeueException.class);
@@ -342,7 +360,7 @@ class DeliveryProcessorTest {
         when(state.claim("n-1", 0, false)).thenReturn(Optional.of(claimedEmail(0, 0)));
         when(catalog.require("welcome")).thenThrow(TemplateNotFoundException.missing("welcome"));
         when(state.markFailed(eq("n-1"), eq(0), any(), any())).thenReturn(true);
-        when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.nacked("x"));
+        when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.nacked());
 
         assertThatThrownBy(() -> processor.process(Channel.EMAIL, emailMessage(), 0, false))
                 .isInstanceOf(AmqpRejectAndDontRequeueException.class)
@@ -461,7 +479,7 @@ class DeliveryProcessorTest {
     void failedRepublishCountsDeadLetteredAndNoRetry() {
         adapterFailsTransiently(0);
         when(state.markRetrying(eq("n-1"), eq(0), any(), any())).thenReturn(true);
-        when(publisher.publishToRetry(any(), any(), anyInt(), any())).thenReturn(PublishOutcome.nacked("x"));
+        when(publisher.publishToRetry(any(), any(), anyInt(), any())).thenReturn(PublishOutcome.nacked());
         when(state.markDeadLetteredAfterRepublishFailure(eq("n-1"), eq(0), any())).thenReturn(true);
         when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.acked());
 
@@ -516,7 +534,7 @@ class DeliveryProcessorTest {
         when(state.claim("n-1", 0, false)).thenReturn(Optional.of(claimedEmail(0, 0)));
         when(catalog.require("welcome")).thenThrow(TemplateNotFoundException.missing("welcome"));
         when(state.markFailed(eq("n-1"), eq(0), any(), any())).thenReturn(true);
-        when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.nacked("x"));
+        when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.nacked());
 
         assertThatThrownBy(() -> processor.process(Channel.EMAIL, emailMessage(), 0, false))
                 .isInstanceOf(AmqpRejectAndDontRequeueException.class);
@@ -646,7 +664,7 @@ class DeliveryProcessorTest {
     void failedRepublishNeverAdvancesTheFence() {
         adapterFailsTransiently(1);
         when(state.markRetrying(eq("n-1"), eq(1), any(), any())).thenReturn(true);
-        when(publisher.publishToRetry(any(), any(), anyInt(), any())).thenReturn(PublishOutcome.returned("NO_ROUTE"));
+        when(publisher.publishToRetry(any(), any(), anyInt(), any())).thenReturn(PublishOutcome.returned(312));
         when(state.markDeadLetteredAfterRepublishFailure(eq("n-1"), eq(1), any())).thenReturn(true);
         when(publisher.publishToDlq(any(), any(), any(), anyInt())).thenReturn(PublishOutcome.acked());
 
