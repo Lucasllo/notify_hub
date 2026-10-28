@@ -30,7 +30,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
-import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 
 /**
@@ -183,8 +182,8 @@ public class DeliveryProcessor {
      *   <li>Com nível restante ({@link RetryPolicy}): PROCESSING → RETRYING com a tentativa, sem mexer
      *       em {@code retryCount}; publish confirmado do token {@code h+1} na fila de delay do próximo
      *       nível; avanço do fence ({@code retryCount = h+1} no documento RETRYING, WR-01), tolerante
-     *       a fence perdido e a {@link DataAccessException}; retorno normal, que confirma a
-     *       original.</li>
+     *       a fence perdido e a qualquer {@link RuntimeException} (nunca {@link Error}); retorno
+     *       normal, que confirma a original.</li>
      *   <li>Escada esgotada: PROCESSING → DEAD_LETTERED com a tentativa e cópia TRANSIENT na DLQ.</li>
      *   <li>Republicação negada, devolvida, sem confirm ou com exceção: RETRYING → DEAD_LETTERED com
      *       {@code lastError} REPUBLISH_FAILED, sem tentativa extra (D-17), e cópia TRANSIENT na DLQ.</li>
@@ -233,17 +232,20 @@ public class DeliveryProcessor {
 
     /**
      * Avança o fence do retry depois do confirm do token {@code h+1} (WR-01). Fence perdido ou
-     * {@link DataAccessException} nunca mudam o roteamento: o token já está confirmado na fila de
+     * qualquer {@link RuntimeException} (ex.: {@code IllegalStateException} do driver com o
+     * MongoClient fechado, WR-09) nunca mudam o roteamento: o token já está confirmado na fila de
      * delay, e rejeitar a original deixaria a mesma notificação na DLQ e na escada ao mesmo tempo. Sem
      * o avanço, só volta o at-least-once documentado: a reentrega do nível {@code h} pode repetir a
-     * tentativa.
+     * tentativa. Um {@link Error} continua subindo, como no catch de {@code process}.
      */
     private void advanceRetryFence(String id, int retryCount, int nextRetryCount) {
         try {
             state.advanceRetryLevel(id, retryCount, nextRetryCount);
-        } catch (DataAccessException e) {
+        } catch (RuntimeException e) {
+            // best-effort: o token h+1 já está confirmado; nada aqui pode mudar o roteamento da original
+            // (WR-09). Nunca Error, como no catch de process
             log.warn("fence do retry não avançado id={} nivel={}: reentrega do nível {} pode repetir a "
-                    + "tentativa (at-least-once)", id, nextRetryCount, retryCount);
+                    + "tentativa (at-least-once)", id, nextRetryCount, retryCount, e);
         }
     }
 

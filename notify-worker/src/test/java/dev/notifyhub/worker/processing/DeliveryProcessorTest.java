@@ -690,6 +690,32 @@ class DeliveryProcessorTest {
     }
 
     @Test
+    void unexpectedRuntimeExceptionOnTheAdvanceStillAcksWithoutTouchingTheDlq() {
+        adapterFailsTransiently(0);
+        when(state.markRetrying(eq("n-1"), eq(0), any(), any())).thenReturn(true);
+        when(publisher.publishToRetry(any(), any(), anyInt(), any())).thenReturn(PublishOutcome.acked());
+        when(state.advanceRetryLevel("n-1", 0, 1)).thenThrow(new IllegalStateException("state should be: open"));
+
+        assertThatCode(() -> processor.process(Channel.EMAIL, emailMessage(), 0, false)).doesNotThrowAnyException();
+
+        verify(publisher, never()).publishToDlq(any(), any(), any(), anyInt());
+        verify(state, never()).markDeadLetteredAfterRepublishFailure(anyString(), anyInt(), any());
+        assertThat(retries(1)).isEqualTo(1);
+        assertThat(outcome("retrying", "transient")).isEqualTo(1);
+    }
+
+    @Test
+    void errorOnTheAdvanceIsNeverSwallowed() {
+        adapterFailsTransiently(0);
+        when(state.markRetrying(eq("n-1"), eq(0), any(), any())).thenReturn(true);
+        when(publisher.publishToRetry(any(), any(), anyInt(), any())).thenReturn(PublishOutcome.acked());
+        when(state.advanceRetryLevel("n-1", 0, 1)).thenThrow(new AssertionError("erro de JVM"));
+
+        assertThatThrownBy(() -> processor.process(Channel.EMAIL, emailMessage(), 0, false))
+                .isInstanceOf(AssertionError.class);
+    }
+
+    @Test
     void integerMaxValueLevelIsDeadLetteredWithExactlyOneAttemptAndATransientDlqCopy() {
         // attemptCount vem do documento (0), não do header: adapterFailsTransiently usaria h como attemptCount
         claimReturns(claimedEmail(Integer.MAX_VALUE, 0));

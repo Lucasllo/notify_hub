@@ -888,4 +888,22 @@ class DeliveryFlowTest {
         assertThat(meters.get("notify.delivery.retries").tags("channel", "email", "level", "1")
                 .counter().count()).isEqualTo(1);
     }
+
+    @Test
+    void unexpectedRuntimeExceptionOnTheAdvanceStillAcksWithoutTouchingTheDlq() {
+        ChannelListeners failing = listenersWithEmailFailureRate(1.0);
+        // resultado RETRYING grava; o avanço depois do confirm encontra o MongoClient fechado (WR-09)
+        when(mongo.updateFirst(any(Query.class), any(UpdateDefinition.class), eq(NotificationDocument.class)))
+                .thenReturn(UpdateResult.acknowledged(1, 1L, null))
+                .thenThrow(new IllegalStateException("state should be: open"));
+
+        assertThatCode(() -> failing.onEmail(new NotificationMessage("n-1", Channel.EMAIL, "welcome", NOW), null, null))
+                .doesNotThrowAnyException();
+
+        verify(mongo, times(2)).updateFirst(any(Query.class), any(UpdateDefinition.class), eq(NotificationDocument.class));
+        verify(rabbit, never()).convertAndSend(eq("notify.dlx"), anyString(), any(Object.class),
+                any(MessagePostProcessor.class), any(CorrelationData.class));
+        assertThat(meters.get("notify.delivery.retries").tags("channel", "email", "level", "1")
+                .counter().count()).isEqualTo(1);
+    }
 }
