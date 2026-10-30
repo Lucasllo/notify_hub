@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 1
+open_count: 0
 waived_count: 0
-fixed_count: 0
+fixed_count: 1
 total_count: 1
-last_updated: 2026-10-20T23:36:49.943Z
+last_updated: 2026-10-30T00:59:36.890Z
 ---
 
 # Broken Windows Ledger
@@ -15,7 +15,7 @@ last_updated: 2026-10-20T23:36:49.943Z
 
 | id | phase | kind | file | line | description | status | reason | recorded_at | resolved_at |
 |----|-------|------|------|------|-------------|--------|--------|-------------|-------------|
-| 1 | 02 | unrun-verify | notify-worker/src/main/java/dev/notifyhub/worker/processing/DeliveryProcessor.java |  | 02-08 Task 2 human-check: derrubar o worker entre o confirm do token h+1 e o ack e confirmar descarte da original reentregue (SingleNotificationStore prova só a regra do fence) | open |  | 2026-10-20T23:36:49.943Z |  |
+| 1 | 02 | unrun-verify | notify-worker/src/main/java/dev/notifyhub/worker/processing/DeliveryProcessor.java |  | 02-08 Task 2 human-check: derrubar o worker entre o confirm do token h+1 e o ack e confirmar descarte da original reentregue (SingleNotificationStore prova só a regra do fence) | fixed |  | 2026-10-20T23:36:49.943Z | 2026-10-30T00:59:36.890Z |
 
 ````json
 [
@@ -26,10 +26,10 @@ last_updated: 2026-10-20T23:36:49.943Z
     "file": "notify-worker/src/main/java/dev/notifyhub/worker/processing/DeliveryProcessor.java",
     "line": null,
     "description": "02-08 Task 2 human-check: derrubar o worker entre o confirm do token h+1 e o ack e confirmar descarte da original reentregue (SingleNotificationStore prova só a regra do fence)",
-    "status": "open",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-10-20T23:36:49.943Z",
-    "resolved_at": null,
+    "resolved_at": "2026-10-30T00:59:36.890Z",
     "milestone": null
   }
 ]

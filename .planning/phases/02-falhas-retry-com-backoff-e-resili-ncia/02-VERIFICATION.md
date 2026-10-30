@@ -1,7 +1,7 @@
 ---
 phase: 02-falhas-retry-com-backoff-e-resili-ncia
 verified: 2026-10-20T23:48:26Z
-status: human_needed
+status: passed
 score: 64/65 must-haves verified
 covered_files:
   - .planning/REQUIREMENTS.md
@@ -76,7 +76,7 @@ covered_files:
   - pom.xml
   - scripts/smoke-fase2.sh
   - scripts/smoke-lib.sh
-covered_digest: "v1:sha256:092ba7a47f57f2aa8afa3ef5366461f99e96d58dfbe168bb4d7f3b615081806f"
+covered_digest: "v1:sha256:bb6a19768567030483bf47b25512d91aecfd828e51900a329d6b3e2029a9b25a"
 behavior_unverified: 1
 overrides_applied: 1
 overrides:
@@ -118,7 +118,7 @@ human_verification:
 
 **Objetivo da fase:** Toda falha de entrega tem destino previsível e visível: transitórias percorrem a escada de delay com backoff exponencial e, esgotadas, terminam DEAD_LETTERED na DLQ; permanentes vão direto para FAILED na DLQ; circuit breaker e bulkhead protegem cada canal; e tudo é demonstrável de forma determinística com destinatários mágicos e mensurável por métricas.
 **Verificado em:** 2026-10-20T23:48:26Z
-**Status:** human_needed
+**Status:** passed (era human_needed até o UAT 3/3 de 2026-10-21; ver "Fechamento")
 **Re-verificação:** Sim, depois da gap closure 02-08 (status anterior: gaps_found, 52/56)
 
 ## Resumo
@@ -286,3 +286,24 @@ O CR-01 saiu do escalation gate. Ele foi aplicado como override por decisão do 
 
 _Verificado em: 2026-10-20T23:48:26Z_
 _Verificador: Claude (gsd-verifier)_
+
+## Fechamento (2026-10-29)
+
+Registro do fechamento da Fase 2 feito pelo quick 261029-u95.
+
+- **(a) UAT:** o 02-UAT.md está com status complete, 3/3 pass e 0 issues, concluído em 2026-10-21T00:14:15Z. Ele cobre os 3 itens de `human_verification` (smoke com Docker e painel do RabbitMQ, legibilidade do GET e do scrape do Prometheus, queda do worker nas janelas da escada), inclusive o item de `behavior_unverified_items` (quedas do worker nas janelas da escada, teste 3).
+- **(b) Arquivos cobertos alterados depois da re-verificação 84fcebe:** só os do quick 261020-tm3 (fe60ac2 WR-05/T-02-01, 7cb7ce6 WR-09, 07b5fb1 WR-07). A comparação entre `git diff --name-only 84fcebe HEAD -- <covered_files>` e os arquivos desses três commits deu exatamente estes 11 arquivos, sem nenhum outro:
+  - `notify-worker/src/main/java/dev/notifyhub/worker/channel/SimulationProperties.java`
+  - `notify-worker/src/main/java/dev/notifyhub/worker/failure/FailureClassifier.java`
+  - `notify-worker/src/main/java/dev/notifyhub/worker/messaging/DeliveryRoutingPublisher.java`
+  - `notify-worker/src/main/java/dev/notifyhub/worker/processing/DeliveryProcessor.java`
+  - `notify-worker/src/main/resources/application.yml`
+  - `notify-worker/src/main/resources/application-demo.yml`
+  - `notify-worker/src/test/java/dev/notifyhub/worker/channel/SimulatedChannelAdapterTest.java`
+  - `notify-worker/src/test/java/dev/notifyhub/worker/config/WorkerSettingsTest.java`
+  - `notify-worker/src/test/java/dev/notifyhub/worker/messaging/DeliveryRoutingPublisherTest.java`
+  - `notify-worker/src/test/java/dev/notifyhub/worker/processing/DeliveryFlowTest.java`
+  - `notify-worker/src/test/java/dev/notifyhub/worker/processing/DeliveryProcessorTest.java`
+- **(c) Testes:** `./mvnw -B test` verde em 2026-10-29 (exit 0, BUILD SUCCESS): notify-common 75, notify-api 34 e notify-worker 356 testes, total 465, com 0 falhas, 0 erros e 0 ignorados.
+- **(d) Status:** `human_needed` passou a `passed`, o mesmo passo que o verify-work aplica quando o UAT termina sem issues. O `covered_digest` foi recalculado com `verification.fingerprint` sobre a mesma lista `covered_files`, na mesma ordem. Score, `covered_files`, `behavior_unverified` e `overrides` não mudaram.
+- **(e) Recálculo depois do `phase complete 2`:** pendente (preenchido na Task 2 do quick 261029-u95).
