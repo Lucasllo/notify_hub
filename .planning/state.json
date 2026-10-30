@@ -6,12 +6,12 @@
     {
       "number": "1",
       "name": "Entrega ponta a ponta no caminho feliz",
-      "status": "in_progress"
+      "status": "complete"
     },
     {
       "number": "2",
       "name": "Falhas, retry com backoff e resiliência",
-      "status": "pending"
+      "status": "complete"
     },
     {
       "number": "3",
@@ -26,8 +26,8 @@
   ],
   "next": {
     "command": "/gsd:progress --next",
-    "label": "Advance to the next step",
-    "reason": "Phase 01 of 4 · 0% · executing"
+    "label": "Advance to the next step (plan phase 03)",
+    "reason": "Phase 03 of 4 — needs a plan"
   },
-  "updated_at": "2026-10-13T00:46:10.389Z"
+  "updated_at": "2026-10-30T01:00:16.297Z"
 }

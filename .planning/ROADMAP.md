@@ -14,7 +14,7 @@ O Notify Hub é construído em quatro fatias verticais, cada uma demonstrável d
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Entrega ponta a ponta no caminho feliz** - Contrato, topologia completa e compose de infra; a API aceita e publica com confirms e o worker entrega até SENT (completed 2026-10-13)
-- [ ] **Phase 2: Falhas, retry com backoff e resiliência** - Toda falha tem destino previsível (retry por nível, DEAD_LETTERED, FAILED), com circuit breaker, bulkhead, destinatários mágicos e métricas
+- [x] **Phase 2: Falhas, retry com backoff e resiliência** - Toda falha tem destino previsível (retry por nível, DEAD_LETTERED, FAILED), com circuit breaker, bulkhead, destinatários mágicos e métricas (completed 2026-10-21)
 - [ ] **Phase 3: Reprocessamento, API operacional e testes de integração** - Operador recupera DLQ e PUBLISH_FAILED, cliente consulta e reenvia com idempotência, e ITs provam o fluxo completo
 - [ ] **Phase 4: Observabilidade, demo e documentação** - Um comando sobe tudo, o Grafana mostra 1000 notificações do k6, e o README traz arquitetura, trade-offs e benchmark
 
@@ -140,6 +140,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Entrega ponta a ponta no caminho feliz | 7/7 | Complete    | 2026-10-13 |
-| 2. Falhas, retry com backoff e resiliência | 8/8 | In Progress|  |
+| 2. Falhas, retry com backoff e resiliência | 8/8 | Complete    | 2026-10-21 |
 | 3. Reprocessamento, API operacional e testes de integração | 0/TBD | Not started | - |
 | 4. Observabilidade, demo e documentação | 0/TBD | Not started | - |

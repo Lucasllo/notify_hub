@@ -76,7 +76,7 @@ covered_files:
   - pom.xml
   - scripts/smoke-fase2.sh
   - scripts/smoke-lib.sh
-covered_digest: "v1:sha256:bb6a19768567030483bf47b25512d91aecfd828e51900a329d6b3e2029a9b25a"
+covered_digest: "v1:sha256:2ca0b8a1d9e360c9c9b5b125330ad3bae1e8d69bed1c9e8162cc555a43c78e9d"
 behavior_unverified: 1
 overrides_applied: 1
 overrides:
@@ -306,4 +306,4 @@ Registro do fechamento da Fase 2 feito pelo quick 261029-u95.
   - `notify-worker/src/test/java/dev/notifyhub/worker/processing/DeliveryProcessorTest.java`
 - **(c) Testes:** `./mvnw -B test` verde em 2026-10-29 (exit 0, BUILD SUCCESS): notify-common 75, notify-api 34 e notify-worker 356 testes, total 465, com 0 falhas, 0 erros e 0 ignorados.
 - **(d) Status:** `human_needed` passou a `passed`, o mesmo passo que o verify-work aplica quando o UAT termina sem issues. O `covered_digest` foi recalculado com `verification.fingerprint` sobre a mesma lista `covered_files`, na mesma ordem. Score, `covered_files`, `behavior_unverified` e `overrides` não mudaram.
-- **(e) Recálculo depois do `phase complete 2`:** pendente (preenchido na Task 2 do quick 261029-u95).
+- **(e) Recálculo depois do `phase complete 2`:** covered_digest recalculado de novo depois do `phase complete 2`, que só marcou os 12 REQ-IDs da Fase 2 no REQUIREMENTS.md (9 passaram de `[ ]`/Gaps Found para `[x]`/Complete; WRK-03, DLV-04 e DLV-05 já estavam Complete). O digest foi copiado da saída de `verification.fingerprint` sobre a mesma lista `covered_files`.
