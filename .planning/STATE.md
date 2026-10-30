@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-10-13)
 Phase: 03 (Reprocessamento, API operacional e testes de integração) — READY TO PLAN
 Plan: Not started
 Status: Ready to plan (contexto e pesquisa da Fase 3 prontos)
-Last activity: 2026-10-29 - Fase 2 fechada (UAT 3/3 aprovado em 2026-10-21)
+Last activity: 2026-10-29 - Completed quick task 261029-u95: Fechar a Fase 2 no ROADMAP.md e no STATE.md (UAT 3/3 aprovado em 2026-10-21)
 
 Progress: [█████░░░░░] 50%
 
@@ -135,6 +135,7 @@ None yet.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 261020-tm3 | Corrigir WR-05/T-02-01 (lastError de REPUBLISH_FAILED com motivo enumerado e truncado), WR-09 (fence tolera RuntimeException) e WR-07 (destinatários mágicos só no profile demo) | 2026-10-28 | 07b5fb1 | [261020-tm3-corrigir-wr-05-t-02-01-lasterror-de-repu](./quick/261020-tm3-corrigir-wr-05-t-02-01-lasterror-de-repu/) |
+| 261029-u95 | Fechar a Fase 2 no ROADMAP.md e no STATE.md (UAT 3/3 aprovado em 2026-10-21) | 2026-10-29 | 871d97f | [261029-u95-fechar-a-fase-2-no-roadmap-md-e-no-state](./quick/261029-u95-fechar-a-fase-2-no-roadmap-md-e-no-state/) |
 
 ## Deferred Items
 
