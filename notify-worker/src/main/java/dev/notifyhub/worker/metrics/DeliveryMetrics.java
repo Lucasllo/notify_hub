@@ -10,10 +10,13 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.EnumMap;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.stereotype.Component;
 
 /**
@@ -51,6 +54,11 @@ public class DeliveryMetrics {
     private static final Duration MIN_EXPECTED = Duration.ofMillis(1);
     private static final Duration MAX_EXPECTED = Duration.ofSeconds(30);
 
+    /** Resultados do adapter que têm timer de duração (D-15): 4 por canal, 12 séries. */
+    private static final Set<AttemptOutcome> ADAPTER_OUTCOMES = Collections.unmodifiableSet(EnumSet.of(
+            AttemptOutcome.SUCCESS, AttemptOutcome.TRANSIENT_FAILURE,
+            AttemptOutcome.PERMANENT_FAILURE, AttemptOutcome.UNKNOWN_FAILURE));
+
     private final MeterRegistry registry;
     private final FailureClassifier classifier;
     private final Map<Channel, ChannelMeters> meters = new EnumMap<>(Channel.class);
@@ -78,7 +86,9 @@ public class DeliveryMetrics {
                     .register(registry));
         }
         Map<AttemptOutcome, Timer> durations = new EnumMap<>(AttemptOutcome.class);
-        for (AttemptOutcome outcome : AttemptOutcome.values()) {
+        // Conjunto explícito dos resultados do adapter, e não o enum inteiro: REPROCESSED (Fase 3) é
+        // evento do operador, nunca resultado do adapter, e criaria séries que jamais recebem amostra
+        for (AttemptOutcome outcome : ADAPTER_OUTCOMES) {
             durations.put(outcome, Timer.builder(DURATION)
                     .description("Duração da chamada ao adapter do canal, sem recusas de CB/bulkhead")
                     .tag("channel", channel.id())

@@ -3,7 +3,9 @@ package dev.notifyhub.api.application;
 import static org.springframework.data.mongodb.core.query.Criteria.where;
 import static org.springframework.data.mongodb.core.query.Query.query;
 
+import dev.notifyhub.common.domain.AttemptOutcome;
 import dev.notifyhub.common.domain.NotificationStatus;
+import dev.notifyhub.common.persistence.AttemptEntry;
 import dev.notifyhub.common.persistence.NotificationDocument;
 import dev.notifyhub.common.persistence.NotificationDocument.Fields;
 import java.time.Instant;
@@ -26,6 +28,15 @@ import org.springframework.stereotype.Service;
  * status é escrito à mão aqui. O update é um único {@code findAndModify} cercado por {@code _id} +
  * status lido + {@code retryCount} lido (fence otimista): se outro processo mexeu no documento entre
  * a leitura e a escrita, nada é gravado.
+ *
+ * <p><b>Histórico (ADM-02):</b> o reset grava status PENDING e {@code retryCount} 0, remove
+ * {@code leaseUntil} e {@code claimedAt} e acrescenta ao fim de {@code attempts[]} (mantendo as
+ * últimas 50) uma entrada {@link AttemptOutcome#REPROCESSED} com {@code number} 0,
+ * {@code retryLevel} = {@code retryCount} anterior e duração 0. As entradas anteriores ficam como
+ * estão. {@code attemptCount} fica intocado de propósito: o destinatário mágico
+ * {@code fail-until-reprocess} conta tentativas por ele, e zerá-lo faria a notificação falhar para
+ * sempre; incrementá-lo faria o evento parecer uma tentativa (Armadilha 8). {@code lastError} é
+ * preservado como histórico. Nunca usa {@code save()}, que sobrescreveria o documento.
  *
  * <p><b>Resultados</b> ({@link ResetResult}):
  * <ul>
@@ -75,6 +86,12 @@ public class NotificationResetService {
                 .set(Fields.UPDATED_AT, now)
                 .unset(Fields.LEASE_UNTIL)
                 .unset(Fields.CLAIMED_AT);
+        // Mensagem montada só de nomes de enum, sem texto livre
+        AttemptEntry reprocessed = new AttemptEntry(0, current.retryCount(), now, 0L, AttemptOutcome.REPROCESSED,
+                null, "Reprocessada da DLQ pelo operador (status anterior: " + previousStatus.name() + ")", null,
+                Thread.currentThread().toString());
+        // $slice exige $each: slice(...) antes de each(...) monta os dois modificadores do $push (como no markSent)
+        reset.push(Fields.ATTEMPTS).slice(-50).each(reprocessed);
 
         NotificationDocument updated = mongo.findAndModify(fence, reset,
                 FindAndModifyOptions.options().returnNew(true), NotificationDocument.class);

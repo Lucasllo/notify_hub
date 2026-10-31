@@ -3,8 +3,10 @@ package dev.notifyhub.api.admin;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rabbitmq.client.GetResponse;
 import dev.notifyhub.api.application.NotificationResetService;
+import dev.notifyhub.api.application.NotificationResetService.Missing;
 import dev.notifyhub.api.application.NotificationResetService.Reset;
 import dev.notifyhub.api.application.NotificationResetService.ResetResult;
+import dev.notifyhub.api.application.NotificationResetService.Sent;
 import dev.notifyhub.api.messaging.NotificationPublisher;
 import dev.notifyhub.api.messaging.PublishProperties;
 import dev.notifyhub.api.messaging.PublishResult;
@@ -18,11 +20,43 @@ import org.springframework.amqp.AmqpException;
 import org.springframework.amqp.core.AmqpAdmin;
 import org.springframework.amqp.core.QueueInformation;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 
 /**
  * Reprocessamento da DLQ de um canal (ADM-01, D-02, D-03): move até {@code max} mensagens da DLQ de
  * volta à fila principal, uma por vez, e para na primeira falha sem perder nada.
+ *
+ * <pre>
+ * orçamento = min(max, mensagens prontas na DLQ no início da chamada)   (DLQ inexistente → 503)
+ * repete até o orçamento ou a DLQ esvaziar, num único canal:
+ *   basicGet(dlq, autoAck=false)
+ *   corpo ilegível, sem notificationId ou de outro canal ── cópia para o fim da DLQ → ack → skipped
+ *   reset no Mongo (findAndModify)
+ *     Reset ─────────── republish confirmado (notify-retry-count 0) ──── ack → reprocessed
+ *     Missing / Sent ── nada a entregar ──────────────────────────────── ack → discarded
+ *     qualquer outro ── cópia confirmada para o fim da DLQ ───────────── ack → skipped
+ *   publish ou cópia sem ACK, Mongo fora ── basicNack(requeue=true) → para → 503 com motivo fechado
+ * </pre>
+ *
+ * <p><b>Ack só depois do confirm.</b> Cada entrega termina em exatamente um {@code basicAck} ou um
+ * {@code basicNack(tag, false, true)}, sempre no canal do {@code basicGet} (delivery tags são por
+ * canal). Uma exceção inesperada também leva nack com requeue, num {@code finally} por entrega, para
+ * a entrega nunca ficar pendurada num canal do cache (Armadilha 1).
+ *
+ * <p><b>Nunca rejeitar na DLQ.</b> A DLQ não tem dead-letter exchange: {@code basicReject} ou nack
+ * sem requeue faria o broker descartar a mensagem (Armadilha 2). A mensagem que falha volta à sua
+ * posição original; a que não pode voltar à fila principal ({@code skipped}) é copiada para o fim,
+ * depois das prontas no início, e por isso nunca é relida na mesma chamada (Armadilha 3).
+ *
+ * <p><b>Corpo lido para o tipo concreto.</b> {@code objectMapper.readValue(body,
+ * NotificationMessage.class)}, nunca o conversor do template nem o header {@code __TypeId__}
+ * (Armadilha 4). O republish é montado a partir do documento resetado, não do corpo da DLQ.
+ *
+ * <p><b>Reset gravado, publish falho.</b> O documento fica PENDING com o evento REPROCESSED no
+ * histórico e a mensagem volta à DLQ. Até as transições do plano 03-03, PENDING não pode ir a
+ * PENDING, então um novo reprocess preserva essa mensagem no fim da DLQ ({@code skipped}); depois
+ * delas, o próximo reprocess a retoma.
  */
 @Service
 public class DlqReprocessService {
@@ -63,6 +97,9 @@ public class DlqReprocessService {
         } catch (AmqpException e) {
             throw interrupted(channel, tally, FailureReason.BROKER_UNAVAILABLE);
         }
+        if (info == null) {
+            throw interrupted(channel, tally, FailureReason.DLQ_UNAVAILABLE);
+        }
         int ready = info.getMessageCount();
         int budget = Math.min(max, ready);
         log.info("Reprocessamento da DLQ {}: pedido={}, prontas={}, orçamento={}", channel.dlq(), max, ready, budget);
@@ -72,13 +109,23 @@ public class DlqReprocessService {
 
         try {
             rabbitTemplate.execute(dlqChannel -> {
-                drain(dlqChannel, channel, budget, tally);
+                try {
+                    drain(dlqChannel, channel, budget, tally);
+                } catch (RuntimeException unexpected) {
+                    // Guardada e relançada depois do execute: não vira UncategorizedAmqpException nem
+                    // é confundida com broker fora. A entrega em curso já levou nack com requeue.
+                    tally.unexpected = unexpected;
+                }
                 return null;
             });
         } catch (AmqpException e) {
+            // O canal ou a conexão caiu: as entregas sem ack voltam sozinhas à DLQ quando o canal fecha
             tally.stop(FailureReason.BROKER_UNAVAILABLE);
         }
 
+        if (tally.unexpected != null) {
+            throw tally.unexpected;
+        }
         if (tally.reason != null) {
             throw interrupted(channel, tally, tally.reason);
         }
@@ -117,9 +164,34 @@ public class DlqReprocessService {
         }
     }
 
-    private Step handle(Channel channel, GetResponse delivery) throws IOException {
-        NotificationMessage message = objectMapper.readValue(delivery.getBody(), NotificationMessage.class);
-        ResetResult result = resetService.resetForReprocess(message.notificationId());
+    private Step handle(Channel channel, GetResponse delivery) {
+        String invalid = null;
+        NotificationMessage message = null;
+        try {
+            message = objectMapper.readValue(delivery.getBody(), NotificationMessage.class);
+        } catch (IOException e) {
+            invalid = "corpo ilegível";
+        }
+        if (invalid == null && (message == null || message.notificationId() == null
+                || message.notificationId().isBlank())) {
+            invalid = "sem notificationId";
+        } else if (invalid == null && message.channel() != channel) {
+            invalid = "canal diferente do da DLQ";
+        }
+        if (invalid != null) {
+            // Preservar, nunca descartar: a mensagem se perderia em silêncio (Pergunta em aberto 1)
+            log.warn("Mensagem {} da DLQ {} com {}: preservada no fim da DLQ sem consultar o Mongo",
+                    delivery.getProps().getMessageId(), channel.dlq(), invalid);
+            return copyToTail(channel, delivery);
+        }
+
+        ResetResult result;
+        try {
+            result = resetService.resetForReprocess(message.notificationId());
+        } catch (DataAccessException e) {
+            return Step.failed(FailureReason.MONGO_UNAVAILABLE);
+        }
+
         if (result instanceof Reset reset) {
             NotificationDocument doc = reset.document();
             PublishResult published = publisher.publish(
@@ -127,7 +199,10 @@ public class DlqReprocessService {
                     props.confirmTimeout());
             return published.ok() ? Step.REPROCESSED : Step.failed(FailureReason.of(published));
         }
-        // Ramo padrão: qualquer outro resultado preserva a mensagem no fim da DLQ
+        if (result instanceof Missing || result instanceof Sent) {
+            return Step.DISCARDED; // não há mais nada a entregar (D-02)
+        }
+        // Ramo padrão, sem switch exaustivo: um resultado novo do reset também preserva a mensagem
         return copyToTail(channel, delivery);
     }
 
@@ -201,6 +276,7 @@ public class DlqReprocessService {
         private int skipped;
         private int discarded;
         private FailureReason reason;
+        private RuntimeException unexpected;
 
         Tally(int requested) {
             this.requested = requested;
