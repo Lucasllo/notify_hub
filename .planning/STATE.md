@@ -2,17 +2,17 @@
 gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: Reprocessamento, API operacional e testes de integração
-status: planning
-stopped_at: Phase 3 context gathered
-last_updated: "2026-10-30T01:00:16.011Z"
-last_activity: 2026-10-29
-last_activity_desc: Fase 2 fechada (UAT 3/3 aprovado em 2026-10-21)
-state_head: 1ae24e102a7534a2ee3ecf30c17031e4c7a4db75
+status: executing
+stopped_at: Completed 03-01-PLAN.md
+last_updated: "2026-10-31T12:55:19.762Z"
+last_activity: 2026-10-31
+last_activity_desc: Phase 03 execution started
+state_head: 5e87c87790c1cd691d5d016133b8df5e1fbdbf69
 progress:
   total_phases: 4
   completed_phases: 2
-  total_plans: 15
-  completed_plans: 15
+  total_plans: 22
+  completed_plans: 16
   percent: 50
 ---
 
@@ -27,10 +27,10 @@ See: .planning/PROJECT.md (updated 2026-10-13)
 
 ## Current Position
 
-Phase: 03 (Reprocessamento, API operacional e testes de integração) — READY TO PLAN
-Plan: Not started
-Status: Ready to plan (contexto e pesquisa da Fase 3 prontos)
-Last activity: 2026-10-29 - Completed quick task 261029-u95: Fechar a Fase 2 no ROADMAP.md e no STATE.md (UAT 3/3 aprovado em 2026-10-21)
+Phase: 03 (Reprocessamento, API operacional e testes de integração) — EXECUTING
+Plan: 2 of 7
+Status: Ready to execute
+Last activity: 2026-10-31 — Phase 03 execution started
 
 Progress: [█████░░░░░] 50%
 
@@ -72,6 +72,7 @@ Progress: [█████░░░░░] 50%
 | Phase 02 P06 | 10min | 2 tasks | 10 files |
 | Phase 02 P07 | 15min | 2 tasks | 2 files |
 | Phase 02 P08 | 11min | 3 tasks | 11 files |
+| Phase 03 P01 | 17min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -116,6 +117,8 @@ Recent decisions affecting current work:
 - [Phase 02]: 02-08: RetryPolicy testa h >= N antes do +1; RetryHeaders sem teto (teto recriaria o CR-01), header 2147483647 termina DEAD_LETTERED com cópia TRANSIENT
 - [Phase 02]: 02-08: WR-01 fechado com advanceRetryLevel (RETRYING h -> retryCount h+1, fence RETRYING + retryCount = h) entre o confirm e o ack; falha ou fence perdido no avanço só gera log, nunca DLQ; filtro do claim e markRetrying inalterados
 - [Phase 02]: 02-08: CR-01 adiado para a Fase 3 (deferred-items.md); o reprocessamento precisa aceitar PENDING/RETRYING/PROCESSING com a mensagem na DLQ ou criar um sweeper de lease (WR-08)
+- [Phase 03]: Harness de IT: API e worker reais na mesma JVM do Failsafe via SpringApplication.from(...).with(Containers.class), spring.config.location por args (URI file: do módulo + optional:classpath:/it/) e containers estáticos com @ImportTestcontainers/@ServiceConnection; funcionou sem fallback (A4/A5 confirmadas)
+- [Phase 03]: Jars executáveis com classifier exec (notify-<app>-0.1.0-SNAPSHOT-exec.jar); o jar sem classifier é dependência do notify-it; Dockerfiles da Fase 4 devem copiar *-exec.jar
 
 ### Pending Todos
 
@@ -147,6 +150,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-28T23:19:30.972Z
-Stopped at: Phase 3 context gathered
-Resume file: .planning/phases/03-reprocessamento-api-operacional-e-testes-de-integra-o/03-CONTEXT.md
+Last session: 2026-10-31T12:55:19.393Z
+Stopped at: Completed 03-01-PLAN.md
+Resume file: None
