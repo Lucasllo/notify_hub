@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Query;
@@ -47,6 +48,10 @@ public class NotificationRepublisher {
 
     private static final Logger log = LoggerFactory.getLogger(NotificationRepublisher.class);
 
+    /**
+     * Motivo do {@link RepublishInterruptedException} quando o MongoDB falha na busca ou num update do
+     * lote. Os demais motivos vêm de {@link PublishResult#errorCode()}.
+     */
     public static final String MONGO_UNAVAILABLE = "MONGO_UNAVAILABLE";
 
     private final MongoTemplate mongoTemplate;
@@ -149,24 +154,39 @@ public class NotificationRepublisher {
     /**
      * Republica até {@code max} notificações PUBLISH_FAILED, da mais antiga para a mais nova
      * ({@code createdAt} asc, {@code _id} asc). Só as REPUBLISHED contam; um republish que perde o
-     * fence (outro caminho já agiu) não conta nem interrompe. A primeira falha encerra o lote.
+     * fence (outro caminho já agiu) não conta nem interrompe.
+     *
+     * <p>A primeira falha para o lote (padrão do D-03): publish sem confirm lança
+     * {@link RepublishInterruptedException} com {@code reason} = {@link PublishResult#errorCode()}, e
+     * uma {@link DataAccessException} na busca ou num update lança com {@link #MONGO_UNAVAILABLE}. As
+     * duas levam as contagens acumuladas; as notificações não processadas continuam PUBLISH_FAILED.
      *
      * @param max já validado pelo controller (1..{@code notify.admin.max-limit})
      */
     public RepublishReport republishFailed(int max) {
-        Query pending = query(where(Fields.STATUS).is(NotificationStatus.PUBLISH_FAILED))
-                .with(Sort.by(Sort.Order.asc(Fields.CREATED_AT), Sort.Order.asc(Fields.ID)))
-                .limit(max);
-        List<NotificationDocument> candidates = mongoTemplate.find(pending, NotificationDocument.class);
         int republished = 0;
-        for (NotificationDocument doc : candidates) {
-            RepublishOutcome outcome = republish(doc);
-            if (outcome.kind() == RepublishOutcome.Kind.FAILED) {
-                break;
+        try {
+            Query pending = query(where(Fields.STATUS).is(NotificationStatus.PUBLISH_FAILED))
+                    .with(Sort.by(Sort.Order.asc(Fields.CREATED_AT), Sort.Order.asc(Fields.ID)))
+                    .limit(max);
+            List<NotificationDocument> candidates = mongoTemplate.find(pending, NotificationDocument.class);
+            for (NotificationDocument doc : candidates) {
+                RepublishOutcome outcome = republish(doc);
+                if (outcome.kind() == RepublishOutcome.Kind.FAILED) {
+                    String reason = outcome.failure().errorCode();
+                    log.warn("Republicação em lote interrompida na notificação {} ({}); {} republicadas",
+                            doc.id(), reason, republished);
+                    throw new RepublishInterruptedException(new RepublishReport(max, republished), reason);
+                }
+                if (outcome.kind() == RepublishOutcome.Kind.REPUBLISHED) {
+                    republished++;
+                }
             }
-            if (outcome.kind() == RepublishOutcome.Kind.REPUBLISHED) {
-                republished++;
-            }
+        } catch (DataAccessException e) {
+            // T-02-01: o log e o 503 citam só o motivo fechado, nunca a mensagem da exceção
+            log.warn("Republicação em lote interrompida: MongoDB indisponível ({}); {} republicadas",
+                    e.getClass().getSimpleName(), republished);
+            throw new RepublishInterruptedException(new RepublishReport(max, republished), MONGO_UNAVAILABLE);
         }
         return new RepublishReport(max, republished);
     }

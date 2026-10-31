@@ -59,8 +59,9 @@ public class NotificationService {
      * <p>Com chave, o documento leva a chave e o {@link RequestHasher#hash hash do pedido canônico}. A
      * atomicidade entre requisições vem só do índice único parcial {@code idempotencyKey_unique}: o
      * insert de uma chave já gravada lança {@link DuplicateKeyException}, e então o documento existente
-     * é lido pela chave. Com o mesmo hash, a resposta é um replay com o status <b>atual</b> do documento
-     * (inclusive PUBLISH_FAILED; a republicação no replay vem no plano 03-05, D-08), sem publicar de novo.
+     * é lido pela chave. Com o mesmo hash, a resposta é um replay com o status <b>atual</b> do documento,
+     * sem publicar de novo. A exceção é PUBLISH_FAILED: o replay tenta republicar pelo mesmo caminho do
+     * {@code republish-failed} e responde 202 PENDING ou 503 com {@code Retry-After} (D-08).
      * Com outro hash, {@link IdempotencyKeyReusedException} (422), sem criar documento nem publicar.
      *
      * <p>A corrida entre dois POSTs com a mesma chave nova é resolvida pelo índice único: um insert
@@ -118,10 +119,40 @@ public class NotificationService {
                     existing.id());
             throw new IdempotencyKeyReusedException();
         }
+        if (existing.status() == NotificationStatus.PUBLISH_FAILED) {
+            return replayPublishFailed(existing);
+        }
         // Log sem a chave nem o destinatário: só o id da notificação original
         log.info("Replay de Idempotency-Key: devolvendo a notificação {} (status {})", existing.id(), existing.status());
         return new CreateResult(
                 new CreateNotificationResponse(existing.id(), existing.status(), existing.createdAt()), true);
+    }
+
+    /**
+     * D-08: o replay de uma notificação PUBLISH_FAILED tenta republicá-la pelo mesmo caminho do
+     * {@code POST /admin/notifications/republish-failed} ({@link NotificationRepublisher#republish}).
+     * Republicada → 202 PENDING; publish sem confirm → 503 com {@code Retry-After}, e o documento
+     * continua PUBLISH_FAILED; fence perdido (o worker ou outro republish já agiu) → relê o documento e
+     * devolve o status atual, sem publicar.
+     */
+    private CreateResult replayPublishFailed(NotificationDocument existing) {
+        NotificationRepublisher.RepublishOutcome outcome = republisher.republish(existing);
+        switch (outcome.kind()) {
+            case FAILED -> throw new PublishFailedException(existing.id(), props.retryAfter(), outcome.failure());
+            case REPUBLISHED -> {
+                log.info("Replay de Idempotency-Key: notificação {} republicada", existing.id());
+                return new CreateResult(new CreateNotificationResponse(existing.id(), NotificationStatus.PENDING,
+                        existing.createdAt()), true);
+            }
+            default -> {
+                NotificationDocument current = mongoTemplate.findById(existing.id(), NotificationDocument.class);
+                NotificationStatus status = current != null ? current.status() : existing.status();
+                log.info("Replay de Idempotency-Key: notificação {} já saiu de PUBLISH_FAILED (status {})",
+                        existing.id(), status);
+                return new CreateResult(new CreateNotificationResponse(existing.id(), status, existing.createdAt()),
+                        true);
+            }
+        }
     }
 
     public Optional<NotificationView> find(String id) {
