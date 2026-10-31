@@ -112,16 +112,18 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. O cliente que repete o POST com o mesmo `Idempotency-Key` e o mesmo payload recebe a notificação original sem duplicar, e com payload diferente recebe 422; `GET /notifications?status=&channel=` pagina por data de criação decrescente, `GET /notifications/stats` traz contagens por status e canal, e o Swagger UI documenta todos os endpoints
   4. `./mvnw verify` roda via Failsafe os ITs com Testcontainers (RabbitMQ + MongoDB) que provam retry → DLQ → reprocessamento → SENT, mensagem venenosa na DLQ sem loop, publish não roteável virando PUBLISH_FAILED e entrega duplicada concorrente com exatamente um envio; `./mvnw test` continua rodando sem Docker
 
-**Plans**: 7/7 plans executed
+**Plans**: 7/9 plans executed
 **Wave 1**
 
 - [x] 03-01-PLAN.md — harness de IT (`notify-it`, dois contextos na mesma JVM com Testcontainers), classifier `exec` e smokes (TST-04)
 - [x] 03-02-PLAN.md — reprocessamento da DLQ com `X-API-Key`: basicGet → reset com REPROCESSED → republish → ack, skipped/discarded e 503 parcial (ADM-01, ADM-02, ADM-04)
+- [ ] 03-08-PLAN.md — gap closure (Gap 1 / CR-01 do 03-REVIEW): varredura agendada PENDING sem confirm → PUBLISH_FAILED (PUBLISH_UNCONFIRMED) recuperável pelo `republish-failed`; log ERROR com o id e releitura quando o Mongo falha no `markPublishFailed`; details dos 503 verdadeiros (ADM-03, API-03)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 03-03-PLAN.md — CR-01 (PENDING/RETRYING/PROCESSING → PENDING) e ITs do reprocess, mensagem venenosa e duplicata concorrente (TST-02, TST-03, ADM-01)
 - [x] 03-04-PLAN.md — Idempotency-Key: replay, 422 e corrida com índice único parcial (API-03)
+- [ ] 03-09-PLAN.md — gap closure (Gap 1 / CR-01 item 2 + WR-02): replay idempotente só responde 202 com confirm próprio ou evidência de claim; PENDING com janela vencida é republicado com fence PENDING + `updatedAt`, PENDING recente espera a evidência (API-03, ADM-03)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
