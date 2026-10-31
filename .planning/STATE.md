@@ -2,17 +2,17 @@
 gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: Reprocessamento, API operacional e testes de integração
-status: executing
-stopped_at: Completed 03-06-PLAN.md
-last_updated: "2026-10-31T17:44:19.802Z"
+status: verifying
+stopped_at: Completed 03-07-PLAN.md
+last_updated: "2026-10-31T18:07:14.099Z"
 last_activity: 2026-10-31
 last_activity_desc: Phase 03 execution started
-state_head: 64aaa1c42a8deb0cfd9e384cee3ec5b6175154b0
+state_head: 307db399e8427acdaa3ed997b1236946500e9401
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 22
-  completed_plans: 21
+  completed_plans: 22
   percent: 50
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-10-13)
 
 Phase: 03 (Reprocessamento, API operacional e testes de integração) — EXECUTING
 Plan: 7 of 7
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-10-31 — Phase 03 execution started
 
 Progress: [█████░░░░░] 50%
@@ -78,6 +78,7 @@ Progress: [█████░░░░░] 50%
 | Phase 03 P04 | 29min | 3 tasks | 13 files |
 | Phase 03 P05 | 20min | 2 tasks | 11 files |
 | Phase 03 P06 | 167min | 2 tasks | 9 files |
+| Phase 03 P07 | 18min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -135,6 +136,8 @@ Recent decisions affecting current work:
 - [Phase 03]: 03-05: lote do republish-failed (createdAt asc, _id asc, limit max) para na primeira falha com 503 republish-interrupted {requested, republished, reason} (errorCode() ou MONGO_UNAVAILABLE); fence perdido não conta nem interrompe; replay de PUBLISH_FAILED responde 202 PENDING, 503 Retry-After ou o status atual relido
 - [Phase 03]: 03-06: listagem lê a projeção direto como NotificationSummary (ler como NotificationDocument falha no int attemptCount); página com skip >= total sai vazia sem find, porque o Spring Data trunca skip para int
 - [Phase 03]: 03-06: GET /notifications/stats por um único $group status+channel; EnumMap canal->status com 21 zeros na ordem dos enums (contrato D-12); linha desconhecida ignorada com WARN; índice status_createdAt também serve o republish-failed
+- [Phase 03]: 03-07: Swagger UI do springdoc 2.8.17 aberto (/swagger-ui/index.html, /v3/api-docs); esquema adminApiKey (X-API-Key) só nas operações /admin/**, proteção real segue no interceptor; respostas reais por @ApiResponse com override-with-generic-response false e erros como application/problem+json
+- [Phase 03]: 03-07: chave da demo demo-admin-key só no profile demo (${NOTIFY_ADMIN_API_KEY:demo-admin-key}); profile base vazio e fail closed
 
 ### Pending Todos
 
@@ -166,6 +169,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-31T17:44:19.572Z
-Stopped at: Completed 03-06-PLAN.md
+Last session: 2026-10-31T18:07:13.780Z
+Stopped at: Completed 03-07-PLAN.md
 Resume file: None

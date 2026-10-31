@@ -29,7 +29,7 @@
 - [x] **API-05**: O cliente pode listar `GET /notifications?status=&channel=` com paginação e ordenação por data de criação decrescente
 - [x] **API-06**: Erros de validação estrutural (canal inválido, campos ausentes, formato de destinatário por canal) retornam 400 com Problem Details (RFC 9457)
 - [x] **API-07**: O cliente pode consultar `GET /notifications/stats` com contagens agregadas por status e canal
-- [ ] **API-08**: A API expõe Swagger UI (springdoc 2.8.x) documentando todos os endpoints
+- [x] **API-08**: A API expõe Swagger UI (springdoc 2.8.x) documentando todos os endpoints
 
 ### Worker (WRK)
 
@@ -142,7 +142,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | API-05 | Phase 3 | Complete |
 | API-06 | Phase 1 | Complete |
 | API-07 | Phase 3 | Complete |
-| API-08 | Phase 3 | Pending |
+| API-08 | Phase 3 | Complete |
 | WRK-01 | Phase 1 | Complete |
 | WRK-02 | Phase 1 | Complete |
 | WRK-03 | Phase 2 | Complete |
