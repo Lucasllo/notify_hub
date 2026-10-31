@@ -225,8 +225,8 @@ else
   ./mvnw -q -DskipTests package || falhou "o empacotamento com ./mvnw falhou"
   ok "jars empacotados"
 fi
-WORKER_JAR="notify-worker/target/notify-worker-$VERSAO.jar"
-API_JAR="notify-api/target/notify-api-$VERSAO.jar"
+WORKER_JAR="notify-worker/target/notify-worker-$VERSAO-exec.jar"
+API_JAR="notify-api/target/notify-api-$VERSAO-exec.jar"
 [ -f "$WORKER_JAR" ] || falhou "jar ausente: $WORKER_JAR (rode sem --sem-build)"
 [ -f "$API_JAR" ] || falhou "jar ausente: $API_JAR (rode sem --sem-build)"
 

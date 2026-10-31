@@ -4,10 +4,14 @@
 # Uso: "source scripts/smoke-lib.sh" a partir de um script que já fez "set -euo pipefail".
 # Este arquivo só define variáveis e funções: não liga "set -e" por conta própria, não faz cd e não
 # instala trap. Os helpers de smoke-fase1.sh foram copiados para cá sem mudar o comportamento
-# (o smoke da Fase 1 continua autocontido e não é alterado).
+# (o smoke da Fase 1 continua autocontido e não usa este arquivo).
 #
 # Pré-requisitos: Docker Desktop ligado, JDK 21 no PATH, curl. Não depende de jq: os campos JSON são
 # extraídos com grep/sed/tr.
+#
+# Jars: desde a Fase 3 (plano 03-01), o executável de cada app sai com classifier exec
+# (notify-<app>-<versão>-exec.jar). O jar sem classifier é o principal, com as classes na raiz,
+# consumido pelo módulo notify-it como dependência; ele não sobe com "java -jar".
 
 RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SMOKE_DIR="$RAIZ/target/smoke"
@@ -17,8 +21,8 @@ WORKER_URL="http://localhost:8081"
 RABBIT_API_URL="http://localhost:15672/api"
 # Credenciais da demo, só locais (as mesmas do docker-compose.yml)
 RABBIT_CRED="notify:notify"
-WORKER_JAR="$RAIZ/notify-worker/target/notify-worker-$VERSAO.jar"
-API_JAR="$RAIZ/notify-api/target/notify-api-$VERSAO.jar"
+WORKER_JAR="$RAIZ/notify-worker/target/notify-worker-$VERSAO-exec.jar"
+API_JAR="$RAIZ/notify-api/target/notify-api-$VERSAO-exec.jar"
 
 WORKER_PID=""
 API_PID=""
