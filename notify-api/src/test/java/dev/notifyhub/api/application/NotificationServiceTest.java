@@ -153,6 +153,42 @@ class NotificationServiceTest {
         assertThat(query.getValue().getQueryObject()).isEqualTo(new Document("idempotencyKey", "k-1"));
     }
 
+    @Test
+    void duplicateKeyWithADifferentHashIs422WithoutEchoingKeyOrOriginalIdAndWithoutPublishing() {
+        NotificationDocument existing = existingWithHash("outro", NotificationStatus.PENDING, Instant.now());
+        when(mongo.insert(any(NotificationDocument.class))).thenThrow(new DuplicateKeyException("E11000"));
+        when(mongo.findOne(any(Query.class), eq(NotificationDocument.class))).thenReturn(existing);
+
+        assertThatThrownBy(() -> service.create(REQUEST, "k-1"))
+                .isInstanceOfSatisfying(IdempotencyKeyReusedException.class, e -> {
+                    assertThat(e.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+                    assertThat(e.getBody().getType())
+                            .hasToString("urn:notify-hub:problem:idempotency-key-reused");
+                    assertThat(e.getBody().getDetail()).doesNotContain("k-1").doesNotContain(existing.id());
+                    assertThat(e.getBody().getProperties()).isNull();
+                });
+        verify(publisher, never()).publish(any(), any());
+    }
+
+    @Test
+    void duplicateKeyWhoseDocumentIsNotFoundByTheKeyIsRethrown() {
+        DuplicateKeyException duplicate = new DuplicateKeyException("E11000 em outro índice");
+        when(mongo.insert(any(NotificationDocument.class))).thenThrow(duplicate);
+        when(mongo.findOne(any(Query.class), eq(NotificationDocument.class))).thenReturn(null);
+
+        assertThatThrownBy(() -> service.create(REQUEST, "k-1")).isSameAs(duplicate);
+        verify(publisher, never()).publish(any(), any());
+    }
+
+    @Test
+    void duplicateKeyWithoutIdempotencyKeyIsRethrownWithoutLookingUp() {
+        DuplicateKeyException duplicate = new DuplicateKeyException("E11000 _id");
+        when(mongo.insert(any(NotificationDocument.class))).thenThrow(duplicate);
+
+        assertThatThrownBy(() -> service.create(REQUEST, null)).isSameAs(duplicate);
+        verify(mongo, never()).findOne(any(Query.class), any(Class.class));
+    }
+
     private static NotificationDocument existingWithHash(String hash, NotificationStatus status, Instant createdAt) {
         return new NotificationDocument("11111111-2222-3333-4444-555555555555", Channel.EMAIL, "ana@exemplo.com",
                 "welcome", Map.of("name", "Ana"), status, 0, 1, null, null, List.of(),
