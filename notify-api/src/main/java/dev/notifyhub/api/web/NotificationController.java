@@ -1,12 +1,15 @@
 package dev.notifyhub.api.web;
 
 import dev.notifyhub.api.application.NotificationService;
+import dev.notifyhub.api.web.ApiExceptionHandler.FieldProblem;
 import dev.notifyhub.api.web.dto.CreateNotificationRequest;
 import dev.notifyhub.api.web.dto.CreateNotificationResponse;
 import dev.notifyhub.api.web.dto.NotificationView;
 import dev.notifyhub.api.web.validation.CreateNotificationRequestValidator;
 import jakarta.validation.Valid;
 import java.net.URI;
+import java.util.List;
+import java.util.regex.Pattern;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.WebDataBinder;
@@ -33,6 +36,12 @@ public class NotificationController {
     /** Header {@code true} no 202 que repete uma notificação já criada com a mesma chave (D-07). */
     public static final String IDEMPOTENT_REPLAYED_HEADER = "Idempotent-Replayed";
 
+    /**
+     * Formato aceito da chave: de 1 a 255 caracteres ASCII visíveis, sem espaço nem bytes de controle
+     * (T-03-19).
+     */
+    private static final Pattern IDEMPOTENCY_KEY_FORMAT = Pattern.compile("^[\\x21-\\x7E]{1,255}$");
+
     private static final CreateNotificationRequestValidator REQUEST_VALIDATOR = new CreateNotificationRequestValidator();
 
     private final NotificationService service;
@@ -54,10 +63,20 @@ public class NotificationController {
      * mesmo 202 da notificação original, com o status atual e o header
      * {@code Idempotent-Replayed: true}, sem criar outro documento nem publicar de novo (D-07). O primeiro
      * POST não leva esse header.
+     *
+     * <p>A chave precisa ter de 1 a 255 caracteres ASCII visíveis; fora disso, 400 de validação com o
+     * campo {@code Idempotency-Key}, sem gravar nada. A validação do corpo ({@code @Valid} e o validador
+     * por canal) roda antes, no binding, então um corpo inválido continua dando o 400 do corpo. Use
+     * chaves de alta entropia (UUID): a API pública não tem autenticação, e quem adivinha uma chave
+     * recebe o replay da notificação dela.
      */
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<CreateNotificationResponse> create(@Valid @RequestBody CreateNotificationRequest request,
             @RequestHeader(name = IDEMPOTENCY_KEY_HEADER, required = false) String idempotencyKey) {
+        if (idempotencyKey != null && !IDEMPOTENCY_KEY_FORMAT.matcher(idempotencyKey).matches()) {
+            throw ApiExceptionHandler.invalidRequest(List.of(new FieldProblem(IDEMPOTENCY_KEY_HEADER,
+                    "deve ter de 1 a 255 caracteres ASCII visíveis, sem espaço")));
+        }
         NotificationService.CreateResult result = service.create(request, idempotencyKey);
         CreateNotificationResponse response = result.response();
         ResponseEntity.BodyBuilder accepted = ResponseEntity.accepted()
