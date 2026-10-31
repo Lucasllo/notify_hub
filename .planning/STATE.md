@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: Reprocessamento, API operacional e testes de integração
 status: executing
-stopped_at: Completed 03-02-PLAN.md
-last_updated: "2026-10-31T13:24:11.608Z"
+stopped_at: Completed 03-03-PLAN.md
+last_updated: "2026-10-31T13:53:47.886Z"
 last_activity: 2026-10-31
 last_activity_desc: Phase 03 execution started
-state_head: 0f87222244ceab06d02012fbe2cd26d59f893264
+state_head: dfa527cec1a164eaca5845c6ed32b74416ca0e16
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 22
-  completed_plans: 17
+  completed_plans: 18
   percent: 50
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-13)
 ## Current Position
 
 Phase: 03 (Reprocessamento, API operacional e testes de integração) — EXECUTING
-Plan: 3 of 7
+Plan: 4 of 7
 Status: Ready to execute
 Last activity: 2026-10-31 — Phase 03 execution started
 
@@ -74,6 +74,7 @@ Progress: [█████░░░░░] 50%
 | Phase 02 P08 | 11min | 3 tasks | 11 files |
 | Phase 03 P01 | 17min | 2 tasks | 9 files |
 | Phase 03 P02 | 24min | 3 tasks | 15 files |
+| Phase 03 P03 | 23min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -122,6 +123,8 @@ Recent decisions affecting current work:
 - [Phase 03]: Jars executáveis com classifier exec (notify-<app>-0.1.0-SNAPSHOT-exec.jar); o jar sem classifier é dependência do notify-it; Dockerfiles da Fase 4 devem copiar *-exec.jar
 - [Phase 03]: 03-02: reprocessamento da DLQ por basicGet com ack manual e orçamento min(max, prontas); reset (findAndModify com fence status+retryCount lidos, evento REPROCESSED, attemptCount intocado) antes do republish confirmado; skipped copiado para o fim da DLQ, discarded para SENT/inexistente, 503 com motivo fechado na primeira falha
 - [Phase 03]: 03-02: /admin/** com ApiKeyInterceptor (SHA-256 + MessageDigest.isEqual, fail closed com chave vazia); 400 de parâmetro único via ApiExceptionHandler.invalidRequest e handleTypeMismatch
+- [Phase 03]: 03-03: reset deriva o status guardado por lease de reclaimableWhenStuck(); PROCESSING com lease vigente -> LeaseActive sem escrita (skipped no fim da DLQ); vencido ou nulo -> fence com $or leaseUntil < agora / nulo
+- [Phase 03]: 03-03: tabela D-01 aceita PENDING/RETRYING/PROCESSING -> PENDING só para o reset do reprocess; CR-01 da Fase 2 resolvido e provado por ReprocessEdgeCasesIT
 
 ### Pending Todos
 
@@ -153,6 +156,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-31T13:24:11.276Z
-Stopped at: Completed 03-02-PLAN.md
+Last session: 2026-10-31T13:53:47.540Z
+Stopped at: Completed 03-03-PLAN.md
 Resume file: None

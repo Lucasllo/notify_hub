@@ -61,7 +61,7 @@
 
 ### Admin (ADM)
 
-- [ ] **ADM-01**: O operador pode chamar `POST /admin/dlq/{canal}/reprocess?max=N` para mover até N mensagens da DLQ de volta à fila principal. O fluxo é: `basicGet` com ack manual, reset no Mongo, republish confirmado, ack; para na primeira falha
+- [x] **ADM-01**: O operador pode chamar `POST /admin/dlq/{canal}/reprocess?max=N` para mover até N mensagens da DLQ de volta à fila principal. O fluxo é: `basicGet` com ack manual, reset no Mongo, republish confirmado, ack; para na primeira falha
 - [x] **ADM-02**: O reprocessamento zera o contador de tentativas, mantém o histórico `attempts[]` e registra um evento REPROCESSED
 - [ ] **ADM-03**: O operador pode chamar `POST /admin/notifications/republish-failed` para reenviar notificações em PUBLISH_FAILED
 - [x] **ADM-04**: Os endpoints admin exigem o header `X-API-Key` (comparação em tempo constante) e validam o canal e o limite `max`
@@ -75,7 +75,7 @@
 ### Testes (TST)
 
 - [x] **TST-01**: Testes unitários do renderizador cobrem renderização, variável ausente, template inexistente e escape por canal
-- [ ] **TST-02**: Um teste de integração com Testcontainers (RabbitMQ + MongoDB) cobre o fluxo retry → DLQ → reprocessamento → SENT, com TTLs curtos e Awaitility
+- [x] **TST-02**: Um teste de integração com Testcontainers (RabbitMQ + MongoDB) cobre o fluxo retry → DLQ → reprocessamento → SENT, com TTLs curtos e Awaitility
 - [ ] **TST-03**: Testes de integração cobrem mensagem venenosa (chega à DLQ sem loop), publish não roteável (vira PUBLISH_FAILED) e entrega duplicada concorrente (exatamente um envio)
 - [x] **TST-04**: Testes de integração rodam via Failsafe (`*IT`), separados dos unitários
 
@@ -159,7 +159,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DLV-06 | Phase 2 | Complete |
 | RES-01 | Phase 2 | Complete |
 | RES-02 | Phase 2 | Complete |
-| ADM-01 | Phase 3 | Pending |
+| ADM-01 | Phase 3 | Complete |
 | ADM-02 | Phase 3 | Complete |
 | ADM-03 | Phase 3 | Pending |
 | ADM-04 | Phase 3 | Complete |
@@ -167,7 +167,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | OBS-02 | Phase 4 | Pending |
 | OBS-03 | Phase 4 | Pending |
 | TST-01 | Phase 2 | Complete |
-| TST-02 | Phase 3 | Pending |
+| TST-02 | Phase 3 | Complete |
 | TST-03 | Phase 3 | Pending |
 | TST-04 | Phase 3 | Complete |
 | DEM-01 | Phase 4 | Pending |
