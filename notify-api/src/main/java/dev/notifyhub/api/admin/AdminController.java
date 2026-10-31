@@ -4,7 +4,9 @@ import dev.notifyhub.api.admin.DlqReprocessService.Report;
 import dev.notifyhub.api.application.NotificationRepublisher;
 import dev.notifyhub.api.web.ApiExceptionHandler;
 import dev.notifyhub.api.web.ApiExceptionHandler.FieldProblem;
+import dev.notifyhub.api.web.OpenApiConfiguration;
 import dev.notifyhub.common.domain.Channel;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -29,9 +31,13 @@ import org.springframework.web.bind.annotation.RestController;
  * </ul>
  * Nos dois, {@code max} vai de 1 a {@code notify.admin.max-limit}, com padrão
  * {@code notify.admin.max-default} (D-04).
+ *
+ * <p>O {@code @SecurityRequirement} só documenta a chave no OpenAPI (API-08); quem protege de fato
+ * continua sendo o interceptor.
  */
 @RestController
 @RequestMapping("/admin")
+@SecurityRequirement(name = OpenApiConfiguration.ADMIN_API_KEY_SCHEME)
 public class AdminController {
 
     private static final String ACCEPTED_CHANNEL_IDS = Arrays.stream(Channel.values())

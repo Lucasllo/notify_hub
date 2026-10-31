@@ -40,6 +40,14 @@
             <groupId>dev.notifyhub</groupId>
             <artifactId>notify-common</artifactId>
         </dependency>
+        <!-- Swagger UI e /v3/api-docs (API-08). Fora do BOM do Boot, por isso a versão explícita.
+             Manter a linha 2.8.x enquanto o projeto estiver no Boot 3.5: a 3.x é para o Boot 4.
+             Aprovado na auditoria de legitimidade de pacotes do 03-RESEARCH -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>2.8.17</version>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>

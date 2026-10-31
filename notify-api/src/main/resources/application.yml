@@ -30,6 +30,12 @@ spring:
         # Vários publishers concorrentes em virtual threads
         size: 50
 
+springdoc:
+  # Sem isso o springdoc copia para toda operação as respostas dos @ExceptionHandler do
+  # ApiExceptionHandler (um ResponseEntityExceptionHandler), e a doc lista erros que a operação nunca
+  # devolve. As respostas reais ficam declaradas por operação com @ApiResponse (API-08)
+  override-with-generic-response: false
+
 management:
   endpoints:
     web:
