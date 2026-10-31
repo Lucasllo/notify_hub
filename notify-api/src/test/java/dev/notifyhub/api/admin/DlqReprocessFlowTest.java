@@ -29,6 +29,9 @@ import dev.notifyhub.common.domain.Channel;
 import dev.notifyhub.common.domain.NotificationStatus;
 import dev.notifyhub.common.messaging.NotificationMessage;
 import dev.notifyhub.common.persistence.NotificationDocument;
+import java.io.IOException;
+import java.net.ConnectException;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -41,6 +44,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
+import org.springframework.amqp.AmqpConnectException;
+import org.springframework.amqp.AmqpIOException;
 import org.springframework.amqp.core.AmqpAdmin;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessagePostProcessor;
@@ -50,6 +55,8 @@ import org.springframework.amqp.core.ReturnedMessage;
 import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.ChannelCallback;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.amqp.rabbit.support.RabbitExceptionTranslator;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.data.mongodb.core.FindAndModifyOptions;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Query;
@@ -79,10 +86,19 @@ class DlqReprocessFlowTest {
             new NotificationResetService(mongo), new NotificationPublisher(rabbit), json,
             new PublishProperties(Duration.ofMillis(50), Duration.ofSeconds(5)));
 
+    /**
+     * Roda o callback no canal mockado e, como o {@code RabbitTemplate.execute} real, converte qualquer
+     * exceção que escape do callback numa {@code AmqpException}.
+     */
     @BeforeEach
     void runCallbacksOnTheMockedChannel() {
-        when(rabbit.execute(any(ChannelCallback.class)))
-                .thenAnswer(inv -> inv.<ChannelCallback<?>>getArgument(0).doInRabbit(ch));
+        when(rabbit.execute(any(ChannelCallback.class))).thenAnswer(inv -> {
+            try {
+                return inv.<ChannelCallback<?>>getArgument(0).doInRabbit(ch);
+            } catch (Exception e) {
+                throw RabbitExceptionTranslator.convertRabbitAccessException(e);
+            }
+        });
     }
 
     @AfterEach
@@ -408,6 +424,207 @@ class DlqReprocessFlowTest {
                     assertThat(e.getReason()).isEqualTo(FailureReason.PUBLISH_NACK);
                     assertThat(e.getReport()).isEqualTo(new Report(10, 0, 0, 0));
                 });
+        verify(ch).basicNack(7, false, true);
+        verify(ch, never()).basicAck(eq(7L), anyBoolean());
+    }
+
+    // ---------------------------------------------------------------- evento REPROCESSED (ADM-02)
+
+    @Test
+    void resetPushesOneReprocessedEventKeepingTheLastFiftyEntries() throws Exception {
+        NotificationDocument dead = doc(ID1, NotificationStatus.DEAD_LETTERED, 3, 4);
+        dlqReady(1);
+        when(ch.basicGet(DLQ, false)).thenReturn(delivery(7, ID1));
+        stored(dead);
+        resetReturns(afterReset(dead));
+        onPublish(DlqReprocessFlowTest::ack);
+
+        service.reprocess(Channel.EMAIL, 10);
+
+        ArgumentCaptor<Update> update = ArgumentCaptor.forClass(Update.class);
+        verify(mongo).findAndModify(any(Query.class), update.capture(), any(FindAndModifyOptions.class),
+                eq(NotificationDocument.class));
+        Document bson = MongoBson.update(update.getValue());
+        assertThat(bson.keySet()).containsExactlyInAnyOrder("$set", "$unset", "$push");
+        for (String operator : bson.keySet()) {
+            assertThat(bson.get(operator, Document.class).keySet()).as("operador %s", operator)
+                    .doesNotContain("attemptCount");
+        }
+        Document push = bson.get("$push", Document.class).get("attempts", Document.class);
+        assertThat(push.get("$slice")).isEqualTo(-50);
+        List<?> each = push.get("$each", List.class);
+        assertThat(each).hasSize(1);
+        Document event = (Document) each.get(0);
+        assertThat(event.get("number")).isEqualTo(0);
+        assertThat(event.get("retryLevel")).isEqualTo(3);
+        assertThat(event.get("durationMs")).isEqualTo(0L);
+        assertThat(event.get("outcome")).isEqualTo("REPROCESSED");
+        assertThat(event.get("errorCode")).isNull();
+        assertThat(event.get("failureClass")).isNull();
+        assertThat(event.getString("errorMessage")).contains("DEAD_LETTERED");
+        assertThat(event.getString("thread")).isNotBlank();
+    }
+
+    // ---------------------------------------------------------------- discarded (D-02)
+
+    @Test
+    void missingDocumentIsAckedAndDiscarded() throws Exception {
+        dlqReady(1);
+        when(ch.basicGet(DLQ, false)).thenReturn(delivery(7, ID1));
+
+        assertThat(service.reprocess(Channel.EMAIL, 10)).isEqualTo(new Report(10, 0, 0, 1));
+        verify(ch).basicAck(7, false);
+        verifyNothingPublished();
+    }
+
+    @Test
+    void sentDocumentIsAckedAndDiscarded() throws Exception {
+        dlqReady(1);
+        when(ch.basicGet(DLQ, false)).thenReturn(delivery(7, ID1));
+        stored(doc(ID1, NotificationStatus.SENT, 0, 1));
+
+        assertThat(service.reprocess(Channel.EMAIL, 10)).isEqualTo(new Report(10, 0, 0, 1));
+        verify(ch).basicAck(7, false);
+        verifyNothingPublished();
+    }
+
+    private void verifyNothingPublished() {
+        verify(rabbit, never()).convertAndSend(anyString(), anyString(), any(Object.class),
+                any(MessagePostProcessor.class), any(CorrelationData.class));
+        verify(rabbit, never()).send(anyString(), anyString(), any(Message.class), any(CorrelationData.class));
+    }
+
+    // ---------------------------------------------------------------- corpo inválido: preservado no fim
+
+    @Test
+    void unreadableBodyIsCopiedToTheDlqTailWithoutTouchingMongo() throws Exception {
+        assertInvalidBodyIsPreserved("isto não é json".getBytes(StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void bodyWithoutNotificationIdIsCopiedToTheDlqTailWithoutTouchingMongo() throws Exception {
+        assertInvalidBodyIsPreserved(
+                json.writeValueAsBytes(new NotificationMessage(null, Channel.EMAIL, "welcome", CREATED)));
+    }
+
+    @Test
+    void bodyOfAnotherChannelIsCopiedToTheDlqTailWithoutTouchingMongo() throws Exception {
+        assertInvalidBodyIsPreserved(body(ID1, Channel.SMS));
+    }
+
+    private void assertInvalidBodyIsPreserved(byte[] original) throws Exception {
+        dlqReady(1);
+        when(ch.basicGet(DLQ, false)).thenReturn(delivery(7, ID1, original));
+        onCopy(DlqReprocessFlowTest::ack);
+
+        assertThat(service.reprocess(Channel.EMAIL, 10)).isEqualTo(new Report(10, 0, 1, 0));
+
+        ArgumentCaptor<Message> copy = ArgumentCaptor.forClass(Message.class);
+        InOrder order = inOrder(rabbit, ch);
+        order.verify(rabbit).send(eq("notify.dlx"), eq("email.dlq"), copy.capture(), any(CorrelationData.class));
+        order.verify(ch).basicAck(7, false);
+        assertThat(copy.getValue().getBody()).isEqualTo(original);
+        verify(mongo, never()).findById(any(), any());
+    }
+
+    // ---------------------------------------------------------------- falhas de infraestrutura (D-03)
+
+    @Test
+    void mongoDownOnTheReadOfTheSecondMessageRequeuesItAndStops() throws Exception {
+        NotificationDocument d1 = doc(ID1, NotificationStatus.DEAD_LETTERED, 3, 4);
+        dlqReady(2);
+        when(ch.basicGet(DLQ, false)).thenReturn(delivery(7, ID1), delivery(8, ID2));
+        stored(d1);
+        when(mongo.findById(ID2, NotificationDocument.class))
+                .thenThrow(new DataAccessResourceFailureException("mongo fora"));
+        resetReturns(afterReset(d1));
+        onPublish(DlqReprocessFlowTest::ack);
+
+        assertThatThrownBy(() -> service.reprocess(Channel.EMAIL, 10))
+                .isInstanceOfSatisfying(ReprocessInterruptedException.class, e -> {
+                    assertThat(e.getReason()).isEqualTo(FailureReason.MONGO_UNAVAILABLE);
+                    assertThat(e.getReport()).isEqualTo(new Report(10, 1, 0, 0));
+                    assertThat(e.getBody().getDetail()).doesNotContain("mongo fora");
+                });
+        verify(ch).basicAck(7, false);
+        verify(ch).basicNack(8, false, true);
+        verify(ch, never()).basicAck(eq(8L), anyBoolean());
+    }
+
+    @Test
+    void mongoDownOnTheResetOfTheSecondMessageRequeuesItAndStops() throws Exception {
+        NotificationDocument d1 = doc(ID1, NotificationStatus.DEAD_LETTERED, 3, 4);
+        NotificationDocument d2 = doc(ID2, NotificationStatus.DEAD_LETTERED, 3, 4);
+        dlqReady(2);
+        when(ch.basicGet(DLQ, false)).thenReturn(delivery(7, ID1), delivery(8, ID2));
+        stored(d1);
+        stored(d2);
+        when(mongo.findAndModify(any(Query.class), any(Update.class), any(FindAndModifyOptions.class),
+                eq(NotificationDocument.class)))
+                .thenReturn(afterReset(d1))
+                .thenThrow(new DataAccessResourceFailureException("mongo fora"));
+        onPublish(DlqReprocessFlowTest::ack);
+
+        assertThatThrownBy(() -> service.reprocess(Channel.EMAIL, 10))
+                .isInstanceOfSatisfying(ReprocessInterruptedException.class, e -> {
+                    assertThat(e.getReason()).isEqualTo(FailureReason.MONGO_UNAVAILABLE);
+                    assertThat(e.getReport()).isEqualTo(new Report(10, 1, 0, 0));
+                });
+        verify(ch).basicNack(8, false, true);
+    }
+
+    @Test
+    void missingDlqIsDlqUnavailableWithoutOpeningAChannel() {
+        when(admin.getQueueInfo(DLQ)).thenReturn(null);
+
+        assertThatThrownBy(() -> service.reprocess(Channel.EMAIL, 10))
+                .isInstanceOfSatisfying(ReprocessInterruptedException.class, e -> {
+                    assertThat(e.getReason()).isEqualTo(FailureReason.DLQ_UNAVAILABLE);
+                    assertThat(e.getReport()).isEqualTo(new Report(10, 0, 0, 0));
+                });
+        verify(rabbit, never()).execute(any(ChannelCallback.class));
+    }
+
+    @Test
+    void brokerDownOnTheQueueInfoIsBrokerUnavailable() {
+        when(admin.getQueueInfo(DLQ)).thenThrow(new AmqpConnectException(new ConnectException("Connection refused")));
+
+        assertThatThrownBy(() -> service.reprocess(Channel.EMAIL, 10))
+                .isInstanceOfSatisfying(ReprocessInterruptedException.class, e -> {
+                    assertThat(e.getReason()).isEqualTo(FailureReason.BROKER_UNAVAILABLE);
+                    assertThat(e.getReport()).isEqualTo(new Report(10, 0, 0, 0));
+                });
+        verify(rabbit, never()).execute(any(ChannelCallback.class));
+    }
+
+    @Test
+    void channelThatFailsAfterOneReprocessedIsBrokerUnavailableWithTheAccumulatedCounts() throws Exception {
+        NotificationDocument d1 = doc(ID1, NotificationStatus.DEAD_LETTERED, 3, 4);
+        dlqReady(1);
+        when(ch.basicGet(DLQ, false)).thenReturn(delivery(7, ID1));
+        stored(d1);
+        resetReturns(afterReset(d1));
+        onPublish(DlqReprocessFlowTest::ack);
+        when(rabbit.execute(any(ChannelCallback.class))).thenAnswer(inv -> {
+            inv.<ChannelCallback<?>>getArgument(0).doInRabbit(ch);
+            throw new AmqpIOException(new IOException("canal fechado"));
+        });
+
+        assertThatThrownBy(() -> service.reprocess(Channel.EMAIL, 10))
+                .isInstanceOfSatisfying(ReprocessInterruptedException.class, e -> {
+                    assertThat(e.getReason()).isEqualTo(FailureReason.BROKER_UNAVAILABLE);
+                    assertThat(e.getReport()).isEqualTo(new Report(10, 1, 0, 0));
+                });
+    }
+
+    @Test
+    void unexpectedExceptionRequeuesTheDeliveryAndReachesTheCallerUnchanged() throws Exception {
+        IllegalStateException bug = new IllegalStateException("bug inesperado");
+        dlqReady(1);
+        when(ch.basicGet(DLQ, false)).thenReturn(delivery(7, ID1));
+        when(mongo.findById(ID1, NotificationDocument.class)).thenThrow(bug);
+
+        assertThatThrownBy(() -> service.reprocess(Channel.EMAIL, 10)).isSameAs(bug);
         verify(ch).basicNack(7, false, true);
         verify(ch, never()).basicAck(eq(7L), anyBoolean());
     }
