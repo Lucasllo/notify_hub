@@ -26,9 +26,9 @@
 - [x] **API-02**: A API publica com publisher confirms correlacionados + `mandatory`/returns. Confirm negativo, timeout ou mensagem devolvida grava PUBLISH_FAILED (update condicional) e responde 503 com Problem Detail + `Retry-After`
 - [x] **API-03**: O cliente pode enviar o header `Idempotency-Key`. A mesma chave com o mesmo payload devolve a notificação original; a mesma chave com payload diferente devolve 422
 - [x] **API-04**: O cliente pode consultar `GET /notifications/{id}` com status, histórico de tentativas embutido e último erro
-- [ ] **API-05**: O cliente pode listar `GET /notifications?status=&channel=` com paginação e ordenação por data de criação decrescente
+- [x] **API-05**: O cliente pode listar `GET /notifications?status=&channel=` com paginação e ordenação por data de criação decrescente
 - [x] **API-06**: Erros de validação estrutural (canal inválido, campos ausentes, formato de destinatário por canal) retornam 400 com Problem Details (RFC 9457)
-- [ ] **API-07**: O cliente pode consultar `GET /notifications/stats` com contagens agregadas por status e canal
+- [x] **API-07**: O cliente pode consultar `GET /notifications/stats` com contagens agregadas por status e canal
 - [ ] **API-08**: A API expõe Swagger UI (springdoc 2.8.x) documentando todos os endpoints
 
 ### Worker (WRK)
@@ -139,9 +139,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | API-02 | Phase 1 | Complete |
 | API-03 | Phase 3 | Complete |
 | API-04 | Phase 1 | Complete |
-| API-05 | Phase 3 | Pending |
+| API-05 | Phase 3 | Complete |
 | API-06 | Phase 1 | Complete |
-| API-07 | Phase 3 | Pending |
+| API-07 | Phase 3 | Complete |
 | API-08 | Phase 3 | Pending |
 | WRK-01 | Phase 1 | Complete |
 | WRK-02 | Phase 1 | Complete |
