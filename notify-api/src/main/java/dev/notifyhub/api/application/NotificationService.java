@@ -21,6 +21,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.stereotype.Service;
@@ -44,17 +45,47 @@ public class NotificationService {
         this.props = props;
     }
 
-    /** Resultado da criação: a resposta do 202 e se ela é um replay de um POST anterior. */
+    /**
+     * Resultado da criação.
+     *
+     * @param response corpo do 202 ({@code id}, {@code status}, {@code createdAt})
+     * @param replayed {@code true} quando a resposta é a notificação de um POST anterior com a mesma
+     *                 {@code Idempotency-Key} (o controller acrescenta {@code Idempotent-Replayed: true})
+     */
     public record CreateResult(CreateNotificationResponse response, boolean replayed) {
     }
 
+    /**
+     * Cria a notificação (insert PENDING → publish com confirm) ou, com {@code idempotencyKey}, devolve
+     * a notificação de um POST anterior com a mesma chave e o mesmo payload (API-03, D-05..D-07).
+     *
+     * <p>Com chave, o documento leva a chave e o {@link RequestHasher#hash hash do pedido canônico}. A
+     * atomicidade entre requisições vem só do índice único parcial {@code idempotencyKey_unique}: o
+     * insert de uma chave já gravada lança {@link DuplicateKeyException}, e então o documento existente
+     * é lido pela chave. Com o mesmo hash, a resposta é um replay com o status <b>atual</b> do documento
+     * (inclusive PUBLISH_FAILED; a republicação no replay vem no plano 03-05, D-08), sem publicar de novo.
+     *
+     * <p>Uma {@code DuplicateKeyException} sem chave, ou cujo documento não é achado pela chave
+     * (duplicata em outro índice único), é relançada, nunca tratada como replay (Armadilha 6).
+     *
+     * @param idempotencyKey chave do header {@code Idempotency-Key}, já validada pelo controller; nula
+     *                       quando o POST não traz o header
+     */
     public CreateResult create(CreateNotificationRequest request, String idempotencyKey) {
         String id = UUID.randomUUID().toString();
         Instant now = Instant.now();
+        String requestHash = idempotencyKey == null ? null : RequestHasher.hash(request);
 
         // API-01: o documento existe antes da mensagem
-        mongoTemplate.insert(NotificationDocument.newPending(id, request.channel(), request.recipient(),
-                request.templateCode(), request.variables(), now));
+        try {
+            mongoTemplate.insert(NotificationDocument.newPending(id, request.channel(), request.recipient(),
+                    request.templateCode(), request.variables(), idempotencyKey, requestHash, now));
+        } catch (DuplicateKeyException e) {
+            if (idempotencyKey == null) {
+                throw e;
+            }
+            return replayOrRethrow(idempotencyKey, requestHash, e);
+        }
         log.info("Notificação {} criada (canal={}, destinatário={})", id, request.channel(),
                 RecipientRules.mask(request.channel(), request.recipient()));
 
@@ -65,6 +96,23 @@ public class NotificationService {
         }
         // Depois de um confirm positivo nada é gravado aqui: o worker pode já estar processando
         return new CreateResult(new CreateNotificationResponse(id, NotificationStatus.PENDING, now), false);
+    }
+
+    /** O insert perdeu para um documento com a mesma chave: replay com o mesmo hash. */
+    private CreateResult replayOrRethrow(String idempotencyKey, String requestHash, DuplicateKeyException e) {
+        NotificationDocument existing = mongoTemplate.findOne(
+                query(where(Fields.IDEMPOTENCY_KEY).is(idempotencyKey)), NotificationDocument.class);
+        if (existing == null) {
+            // Armadilha 6: a duplicata foi em outro índice único
+            throw e;
+        }
+        if (!requestHash.equals(existing.requestHash())) {
+            throw e;
+        }
+        // Log sem a chave nem o destinatário: só o id da notificação original
+        log.info("Replay de Idempotency-Key: devolvendo a notificação {} (status {})", existing.id(), existing.status());
+        return new CreateResult(
+                new CreateNotificationResponse(existing.id(), existing.status(), existing.createdAt()), true);
     }
 
     /**
