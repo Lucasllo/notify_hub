@@ -36,7 +36,11 @@ import org.springframework.stereotype.Service;
  *       reivindicou a notificação, ou seja, a mensagem chegou (Armadilha 4 da Fase 1);</li>
  *   <li>republish: PUBLISH_FAILED → PENDING antes do publish confirmado. Se casar 0 documentos, outro
  *       caminho já agiu (o worker ou outro republish) e nada é publicado, o que evita um segundo envio
- *       ao destinatário (T-03-22).</li>
+ *       ao destinatário (T-03-22);</li>
+ *   <li>varredura de PENDING sem confirm ({@link #markUnconfirmedAsPublishFailed}): PENDING sem claim e
+ *       com {@code updatedAt} anterior ao corte → PUBLISH_FAILED com {@code lastError.code}
+ *       {@link #PUBLISH_UNCONFIRMED}. É a saída do PENDING que nunca teve confirm (Gap 1 do
+ *       03-VERIFICATION), depois recuperado pelo {@code republish-failed}.</li>
  * </ul>
  *
  * <p>O {@code lastError.message} de PUBLISH_FAILED é uma mensagem fixa derivada do código, nunca o
@@ -53,6 +57,12 @@ public class NotificationRepublisher {
      * lote. Os demais motivos vêm de {@link PublishResult#errorCode()}.
      */
     public static final String MONGO_UNAVAILABLE = "MONGO_UNAVAILABLE";
+
+    /**
+     * {@code lastError.code} gravado pela varredura de PENDING sem confirm
+     * ({@link #markUnconfirmedAsPublishFailed}). O {@code markSent} do worker o remove na entrega.
+     */
+    public static final String PUBLISH_UNCONFIRMED = "PUBLISH_UNCONFIRMED";
 
     private final MongoTemplate mongoTemplate;
     private final NotificationPublisher publisher;
@@ -189,6 +199,37 @@ public class NotificationRepublisher {
             throw new RepublishInterruptedException(new RepublishReport(max, republished), MONGO_UNAVAILABLE);
         }
         return new RepublishReport(max, republished);
+    }
+
+    /**
+     * Leva a PUBLISH_FAILED, num único {@code updateMulti}, todo documento PENDING sem claim
+     * ({@code claimedAt} nulo ou ausente) com {@code updatedAt} anterior a {@code cutoff}. O
+     * {@code lastError} recebe o código {@link #PUBLISH_UNCONFIRMED} com a mensagem fixa de sempre.
+     *
+     * <p>O MongoDB avalia o filtro e grava cada documento atomicamente: um claim do worker
+     * (PENDING → PROCESSING) tira o documento de PENDING, então nunca é sobrescrito, e um republish
+     * recente acabou de gravar {@code updatedAt}, então fica fora do corte. Nada fora de PENDING é
+     * tocado, nem {@code leaseUntil} (D-01). PENDING → PUBLISH_FAILED já existe na tabela de
+     * {@link NotificationStatus}, e PUBLISH_FAILED continua em
+     * {@link NotificationStatus#claimableForDelivery()}: se a mensagem tiver chegado de fato ao broker,
+     * o worker ainda a entrega, sem perda e sem segundo envio.
+     *
+     * @param cutoff instante de corte; só PENDING com {@code updatedAt} estritamente anterior é marcado
+     * @return quantos documentos foram marcados
+     */
+    public long markUnconfirmedAsPublishFailed(Instant cutoff) {
+        Instant now = Instant.now();
+        UpdateResult update = mongoTemplate.updateMulti(
+                query(where(Fields.STATUS).is(NotificationStatus.PENDING)
+                        .and(Fields.UPDATED_AT).lt(cutoff)
+                        .and(Fields.CLAIMED_AT).is(null)),
+                new Update()
+                        .set(Fields.STATUS, NotificationStatus.PUBLISH_FAILED)
+                        .set(Fields.LAST_ERROR,
+                                new LastError(PUBLISH_UNCONFIRMED, fixedMessage(PUBLISH_UNCONFIRMED), null, now))
+                        .set(Fields.UPDATED_AT, now),
+                NotificationDocument.class);
+        return update.getModifiedCount();
     }
 
     /**

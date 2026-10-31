@@ -1,5 +1,7 @@
 package dev.notifyhub.api.config;
 
+import dev.notifyhub.api.application.UnconfirmedPublishSweeper;
+import dev.notifyhub.api.application.UnconfirmedSweepProperties;
 import dev.notifyhub.api.messaging.PublishProperties;
 import dev.notifyhub.common.NotifyCommonConfiguration;
 import dev.notifyhub.common.persistence.MongoIndexInitializer;
@@ -10,6 +12,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.annotation.Order;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * Configuração da API. Fica fora de {@code NotifyApiApplication} para que os testes de fatia
@@ -18,10 +21,16 @@ import org.springframework.core.annotation.Order;
  * <p>Os runners rodam depois do refresh do contexto: primeiro os índices do Mongo (FND-04), depois a
  * declaração da topologia. Sem o segundo, o {@code RabbitAdmin} só declara na primeira conexão; com
  * ele, a topologia aparece no painel ao subir e a API falha cedo se o broker estiver fora.
+ *
+ * <p>{@code @EnableScheduling} liga a varredura de PENDING sem confirm
+ * ({@link UnconfirmedPublishSweeper}). Com threads virtuais, o Boot agenda num
+ * {@code SimpleAsyncTaskScheduler} de threads virtuais; a API é web, então o Tomcat mantém a JVM viva e
+ * {@code spring.main.keep-alive} não é necessário.
  */
 @Configuration(proxyBeanMethods = false)
 @Import(NotifyCommonConfiguration.class)
-@EnableConfigurationProperties(PublishProperties.class)
+@EnableScheduling
+@EnableConfigurationProperties({PublishProperties.class, UnconfirmedSweepProperties.class})
 public class ApiConfiguration {
 
     @Bean

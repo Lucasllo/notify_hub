@@ -8,6 +8,13 @@ notify:
     # Escada curta para os ITs rodarem em segundos (D-14). Exatamente 3 níveis, como o padrão: o
     # destinatário fail-until-reprocess tem limite fixo de 4 tentativas (RESEARCH Armadilha 11)
     retry-levels: 200ms,500ms,1s
+  publish:
+    unconfirmed-sweep:
+      # A varredura de PENDING sem confirm roda a cada 200ms durante toda a suíte (D-14), mas só alcança
+      # documentos com updatedAt de mais de 1h, que só o UnconfirmedPublishRecoveryIT insere (agora - 2h).
+      # Os PENDING de ListAndStatsIT e ReprocessEdgeCasesIT (até 5min atrás) ficam intactos
+      after: 1h
+      interval: 200ms
   admin:
     # Chave do endpoint administrativo, só de teste e válida apenas contra containers efêmeros.
     # Consumida a partir do plano 03-02; o profile base dos apps continua sem chave (fail closed)
