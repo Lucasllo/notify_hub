@@ -49,16 +49,16 @@ class MongoIndexInitializerTest {
         initializer.createIndexes();
 
         verify(mongo).indexOps("notifications");
-        assertThat(names(captureCreated(4)))
+        assertThat(names(captureCreated(5)))
                 .containsExactly("status_channel_createdAt", "channel_createdAt", "createdAt",
-                        "idempotencyKey_unique");
+                        "idempotencyKey_unique", "status_createdAt");
     }
 
     @Test
     void idempotencyKeyIndexIsUniqueOnlyWhereTheKeyExists() {
         initializer.createIndexes();
 
-        IndexDefinition fourth = captureCreated(4).get(3);
+        IndexDefinition fourth = captureCreated(5).get(3);
         assertThat(keyOrder(fourth)).containsExactly("idempotencyKey");
         assertThat(fourth.getIndexKeys().get("idempotencyKey")).isEqualTo(1);
         Document options = fourth.getIndexOptions();
@@ -71,7 +71,7 @@ class MongoIndexInitializerTest {
     void statusChannelIndexFollowsEsrWithIdTieBreaker() {
         initializer.createIndexes();
 
-        IndexDefinition first = captureCreated(4).get(0);
+        IndexDefinition first = captureCreated(5).get(0);
         Document keys = first.getIndexKeys();
         assertThat(keyOrder(first)).containsExactly("status", "channel", "createdAt", "_id");
         assertThat(keys.get("status")).isEqualTo(1);
@@ -84,7 +84,7 @@ class MongoIndexInitializerTest {
     void channelAndCreatedAtIndexesHaveExpectedKeys() {
         initializer.createIndexes();
 
-        List<IndexDefinition> defs = captureCreated(4);
+        List<IndexDefinition> defs = captureCreated(5);
         assertThat(keyOrder(defs.get(1))).containsExactly("channel", "createdAt", "_id");
         assertThat(defs.get(1).getIndexKeys().get("channel")).isEqualTo(1);
         assertThat(defs.get(1).getIndexKeys().get("createdAt")).isEqualTo(-1);
@@ -93,15 +93,32 @@ class MongoIndexInitializerTest {
         assertThat(defs.get(2).getIndexKeys().get("_id")).isEqualTo(-1);
     }
 
+    /**
+     * Filtro só por status ordenado por {@code createdAt}: o {@code status_channel_createdAt} não serve
+     * sem igualdade em {@code channel} (Armadilha 5), então existe um índice próprio.
+     */
+    @Test
+    void statusCreatedAtIndexServesTheStatusOnlyFilter() {
+        initializer.createIndexes();
+
+        IndexDefinition fifth = captureCreated(5).get(4);
+        Document keys = fifth.getIndexKeys();
+        assertThat(keyOrder(fifth)).containsExactly("status", "createdAt", "_id");
+        assertThat(keys.get("status")).isEqualTo(1);
+        assertThat(keys.get("createdAt")).isEqualTo(-1);
+        assertThat(keys.get("_id")).isEqualTo(-1);
+        assertThat(fifth.getIndexOptions().get("unique")).isNull();
+    }
+
     @Test
     void callingTwiceRepeatsTheSameDefinitions() {
         initializer.createIndexes();
         initializer.createIndexes();
 
-        List<IndexDefinition> defs = captureCreated(8);
-        for (int i = 0; i < 4; i++) {
-            assertThat(defs.get(i + 4).getIndexKeys()).isEqualTo(defs.get(i).getIndexKeys());
-            assertThat(defs.get(i + 4).getIndexOptions()).isEqualTo(defs.get(i).getIndexOptions());
+        List<IndexDefinition> defs = captureCreated(10);
+        for (int i = 0; i < 5; i++) {
+            assertThat(defs.get(i + 5).getIndexKeys()).isEqualTo(defs.get(i).getIndexKeys());
+            assertThat(defs.get(i + 5).getIndexOptions()).isEqualTo(defs.get(i).getIndexOptions());
         }
     }
 }
