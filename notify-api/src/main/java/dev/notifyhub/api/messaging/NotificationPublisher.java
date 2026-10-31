@@ -56,4 +56,10 @@ public class NotificationPublisher {
             return PublishResult.nacked(cause.getMessage());
         }
     }
+
+    /** Esqueleto (RED). */
+    public PublishResult copyToDlqTail(dev.notifyhub.common.domain.Channel channel, byte[] body, String messageId,
+            String contentType, java.util.Map<String, Object> headers, Duration timeout) {
+        return PublishResult.brokerUnavailable("não implementado");
+    }
 }
