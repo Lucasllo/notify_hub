@@ -2,8 +2,6 @@ package dev.notifyhub.api.web.dto;
 
 import dev.notifyhub.common.domain.Channel;
 import dev.notifyhub.common.domain.NotificationStatus;
-import dev.notifyhub.common.persistence.LastError;
-import dev.notifyhub.common.persistence.NotificationDocument;
 import java.time.Instant;
 
 /**
@@ -14,6 +12,11 @@ import java.time.Instant;
  *
  * <p>{@code lastError} é um objeto só com {@code code}, para o caminho JSON {@code lastError.code} ser o
  * mesmo do GET por id. Sem erro, é nulo.
+ *
+ * <p>Também é o tipo de leitura da consulta projetada da listagem: os componentes têm os nomes dos
+ * campos gravados em {@code notifications} ({@code id} ↔ {@code _id}, {@code lastError.code}), e o
+ * Spring Data monta o record direto do documento projetado. Por isso todo componente primitivo
+ * ({@code retryCount}) precisa estar na projeção.
  */
 public record NotificationSummary(
         String id,
@@ -28,12 +31,5 @@ public record NotificationSummary(
 
     /** Só o código do último erro; mensagem e classe ficam no GET por id. */
     public record LastErrorSummary(String code) {
-    }
-
-    public static NotificationSummary from(NotificationDocument doc) {
-        LastError lastError = doc.lastError();
-        return new NotificationSummary(doc.id(), doc.status(), doc.channel(), doc.recipient(), doc.templateCode(),
-                doc.retryCount(), lastError == null ? null : new LastErrorSummary(lastError.code()),
-                doc.createdAt(), doc.updatedAt());
     }
 }

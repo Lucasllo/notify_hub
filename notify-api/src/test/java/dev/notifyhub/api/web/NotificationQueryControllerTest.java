@@ -17,18 +17,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import dev.notifyhub.api.application.NotificationQueryService;
-import dev.notifyhub.common.domain.AttemptOutcome;
+import dev.notifyhub.api.web.dto.NotificationSummary;
+import dev.notifyhub.api.web.dto.NotificationSummary.LastErrorSummary;
 import dev.notifyhub.common.domain.Channel;
-import dev.notifyhub.common.domain.FailureClass;
 import dev.notifyhub.common.domain.NotificationStatus;
-import dev.notifyhub.common.persistence.AttemptEntry;
-import dev.notifyhub.common.persistence.LastError;
 import dev.notifyhub.common.persistence.NotificationDocument;
-import dev.notifyhub.common.persistence.RenderedContent;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import org.bson.Document;
 import org.junit.jupiter.api.Test;
@@ -62,27 +58,29 @@ class NotificationQueryControllerTest {
     @MockitoBean
     private MongoTemplate mongo;
 
-    private static NotificationDocument doc(String id, NotificationStatus status, LastError lastError) {
-        AttemptEntry attempt = new AttemptEntry(1, 0, T0, 12, AttemptOutcome.PERMANENT_FAILURE, "X", "falhou",
-                FailureClass.PERMANENT, "VirtualThread[#1]");
-        return new NotificationDocument(id, Channel.EMAIL, "ana@exemplo.com", "welcome", Map.of("name", "Ana"),
-                status, 1, 2, new RenderedContent("Oi", "Olá, Ana"), lastError, List.of(attempt), T0, T0.plusSeconds(1),
-                null, null, null, "chave-1", "hash-1");
+    /**
+     * Resumo como o Spring Data o monta a partir do documento projetado. O mock não aplica projeção, e
+     * por isso o teste do item confere que o record não tem como carregar conteúdo nem histórico.
+     */
+    private static NotificationSummary doc(String id, NotificationStatus status, String lastErrorCode) {
+        return new NotificationSummary(id, status, Channel.EMAIL, "ana@exemplo.com", "welcome", 1,
+                lastErrorCode == null ? null : new LastErrorSummary(lastErrorCode), T0, T0.plusSeconds(1));
     }
 
-    private void stubPage(long total, NotificationDocument... docs) {
+    private void stubPage(long total, NotificationSummary... docs) {
         when(mongo.count(any(Query.class), eq(NotificationDocument.class))).thenReturn(total);
-        when(mongo.find(any(Query.class), eq(NotificationDocument.class))).thenReturn(List.of(docs));
+        when(mongo.find(any(Query.class), eq(NotificationSummary.class), eq("notifications")))
+                .thenReturn(List.of(docs));
     }
 
     private Query capturedFindQuery() {
         ArgumentCaptor<Query> captor = ArgumentCaptor.forClass(Query.class);
-        verify(mongo).find(captor.capture(), eq(NotificationDocument.class));
+        verify(mongo).find(captor.capture(), eq(NotificationSummary.class), eq("notifications"));
         return captor.getValue();
     }
 
     private void assertMongoUntouched() {
-        verify(mongo, never()).find(any(Query.class), eq(NotificationDocument.class));
+        verify(mongo, never()).find(any(Query.class), eq(NotificationSummary.class), eq("notifications"));
         verify(mongo, never()).count(any(Query.class), eq(NotificationDocument.class));
     }
 
@@ -132,7 +130,8 @@ class NotificationQueryControllerTest {
             limitAtCount.set(q.getLimit());
             return 42L;
         });
-        when(mongo.find(any(Query.class), eq(NotificationDocument.class))).thenReturn(List.of());
+        when(mongo.find(any(Query.class), eq(NotificationSummary.class), eq("notifications")))
+                .thenReturn(List.of());
 
         mvc.perform(get("/notifications").param("page", "1").param("size", "10"))
                 .andExpect(status().isOk())
@@ -193,7 +192,7 @@ class NotificationQueryControllerTest {
         ArgumentCaptor<Query> captor = ArgumentCaptor.forClass(Query.class);
         verify(mongo).count(captor.capture(), eq(NotificationDocument.class));
         assertThat(captor.getValue().getSkip()).isEqualTo(214_748_364_700L);
-        verify(mongo, never()).find(any(Query.class), eq(NotificationDocument.class));
+        verify(mongo, never()).find(any(Query.class), eq(NotificationSummary.class), eq("notifications"));
     }
 
     @Test
@@ -214,8 +213,7 @@ class NotificationQueryControllerTest {
     @Test
     void itemIsASummaryWithOnlyTheLastErrorCodeAndNoContentNorHistory() throws Exception {
         stubPage(2,
-                doc("n1", NotificationStatus.FAILED,
-                        new LastError("TEMPLATE_NOT_FOUND", "template inexistente", FailureClass.PERMANENT, T0)),
+                doc("n1", NotificationStatus.FAILED, "TEMPLATE_NOT_FOUND"),
                 doc("n2", NotificationStatus.SENT, null));
 
         mvc.perform(get("/notifications"))

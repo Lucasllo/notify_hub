@@ -29,6 +29,11 @@ import org.springframework.data.mongodb.core.index.PartialIndexFilter;
  *   <li>{@code idempotencyKey_unique}: único só onde a chave existe; documentos sem chave não
  *       disputam unicidade (D-05). É ele que resolve a corrida entre POSTs com a mesma
  *       {@code Idempotency-Key}: o segundo insert recebe {@code DuplicateKeyException}</li>
+ *   <li>{@code status_createdAt}: filtro só por status, mais recentes primeiro. O
+ *       {@code status_channel_createdAt} não serve aqui, porque exige igualdade em {@code channel}
+ *       antes da chave de ordenação; sem ela o MongoDB faria SORT em memória (Armadilha 5). A busca do
+ *       {@code republish-failed} (status PUBLISH_FAILED, {@code createdAt} asc e {@code _id} asc) usa o
+ *       mesmo índice percorrido ao contrário</li>
  * </ul>
  *
  * <p>Os nomes são estáveis: se já existir um índice com o mesmo nome e outras chaves, o
@@ -60,7 +65,10 @@ public class MongoIndexInitializer {
                         .on(IDEMPOTENCY_KEY, ASC)
                         .unique()
                         .partial(PartialIndexFilter.of(where(IDEMPOTENCY_KEY).exists(true)))
-                        .named("idempotencyKey_unique")));
+                        .named("idempotencyKey_unique")),
+                ops.createIndex(new Index()
+                        .on(STATUS, ASC).on(CREATED_AT, DESC).on(ID, DESC)
+                        .named("status_createdAt")));
         log.info("Índices de {} garantidos: {}", Collections.NOTIFICATIONS, created);
     }
 }
