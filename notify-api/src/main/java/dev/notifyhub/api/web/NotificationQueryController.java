@@ -2,6 +2,7 @@ package dev.notifyhub.api.web;
 
 import dev.notifyhub.api.application.NotificationQueryService;
 import dev.notifyhub.api.web.ApiExceptionHandler.FieldProblem;
+import dev.notifyhub.api.web.dto.NotificationStats;
 import dev.notifyhub.api.web.dto.NotificationSummary;
 import dev.notifyhub.api.web.dto.PageResponse;
 import dev.notifyhub.common.domain.Channel;
@@ -78,6 +79,12 @@ public class NotificationQueryController {
             throw ApiExceptionHandler.invalidRequest(errors);
         }
         return service.list(statusFilter, channelFilter, resolvedPage, resolvedSize);
+    }
+
+    /** Esqueleto do RED. */
+    @GetMapping("/stats")
+    public NotificationStats stats() {
+        return service.stats();
     }
 
     /**

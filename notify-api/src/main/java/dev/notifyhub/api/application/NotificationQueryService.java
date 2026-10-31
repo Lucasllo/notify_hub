@@ -2,6 +2,7 @@ package dev.notifyhub.api.application;
 
 import static org.springframework.data.mongodb.core.query.Criteria.where;
 
+import dev.notifyhub.api.web.dto.NotificationStats;
 import dev.notifyhub.api.web.dto.NotificationSummary;
 import dev.notifyhub.api.web.dto.PageResponse;
 import dev.notifyhub.common.domain.Channel;
@@ -10,6 +11,7 @@ import dev.notifyhub.common.persistence.Collections;
 import dev.notifyhub.common.persistence.NotificationDocument;
 import dev.notifyhub.common.persistence.NotificationDocument.Fields;
 import java.util.List;
+import java.util.Map;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Query;
@@ -74,5 +76,10 @@ public class NotificationQueryService {
                 : mongo.find(query, NotificationSummary.class, Collections.NOTIFICATIONS);
         int totalPages = (int) ((total + size - 1) / size);
         return new PageResponse<>(content, page, size, total, totalPages);
+    }
+
+    /** Esqueleto do RED: ainda não agrega. */
+    public NotificationStats stats() {
+        return new NotificationStats(0, Map.of(), Map.of(), Map.of());
     }
 }

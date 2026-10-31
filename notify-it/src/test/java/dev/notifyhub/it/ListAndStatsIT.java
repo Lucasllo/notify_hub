@@ -118,6 +118,73 @@ class ListAndStatsIT extends EndToEndSupport {
         }
     }
 
+    @Test
+    void statsCountsByStatusAndChannelWithZeros() {
+        insertFiveDocs();
+
+        HttpResult result = get("/notifications/stats");
+
+        assertThat(result.status()).isEqualTo(200);
+        JsonNode stats = result.body();
+        assertThat(stats.path("total").asLong()).isEqualTo(5);
+
+        JsonNode byStatus = stats.path("byStatus");
+        assertThat(byStatus.size()).isEqualTo(7);
+        assertThat(byStatus.path("SENT").asLong()).isEqualTo(3);
+        assertThat(byStatus.path("FAILED").asLong()).isEqualTo(1);
+        assertThat(byStatus.path("PENDING").asLong()).isEqualTo(1);
+        for (String zero : List.of("PROCESSING", "RETRYING", "DEAD_LETTERED", "PUBLISH_FAILED")) {
+            assertThat(byStatus.has(zero)).as(zero).isTrue();
+            assertThat(byStatus.path(zero).asLong()).as(zero).isZero();
+        }
+
+        JsonNode byChannel = stats.path("byChannel");
+        assertThat(byChannel.size()).isEqualTo(3);
+        assertThat(byChannel.path("EMAIL").asLong()).isEqualTo(3);
+        assertThat(byChannel.path("SMS").asLong()).isEqualTo(1);
+        assertThat(byChannel.path("WEBHOOK").asLong()).isEqualTo(1);
+
+        JsonNode cross = stats.path("byChannelAndStatus");
+        assertThat(cross.path("EMAIL").path("SENT").asLong()).isEqualTo(2);
+        assertThat(cross.path("EMAIL").path("FAILED").asLong()).isEqualTo(1);
+        assertThat(cross.path("SMS").path("SENT").asLong()).isEqualTo(1);
+        assertThat(cross.path("WEBHOOK").path("PENDING").asLong()).isEqualTo(1);
+        assertThat(cross.path("WEBHOOK").has("SENT")).isTrue();
+        assertThat(cross.path("WEBHOOK").path("SENT").asLong()).isZero();
+        assertThat(countCombinations(cross)).isEqualTo(21);
+    }
+
+    /** Coleção vazia: 200 com tudo zero. A rota literal não cai no GET por id, que daria 404. */
+    @Test
+    void statsOnAnEmptyCollectionIsAllZerosAndNotMistakenForAnId() {
+        HttpResult result = get("/notifications/stats");
+
+        assertThat(result.status()).isEqualTo(200);
+        JsonNode stats = result.body();
+        assertThat(stats.path("total").isNumber()).isTrue();
+        assertThat(stats.path("total").asLong()).isZero();
+        assertThat(stats.path("byStatus").size()).isEqualTo(7);
+        stats.path("byStatus").forEach(v -> assertThat(v.asLong()).isZero());
+        assertThat(stats.path("byChannel").size()).isEqualTo(3);
+        stats.path("byChannel").forEach(v -> assertThat(v.asLong()).isZero());
+        JsonNode cross = stats.path("byChannelAndStatus");
+        assertThat(countCombinations(cross)).isEqualTo(21);
+        cross.forEach(perStatus -> perStatus.forEach(v -> assertThat(v.asLong()).isZero()));
+    }
+
+    private static int countCombinations(JsonNode cross) {
+        int combinations = 0;
+        for (Channel channel : Channel.values()) {
+            JsonNode perStatus = cross.path(channel.name());
+            for (NotificationStatus status : NotificationStatus.values()) {
+                if (perStatus.has(status.name())) {
+                    combinations++;
+                }
+            }
+        }
+        return combinations;
+    }
+
     // ---------------------------------------------------------------------------------------------
 
     /**

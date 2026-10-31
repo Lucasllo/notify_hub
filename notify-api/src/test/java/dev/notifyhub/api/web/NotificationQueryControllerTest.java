@@ -36,6 +36,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.aggregation.Aggregation;
+import org.springframework.data.mongodb.core.aggregation.AggregationResults;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -44,7 +46,8 @@ import org.springframework.test.web.servlet.MockMvc;
 /**
  * Fatia web da leitura operacional (API-05, D-09..D-11): controller e serviço reais, Mongo simulado.
  * Confere a Query montada (filtro, ordenação, skip/limit em long e projeção), o envelope da página, o
- * item resumido e o 400 dos parâmetros inválidos sem tocar no Mongo. Sem Docker.
+ * item resumido e o 400 dos parâmetros inválidos sem tocar no Mongo. Também cobre o stats (API-07,
+ * D-12): um único {@code $group} e todas as chaves com zero. Sem Docker.
  */
 @WebMvcTest(NotificationQueryController.class)
 @Import(NotificationQueryService.class)
@@ -312,5 +315,106 @@ class NotificationQueryControllerTest {
                 .andExpect(jsonPath("$.size").value(Integer.parseInt(size)));
 
         assertThat(capturedFindQuery().getLimit()).isEqualTo(Integer.parseInt(size));
+    }
+
+    // ---------------------------------------------------------------- stats (API-07, D-12)
+
+    private static final List<String> ALL_STATUSES = List.of("PENDING", "PROCESSING", "SENT", "RETRYING", "FAILED",
+            "DEAD_LETTERED", "PUBLISH_FAILED");
+    private static final List<String> ALL_CHANNELS = List.of("EMAIL", "SMS", "WEBHOOK");
+
+    private static Document row(String status, String channel, Number count) {
+        return new Document("_id", new Document("status", status).append("channel", channel)).append("count", count);
+    }
+
+    private void stubAggregation(Document... rows) {
+        when(mongo.aggregate(any(Aggregation.class), eq("notifications"), eq(Document.class)))
+                .thenReturn(new AggregationResults<>(List.of(rows), new Document()));
+    }
+
+    @Test
+    void statsCountsByStatusChannelAndBothWithZerosAndIgnoresUnknownValues() throws Exception {
+        stubAggregation(row("SENT", "EMAIL", 3), row("FAILED", "SMS", 1L), row("BOGUS", "EMAIL", 9));
+
+        mvc.perform(get("/notifications/stats"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.total").value(4))
+                .andExpect(jsonPath("$.byStatus.SENT").value(3))
+                .andExpect(jsonPath("$.byStatus.FAILED").value(1))
+                .andExpect(jsonPath("$.byStatus.PENDING").value(0))
+                .andExpect(jsonPath("$.byStatus.PROCESSING").value(0))
+                .andExpect(jsonPath("$.byStatus.RETRYING").value(0))
+                .andExpect(jsonPath("$.byStatus.DEAD_LETTERED").value(0))
+                .andExpect(jsonPath("$.byStatus.PUBLISH_FAILED").value(0))
+                .andExpect(jsonPath("$.byStatus.BOGUS").doesNotExist())
+                .andExpect(jsonPath("$.byChannel.EMAIL").value(3))
+                .andExpect(jsonPath("$.byChannel.SMS").value(1))
+                .andExpect(jsonPath("$.byChannel.WEBHOOK").value(0))
+                .andExpect(jsonPath("$.byChannelAndStatus.EMAIL.SENT").value(3))
+                .andExpect(jsonPath("$.byChannelAndStatus.SMS.FAILED").value(1))
+                .andExpect(jsonPath("$.byChannelAndStatus.WEBHOOK.PENDING").value(0))
+                .andExpect(jsonPath("$.byChannelAndStatus.EMAIL.FAILED").value(0));
+    }
+
+    @Test
+    void statsKeysComeInEnumDeclarationOrder() throws Exception {
+        stubAggregation();
+
+        String body = mvc.perform(get("/notifications/stats"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        Document json = Document.parse(body);
+        assertThat(new ArrayList<>(json.keySet()))
+                .containsExactly("total", "byStatus", "byChannel", "byChannelAndStatus");
+        assertThat(new ArrayList<>(json.get("byStatus", Document.class).keySet())).isEqualTo(ALL_STATUSES);
+        assertThat(new ArrayList<>(json.get("byChannel", Document.class).keySet())).isEqualTo(ALL_CHANNELS);
+        Document cross = json.get("byChannelAndStatus", Document.class);
+        assertThat(new ArrayList<>(cross.keySet())).isEqualTo(ALL_CHANNELS);
+        for (String channel : ALL_CHANNELS) {
+            assertThat(new ArrayList<>(cross.get(channel, Document.class).keySet())).as(channel)
+                    .isEqualTo(ALL_STATUSES);
+        }
+    }
+
+    @Test
+    void statsWithoutRowsIsAllZeros() throws Exception {
+        stubAggregation();
+
+        String body = mvc.perform(get("/notifications/stats"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(0))
+                .andReturn().getResponse().getContentAsString();
+
+        Document json = Document.parse(body);
+        assertThat(json.get("byStatus", Document.class)).hasSize(7);
+        assertThat(json.get("byChannel", Document.class)).hasSize(3);
+        for (String status : ALL_STATUSES) {
+            assertThat(((Number) json.get("byStatus", Document.class).get(status)).longValue()).as(status).isZero();
+        }
+        for (String channel : ALL_CHANNELS) {
+            assertThat(((Number) json.get("byChannel", Document.class).get(channel)).longValue()).as(channel).isZero();
+            Document perStatus = json.get("byChannelAndStatus", Document.class).get(channel, Document.class);
+            assertThat(perStatus).as(channel).hasSize(7);
+            perStatus.values().forEach(v -> assertThat(((Number) v).longValue()).isZero());
+        }
+    }
+
+    @Test
+    void statsRunsASingleGroupStageByStatusAndChannel() throws Exception {
+        stubAggregation();
+
+        mvc.perform(get("/notifications/stats")).andExpect(status().isOk());
+
+        ArgumentCaptor<Aggregation> captor = ArgumentCaptor.forClass(Aggregation.class);
+        verify(mongo).aggregate(captor.capture(), eq("notifications"), eq(Document.class));
+        List<Document> pipeline = captor.getValue().toPipeline(Aggregation.DEFAULT_CONTEXT);
+        assertThat(pipeline).hasSize(1);
+        Document group = pipeline.get(0).get("$group", Document.class);
+        assertThat(group).isNotNull();
+        assertThat(group.get("_id")).isEqualTo(new Document("status", "$status").append("channel", "$channel"));
+        assertThat(group.get("count")).isEqualTo(new Document("$sum", 1));
+        verify(mongo, never()).find(any(Query.class), eq(NotificationSummary.class), eq("notifications"));
     }
 }
