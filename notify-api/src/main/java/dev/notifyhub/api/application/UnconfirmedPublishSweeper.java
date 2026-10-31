@@ -1,5 +1,6 @@
 package dev.notifyhub.api.application;
 
+import dev.notifyhub.api.messaging.PublishProperties;
 import java.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,7 +34,8 @@ public class UnconfirmedPublishSweeper {
     private final NotificationRepublisher republisher;
     private final UnconfirmedSweepProperties props;
 
-    public UnconfirmedPublishSweeper(NotificationRepublisher republisher, UnconfirmedSweepProperties props) {
+    public UnconfirmedPublishSweeper(NotificationRepublisher republisher, UnconfirmedSweepProperties props,
+                                     PublishProperties publishProps) {
         this.republisher = republisher;
         this.props = props;
     }
