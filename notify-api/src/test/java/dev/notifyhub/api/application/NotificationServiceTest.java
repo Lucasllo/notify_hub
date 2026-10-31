@@ -21,16 +21,21 @@ import dev.notifyhub.common.persistence.LastError;
 import dev.notifyhub.common.persistence.NotificationDocument;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import org.bson.Document;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.http.HttpStatus;
 
-/** Ramo de publish não confirmado: PUBLISH_FAILED condicional a PENDING (API-02, Armadilha 4). */
+/**
+ * Criação: ramo de publish não confirmado (PUBLISH_FAILED condicional a PENDING, API-02, Armadilha 4) e
+ * Idempotency-Key (API-03, D-05..D-07).
+ */
 class NotificationServiceTest {
 
     private static final CreateNotificationRequest REQUEST = new CreateNotificationRequest(
@@ -51,7 +56,7 @@ class NotificationServiceTest {
         when(publisher.publish(any(), any())).thenReturn(PublishResult.nacked("x"));
         updateMatches(1);
 
-        assertThatThrownBy(() -> service.create(REQUEST))
+        assertThatThrownBy(() -> service.create(REQUEST, null))
                 .isInstanceOfSatisfying(PublishFailedException.class, e -> {
                     assertThat(e.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
                     assertThat(e.getHeaders().getFirst("Retry-After")).isEqualTo("5");
@@ -85,7 +90,7 @@ class NotificationServiceTest {
         when(publisher.publish(any(), any())).thenReturn(PublishResult.timeout());
         updateMatches(0);
 
-        CreateNotificationResponse response = service.create(REQUEST);
+        CreateNotificationResponse response = service.create(REQUEST, null).response();
 
         assertThat(response.status()).isEqualTo(NotificationStatus.PENDING);
         assertThat(response.id()).isNotBlank();
@@ -96,9 +101,61 @@ class NotificationServiceTest {
     void confirmedPublishNeverUpdatesStatus() {
         when(publisher.publish(any(), any())).thenReturn(PublishResult.acked());
 
-        CreateNotificationResponse response = service.create(REQUEST);
+        CreateNotificationResponse response = service.create(REQUEST, null).response();
 
         assertThat(response.status()).isEqualTo(NotificationStatus.PENDING);
         verify(mongo, never()).updateFirst(any(Query.class), any(Update.class), any(Class.class));
+    }
+
+    @Test
+    void keyAndRequestHashAreStoredOnTheInsertedDocument() {
+        when(publisher.publish(any(), any())).thenReturn(PublishResult.acked());
+
+        NotificationService.CreateResult result = service.create(REQUEST, "k-1");
+
+        ArgumentCaptor<NotificationDocument> inserted = ArgumentCaptor.forClass(NotificationDocument.class);
+        verify(mongo).insert(inserted.capture());
+        assertThat(inserted.getValue().idempotencyKey()).isEqualTo("k-1");
+        assertThat(inserted.getValue().requestHash()).isEqualTo(RequestHasher.hash(REQUEST));
+        assertThat(result.replayed()).isFalse();
+        assertThat(result.response().id()).isEqualTo(inserted.getValue().id());
+    }
+
+    @Test
+    void withoutKeyNeitherKeyNorHashIsStored() {
+        when(publisher.publish(any(), any())).thenReturn(PublishResult.acked());
+
+        service.create(REQUEST, null);
+
+        ArgumentCaptor<NotificationDocument> inserted = ArgumentCaptor.forClass(NotificationDocument.class);
+        verify(mongo).insert(inserted.capture());
+        assertThat(inserted.getValue().idempotencyKey()).isNull();
+        assertThat(inserted.getValue().requestHash()).isNull();
+    }
+
+    @Test
+    void duplicateKeyWithTheSameHashReplaysTheExistingNotificationWithoutPublishing() {
+        Instant createdAt = Instant.parse("2026-10-30T10:00:00Z");
+        NotificationDocument existing = existingWithHash(RequestHasher.hash(REQUEST), NotificationStatus.SENT, createdAt);
+        when(mongo.insert(any(NotificationDocument.class))).thenThrow(new DuplicateKeyException("E11000"));
+        when(mongo.findOne(any(Query.class), eq(NotificationDocument.class))).thenReturn(existing);
+
+        NotificationService.CreateResult result = service.create(REQUEST, "k-1");
+
+        assertThat(result.replayed()).isTrue();
+        assertThat(result.response().id()).isEqualTo(existing.id());
+        assertThat(result.response().status()).isEqualTo(NotificationStatus.SENT);
+        assertThat(result.response().createdAt()).isEqualTo(createdAt);
+        verify(publisher, never()).publish(any(), any());
+
+        ArgumentCaptor<Query> query = ArgumentCaptor.forClass(Query.class);
+        verify(mongo).findOne(query.capture(), eq(NotificationDocument.class));
+        assertThat(query.getValue().getQueryObject()).isEqualTo(new Document("idempotencyKey", "k-1"));
+    }
+
+    private static NotificationDocument existingWithHash(String hash, NotificationStatus status, Instant createdAt) {
+        return new NotificationDocument("11111111-2222-3333-4444-555555555555", Channel.EMAIL, "ana@exemplo.com",
+                "welcome", Map.of("name", "Ana"), status, 0, 1, null, null, List.of(),
+                createdAt, createdAt, null, null, null, "k-1", hash);
     }
 }

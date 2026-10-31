@@ -34,6 +34,9 @@ import org.springframework.data.mongodb.core.mapping.Document;
  * @param claimedAt    momento do claim pelo worker
  * @param leaseUntil   fim do lease do claim
  * @param sentAt       momento do envio com sucesso
+ * @param idempotencyKey chave de idempotência do cliente; ausente quando o POST não traz o header
+ *                       (nulo não é gravado, então o documento fica fora do índice único parcial, D-05)
+ * @param requestHash  SHA-256 do pedido canônico, só junto da chave (D-06)
  */
 @Document(Collections.NOTIFICATIONS)
 public record NotificationDocument(
@@ -52,14 +55,39 @@ public record NotificationDocument(
         Instant updatedAt,
         Instant claimedAt,
         Instant leaseUntil,
-        Instant sentAt) {
+        Instant sentAt,
+        String idempotencyKey,
+        String requestHash) {
 
-    /** Notificação recém-aceita: PENDING, contadores zerados e histórico vazio. */
+    /**
+     * Construtor de compatibilidade com os 16 componentes anteriores à idempotência: documento sem
+     * {@code idempotencyKey} nem {@code requestHash}. O Spring Data continua usando o construtor
+     * canônico na leitura.
+     */
+    public NotificationDocument(String id, Channel channel, String recipient, String templateCode,
+            Map<String, Object> variables, NotificationStatus status, int retryCount, int attemptCount,
+            RenderedContent rendered, LastError lastError, List<AttemptEntry> attempts, Instant createdAt,
+            Instant updatedAt, Instant claimedAt, Instant leaseUntil, Instant sentAt) {
+        this(id, channel, recipient, templateCode, variables, status, retryCount, attemptCount, rendered,
+                lastError, attempts, createdAt, updatedAt, claimedAt, leaseUntil, sentAt, null, null);
+    }
+
+    /** Notificação recém-aceita sem chave de idempotência: PENDING, contadores zerados e histórico vazio. */
     public static NotificationDocument newPending(String id, Channel channel, String recipient,
             String templateCode, Map<String, Object> variables, Instant now) {
+        return newPending(id, channel, recipient, templateCode, variables, null, null, now);
+    }
+
+    /**
+     * Notificação recém-aceita: PENDING, contadores zerados e histórico vazio. {@code idempotencyKey}
+     * e {@code requestHash} andam juntos: os dois nulos (POST sem chave) ou os dois preenchidos.
+     */
+    public static NotificationDocument newPending(String id, Channel channel, String recipient,
+            String templateCode, Map<String, Object> variables, String idempotencyKey, String requestHash,
+            Instant now) {
         return new NotificationDocument(id, channel, recipient, templateCode, variables,
                 NotificationStatus.PENDING, 0, 0, null, null, List.of(),
-                now, now, null, null, null);
+                now, now, null, null, null, idempotencyKey, requestHash);
     }
 
     /** Nomes de campo gravados no Mongo, para {@code Criteria} e {@code Update}. */
@@ -67,6 +95,8 @@ public record NotificationDocument(
 
         public static final String ID = "_id";
         public static final String CHANNEL = "channel";
+        public static final String RECIPIENT = "recipient";
+        public static final String TEMPLATE_CODE = "templateCode";
         public static final String STATUS = "status";
         public static final String RETRY_COUNT = "retryCount";
         public static final String ATTEMPT_COUNT = "attemptCount";
@@ -78,6 +108,8 @@ public record NotificationDocument(
         public static final String CLAIMED_AT = "claimedAt";
         public static final String LEASE_UNTIL = "leaseUntil";
         public static final String SENT_AT = "sentAt";
+        public static final String IDEMPOTENCY_KEY = "idempotencyKey";
+        public static final String REQUEST_HASH = "requestHash";
 
         private Fields() {
         }

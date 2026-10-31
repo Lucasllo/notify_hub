@@ -44,7 +44,11 @@ public class NotificationService {
         this.props = props;
     }
 
-    public CreateNotificationResponse create(CreateNotificationRequest request) {
+    /** Resultado da criação: a resposta do 202 e se ela é um replay de um POST anterior. */
+    public record CreateResult(CreateNotificationResponse response, boolean replayed) {
+    }
+
+    public CreateResult create(CreateNotificationRequest request, String idempotencyKey) {
         String id = UUID.randomUUID().toString();
         Instant now = Instant.now();
 
@@ -60,7 +64,7 @@ public class NotificationService {
             markPublishFailed(id, result);
         }
         // Depois de um confirm positivo nada é gravado aqui: o worker pode já estar processando
-        return new CreateNotificationResponse(id, NotificationStatus.PENDING, now);
+        return new CreateResult(new CreateNotificationResponse(id, NotificationStatus.PENDING, now), false);
     }
 
     /**

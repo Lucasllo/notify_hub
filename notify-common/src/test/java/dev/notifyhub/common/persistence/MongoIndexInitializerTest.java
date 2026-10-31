@@ -45,19 +45,33 @@ class MongoIndexInitializerTest {
     }
 
     @Test
-    void createsThreeNamedIndexesOnNotifications() {
+    void createsTheNamedIndexesOnNotifications() {
         initializer.createIndexes();
 
         verify(mongo).indexOps("notifications");
-        assertThat(names(captureCreated(3)))
-                .containsExactly("status_channel_createdAt", "channel_createdAt", "createdAt");
+        assertThat(names(captureCreated(4)))
+                .containsExactly("status_channel_createdAt", "channel_createdAt", "createdAt",
+                        "idempotencyKey_unique");
+    }
+
+    @Test
+    void idempotencyKeyIndexIsUniqueOnlyWhereTheKeyExists() {
+        initializer.createIndexes();
+
+        IndexDefinition fourth = captureCreated(4).get(3);
+        assertThat(keyOrder(fourth)).containsExactly("idempotencyKey");
+        assertThat(fourth.getIndexKeys().get("idempotencyKey")).isEqualTo(1);
+        Document options = fourth.getIndexOptions();
+        assertThat(options.get("unique")).isEqualTo(true);
+        assertThat(options.get("partialFilterExpression"))
+                .isEqualTo(new Document("idempotencyKey", new Document("$exists", true)));
     }
 
     @Test
     void statusChannelIndexFollowsEsrWithIdTieBreaker() {
         initializer.createIndexes();
 
-        IndexDefinition first = captureCreated(3).get(0);
+        IndexDefinition first = captureCreated(4).get(0);
         Document keys = first.getIndexKeys();
         assertThat(keyOrder(first)).containsExactly("status", "channel", "createdAt", "_id");
         assertThat(keys.get("status")).isEqualTo(1);
@@ -70,7 +84,7 @@ class MongoIndexInitializerTest {
     void channelAndCreatedAtIndexesHaveExpectedKeys() {
         initializer.createIndexes();
 
-        List<IndexDefinition> defs = captureCreated(3);
+        List<IndexDefinition> defs = captureCreated(4);
         assertThat(keyOrder(defs.get(1))).containsExactly("channel", "createdAt", "_id");
         assertThat(defs.get(1).getIndexKeys().get("channel")).isEqualTo(1);
         assertThat(defs.get(1).getIndexKeys().get("createdAt")).isEqualTo(-1);
@@ -84,10 +98,10 @@ class MongoIndexInitializerTest {
         initializer.createIndexes();
         initializer.createIndexes();
 
-        List<IndexDefinition> defs = captureCreated(6);
-        for (int i = 0; i < 3; i++) {
-            assertThat(defs.get(i + 3).getIndexKeys()).isEqualTo(defs.get(i).getIndexKeys());
-            assertThat(defs.get(i + 3).getIndexOptions()).isEqualTo(defs.get(i).getIndexOptions());
+        List<IndexDefinition> defs = captureCreated(8);
+        for (int i = 0; i < 4; i++) {
+            assertThat(defs.get(i + 4).getIndexKeys()).isEqualTo(defs.get(i).getIndexKeys());
+            assertThat(defs.get(i + 4).getIndexOptions()).isEqualTo(defs.get(i).getIndexOptions());
         }
     }
 }
