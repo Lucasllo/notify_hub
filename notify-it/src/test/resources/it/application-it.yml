@@ -1,0 +1,45 @@
+# Profile it (D-15): o único arquivo do profile, lido pelos dois contextos (API e worker) por cima do
+# application.yml de cada módulo. Chaves de um app são inofensivas no outro (propriedades sem binding).
+# Nunca redefina spring.autoconfigure.exclude aqui: listas substituem, e a exclusão do
+# MustacheAutoConfiguration do worker se perderia (RESEARCH Armadilha 12).
+
+notify:
+  topology:
+    # Escada curta para os ITs rodarem em segundos (D-14). Exatamente 3 níveis, como o padrão: o
+    # destinatário fail-until-reprocess tem limite fixo de 4 tentativas (RESEARCH Armadilha 11)
+    retry-levels: 200ms,500ms,1s
+  admin:
+    # Chave do endpoint administrativo, só de teste e válida apenas contra containers efêmeros.
+    # Consumida a partir do plano 03-02; o profile base dos apps continua sem chave (fail closed)
+    api-key: it-admin-key
+  simulation:
+    # Destinatários mágicos ligados só aqui e no profile da demo; o profile base continua desligado (WR-07)
+    magic-recipients: true
+    # Latência baixa e nenhuma falha aleatória: só os destinatários mágicos falham, de forma determinística
+    email:
+      latency-min: 5ms
+      latency-max: 20ms
+      failure-rate: 0.0
+    sms:
+      latency-min: 5ms
+      latency-max: 20ms
+      failure-rate: 0.0
+    webhook:
+      latency-min: 5ms
+      latency-max: 20ms
+      failure-rate: 0.0
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        # Precisa ser ≤ 1º nível da escada (200ms), senão o ChannelGateway recusa subir (Armadilha 12)
+        wait-duration-in-open-state: 100ms
+        # Janela e mínimo altos: o CB não abre por acidente durante os cenários de retry e DLQ
+        sliding-window-size: 1000
+        minimum-number-of-calls: 1000
+  bulkhead:
+    configs:
+      default:
+        # Acima dos 10 consumidores por canal: nenhuma recusa de bulkhead nos ITs
+        max-concurrent-calls: 20

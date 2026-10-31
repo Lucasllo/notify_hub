@@ -63,6 +63,17 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <executions>
+                    <!-- Jar executável com classifier exec (Fase 3, 03-01): o jar principal mantém as classes
+                         na raiz e pode ser dependência do notify-it; o repackaged guarda as classes em
+                         BOOT-INF/classes e não serviria como dependência (RESEARCH Armadilha 9) -->
+                    <execution>
+                        <id>repackage</id>
+                        <configuration>
+                            <classifier>exec</classifier>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

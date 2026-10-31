@@ -27,6 +27,8 @@
         <module>notify-common</module>
         <module>notify-api</module>
         <module>notify-worker</module>
+        <!-- Só testes de integração (Failsafe, *IT): API e worker reais contra Testcontainers -->
+        <module>notify-it</module>
     </modules>
 
     <dependencyManagement>
@@ -34,6 +36,17 @@
             <dependency>
                 <groupId>dev.notifyhub</groupId>
                 <artifactId>notify-common</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <!-- Os apps como dependência de teste do notify-it (jar principal; o executável sai com classifier exec) -->
+            <dependency>
+                <groupId>dev.notifyhub</groupId>
+                <artifactId>notify-api</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>dev.notifyhub</groupId>
+                <artifactId>notify-worker</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <!-- Resilience4j não está no BOM do Boot: uma versão única para todos os módulos -->
