@@ -3,3 +3,7 @@
 notify:
   topology:
     retry-levels: 1s,5s,25s
+  admin:
+    # Valor documentado só da demo, para o README e o compose da Fase 4 (NOTIFY_ADMIN_API_KEY
+    # sobrescreve). Fora do profile demo a chave vem só da ENV e, vazia, /admin/** recusa tudo
+    api-key: ${NOTIFY_ADMIN_API_KEY:demo-admin-key}

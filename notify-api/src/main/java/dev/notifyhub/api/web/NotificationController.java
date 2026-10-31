@@ -6,11 +6,19 @@ import dev.notifyhub.api.web.dto.CreateNotificationRequest;
 import dev.notifyhub.api.web.dto.CreateNotificationResponse;
 import dev.notifyhub.api.web.dto.NotificationView;
 import dev.notifyhub.api.web.validation.CreateNotificationRequestValidator;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.headers.Header;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.net.URI;
 import java.util.List;
 import java.util.regex.Pattern;
 import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.WebDataBinder;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,6 +36,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/notifications")
+@Tag(name = "Notificações", description = "Criação e consulta por id")
 public class NotificationController {
 
     /** Header opcional com a chave de idempotência do cliente (API-03). */
@@ -70,8 +79,33 @@ public class NotificationController {
      * chaves de alta entropia (UUID): a API pública não tem autenticação, e quem adivinha uma chave
      * recebe o replay da notificação dela.
      */
+    @Operation(summary = "Cria uma notificação",
+            description = """
+                    Persiste a notificação como PENDING e a publica para o worker do canal. Responde 202                     com o header Location (/notifications/{id}) depois do confirm do broker. Com o header                     Idempotency-Key, repetir o mesmo pedido com a mesma chave devolve o mesmo 202, com o                     status atual e o header Idempotent-Replayed: true, sem criar outra notificação. Se o                     broker não confirmar a publicação, responde 503 com Retry-After e a notificação fica                     PUBLISH_FAILED.""")
+    @ApiResponse(responseCode = "202", description = "Notificação aceita (ou replay da mesma chave)",
+            headers = {
+                @Header(name = "Location", description = "Caminho da notificação: /notifications/{id}"),
+                @Header(name = IDEMPOTENT_REPLAYED_HEADER,
+                        description = "true quando o 202 repete uma notificação já criada com a mesma chave")
+            },
+            content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = CreateNotificationResponse.class)))
+    @ApiResponse(responseCode = "400",
+            description = "Corpo inválido (canal, destinatário, template ou variáveis) ou Idempotency-Key fora do formato",
+            content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                    schema = @Schema(implementation = ProblemDetail.class)))
+    @ApiResponse(responseCode = "422",
+            description = "Idempotency-Key já usada com outro pedido (idempotency-key-reused)",
+            content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                    schema = @Schema(implementation = ProblemDetail.class)))
+    @ApiResponse(responseCode = "503",
+            description = "Broker não confirmou a publicação (publish-failed); tente de novo após o Retry-After",
+            headers = @Header(name = "Retry-After", description = "Segundos até tentar de novo"),
+            content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                    schema = @Schema(implementation = ProblemDetail.class)))
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<CreateNotificationResponse> create(@Valid @RequestBody CreateNotificationRequest request,
+            @Parameter(description = "Chave do cliente, 1 a 255 caracteres ASCII visíveis; recomenda-se um UUID")
             @RequestHeader(name = IDEMPOTENCY_KEY_HEADER, required = false) String idempotencyKey) {
         if (idempotencyKey != null && !IDEMPOTENCY_KEY_FORMAT.matcher(idempotencyKey).matches()) {
             throw ApiExceptionHandler.invalidRequest(List.of(new FieldProblem(IDEMPOTENCY_KEY_HEADER,
@@ -87,8 +121,17 @@ public class NotificationController {
         return accepted.body(response);
     }
 
+    @Operation(summary = "Consulta uma notificação por id",
+            description = "Devolve a notificação com o status atual, o conteúdo renderizado e o histórico de tentativas.")
+    @ApiResponse(responseCode = "200", description = "Notificação encontrada",
+            content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = NotificationView.class)))
+    @ApiResponse(responseCode = "404", description = "Nenhuma notificação com esse id (not-found)",
+            content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                    schema = @Schema(implementation = ProblemDetail.class)))
     @GetMapping("/{id}")
-    public NotificationView get(@PathVariable String id) {
+    public NotificationView get(@Parameter(description = "Id da notificação, devolvido no 202 da criação")
+            @PathVariable String id) {
         return service.get(id);
     }
 }

@@ -35,6 +35,8 @@ springdoc:
   # ApiExceptionHandler (um ResponseEntityExceptionHandler), e a doc lista erros que a operação nunca
   # devolve. As respostas reais ficam declaradas por operação com @ApiResponse (API-08)
   override-with-generic-response: false
+  # Só a documentação: as respostas sem @Content explícito aparecem como application/json, e não */*
+  default-produces-media-type: application/json
 
 management:
   endpoints:

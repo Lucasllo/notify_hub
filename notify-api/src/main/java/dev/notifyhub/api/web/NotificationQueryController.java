@@ -7,10 +7,18 @@ import dev.notifyhub.api.web.dto.NotificationSummary;
 import dev.notifyhub.api.web.dto.PageResponse;
 import dev.notifyhub.common.domain.Channel;
 import dev.notifyhub.common.domain.NotificationStatus;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
+import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -34,6 +42,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/notifications")
+@Tag(name = "Consultas", description = "Listagem paginada e estatísticas")
 public class NotificationQueryController {
 
     /** Tamanho de página quando {@code size} não vem. */
@@ -60,9 +69,23 @@ public class NotificationQueryController {
      * @param page    página a partir de 0 (padrão 0)
      * @param size    itens por página, de 1 a {@value #MAX_PAGE_SIZE} (padrão {@value #DEFAULT_PAGE_SIZE})
      */
+    @Operation(summary = "Lista as notificações com filtros e paginação",
+            description = """
+                    Mais recentes primeiro (createdAt desc), no envelope {content, page, size, totalElements,                     totalPages}. Cada item é um resumo, sem variáveis, conteúdo renderizado nem histórico                     (use o GET por id para isso). Parâmetros inválidos saem todos num único 400.""")
+    @ApiResponse(responseCode = "200", description = "Página de resumos (vazia além da última página)")
+    @ApiResponse(responseCode = "400", description = "status, channel, page ou size inválido (validation-error)",
+            content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                    schema = @Schema(implementation = ProblemDetail.class)))
     @GetMapping
-    public PageResponse<NotificationSummary> list(@RequestParam(required = false) String status,
-            @RequestParam(required = false) String channel, @RequestParam(required = false) Integer page,
+    public PageResponse<NotificationSummary> list(
+            @Parameter(description = "Status exato, em maiúsculo: PENDING, PROCESSING, SENT, RETRYING, FAILED, "
+                    + "DEAD_LETTERED ou PUBLISH_FAILED; vazio ou ausente = sem filtro")
+            @RequestParam(required = false) String status,
+            @Parameter(description = "Canal exato, em maiúsculo: EMAIL, SMS ou WEBHOOK; vazio ou ausente = sem filtro")
+            @RequestParam(required = false) String channel,
+            @Parameter(description = "Página a partir de 0 (padrão 0); além da última, a página vem vazia")
+            @RequestParam(required = false) Integer page,
+            @Parameter(description = "Itens por página, de 1 a 100 (padrão 20); fora disso, 400")
             @RequestParam(required = false) Integer size) {
         List<FieldProblem> errors = new ArrayList<>();
         NotificationStatus statusFilter = parseEnum(NotificationStatus.class, status, "status", ACCEPTED_STATUSES,
@@ -87,6 +110,10 @@ public class NotificationQueryController {
      * sempre presentes, inclusive com zero. Rota literal: tem precedência sobre
      * {@code GET /notifications/{id}}, então nunca responde 404 de notificação.
      */
+    @Operation(summary = "Estatísticas por status e canal",
+            description = """
+                    Contagens {total, byStatus, byChannel, byChannelAndStatus} numa única agregação. Os 7                     status, os 3 canais e as 21 combinações aparecem sempre, inclusive com zero.""")
+    @ApiResponse(responseCode = "200", description = "Contagens atuais")
     @GetMapping("/stats")
     public NotificationStats stats() {
         return service.stats();

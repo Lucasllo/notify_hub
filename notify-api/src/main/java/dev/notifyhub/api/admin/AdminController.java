@@ -6,12 +6,20 @@ import dev.notifyhub.api.web.ApiExceptionHandler;
 import dev.notifyhub.api.web.ApiExceptionHandler.FieldProblem;
 import dev.notifyhub.api.web.OpenApiConfiguration;
 import dev.notifyhub.common.domain.Channel;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -38,7 +46,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/admin")
 @SecurityRequirement(name = OpenApiConfiguration.ADMIN_API_KEY_SCHEME)
+@Tag(name = "Administração",
+        description = "Reprocessamento da DLQ e republicação de PUBLISH_FAILED; exige X-API-Key")
 public class AdminController {
+
+    private static final String MAX_DESCRIPTION = "Máximo de itens: padrão 100, de 1 a 1000";
 
     private static final String ACCEPTED_CHANNEL_IDS = Arrays.stream(Channel.values())
             .map(Channel::id)
@@ -62,8 +74,25 @@ public class AdminController {
      * @param max   máximo de mensagens, de 1 a {@code notify.admin.max-limit}; ausente usa
      *              {@code notify.admin.max-default} (D-04)
      */
+    @Operation(summary = "Reprocessa a DLQ de um canal",
+            description = """
+                    Move até min(max, mensagens prontas na DLQ) mensagens de volta à fila principal do canal,                     zerando o contador de retries de cada notificação. Responde {requested, reprocessed,                     skipped, discarded}: skipped volta para o fim da DLQ (notificação em entrega agora),                     discarded sai da DLQ (notificação já SENT ou inexistente). Para na primeira falha com                     503 e as contagens parciais.""")
+    @ApiResponse(responseCode = "200", description = "Contagens do reprocessamento",
+            content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = Report.class)))
+    @ApiResponse(responseCode = "400", description = "canal ou max inválido (validation-error)",
+            content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                    schema = @Schema(implementation = ProblemDetail.class)))
+    @ApiResponse(responseCode = "401", description = "X-API-Key ausente ou errada (unauthorized)",
+            content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                    schema = @Schema(implementation = ProblemDetail.class)))
+    @ApiResponse(responseCode = "503",
+            description = "Interrompido na primeira falha (reprocess-interrupted), com as contagens parciais",
+            content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                    schema = @Schema(implementation = ProblemDetail.class)))
     @PostMapping("/dlq/{canal}/reprocess")
-    public Report reprocess(@PathVariable("canal") String canal,
+    public Report reprocess(@Parameter(description = "email, sms ou webhook") @PathVariable("canal") String canal,
+                            @Parameter(description = MAX_DESCRIPTION)
                             @RequestParam(name = "max", required = false) Integer max) {
         // Validação antes de tocar na DLQ; os dois erros saem num único 400
         List<FieldProblem> errors = new ArrayList<>();
@@ -86,8 +115,25 @@ public class AdminController {
      * @param max máximo de notificações, de 1 a {@code notify.admin.max-limit}; ausente usa
      *            {@code notify.admin.max-default} (D-04)
      */
+    @Operation(summary = "Republica as notificações PUBLISH_FAILED",
+            description = """
+                    Republica até max notificações PUBLISH_FAILED, da mais antiga para a mais nova (createdAt),                     e responde {requested, republished}. Para na primeira publicação não confirmada com 503                     e as contagens parciais.""")
+    @ApiResponse(responseCode = "200", description = "Contagens da republicação",
+            content = @Content(mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = NotificationRepublisher.RepublishReport.class)))
+    @ApiResponse(responseCode = "400", description = "max inválido (validation-error)",
+            content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                    schema = @Schema(implementation = ProblemDetail.class)))
+    @ApiResponse(responseCode = "401", description = "X-API-Key ausente ou errada (unauthorized)",
+            content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                    schema = @Schema(implementation = ProblemDetail.class)))
+    @ApiResponse(responseCode = "503",
+            description = "Interrompido na primeira falha (republish-interrupted), com as contagens parciais",
+            content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                    schema = @Schema(implementation = ProblemDetail.class)))
     @PostMapping("/notifications/republish-failed")
     public NotificationRepublisher.RepublishReport republishFailed(
+            @Parameter(description = MAX_DESCRIPTION)
             @RequestParam(name = "max", required = false) Integer max) {
         List<FieldProblem> errors = new ArrayList<>();
         int effectiveMax = resolveMax(max, errors);

@@ -6,7 +6,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import dev.notifyhub.common.persistence.Collections;
 import dev.notifyhub.it.support.EndToEndSupport;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.CountDownLatch;
@@ -105,6 +107,45 @@ class ApiDocsIT extends EndToEndSupport {
         for (String queue : allQueues()) {
             assertThat(readyCount(queue)).as("mensagens prontas em %s", queue).isZero();
         }
+    }
+
+    @Test
+    void everyOperationHasPtBrSummaryTagAndItsRealResponses() {
+        HttpResult docs = get("/v3/api-docs");
+        assertThat(docs.status()).isEqualTo(200);
+        JsonNode paths = docs.body().path("paths");
+
+        Map<String, JsonNode> operations = new LinkedHashMap<>();
+        operations.put("POST /notifications", paths.path("/notifications").path("post"));
+        operations.put("GET /notifications", paths.path("/notifications").path("get"));
+        operations.put("GET /notifications/{id}", paths.path("/notifications/{id}").path("get"));
+        operations.put("GET /notifications/stats", paths.path("/notifications/stats").path("get"));
+        operations.put("POST " + REPROCESS, paths.path(REPROCESS).path("post"));
+        operations.put("POST " + REPUBLISH_FAILED, paths.path(REPUBLISH_FAILED).path("post"));
+
+        Map<String, List<String>> expectedResponses = Map.of(
+                "POST /notifications", List.of("202", "400", "422", "503"),
+                "GET /notifications", List.of("200", "400"),
+                "GET /notifications/{id}", List.of("200", "404"),
+                "GET /notifications/stats", List.of("200"),
+                "POST " + REPROCESS, List.of("200", "400", "401", "503"),
+                "POST " + REPUBLISH_FAILED, List.of("200", "400", "401", "503"));
+
+        operations.forEach((name, operation) -> {
+            assertThat(operation.isMissingNode()).as("operação %s documentada", name).isFalse();
+            assertThat(operation.path("summary").asText()).as("summary de %s", name).isNotBlank();
+            assertThat(operation.path("tags").size()).as("tags de %s", name).isPositive();
+            Set<String> codes = new TreeSet<>();
+            operation.path("responses").fieldNames().forEachRemaining(codes::add);
+            assertThat(codes).as("respostas de %s", name).containsAll(expectedResponses.get(name));
+        });
+
+        // o POST responde 202, nunca 200: o 202 declarado não pode vir acompanhado de um 200 inferido
+        assertThat(paths.path("/notifications").path("post").path("responses").has("200")).isFalse();
+
+        assertThat(paths.path("/notifications").path("post").path("tags").path(0).asText()).isEqualTo("Notificações");
+        assertThat(paths.path("/notifications/stats").path("get").path("tags").path(0).asText()).isEqualTo("Consultas");
+        assertThat(paths.path(REPROCESS).path("post").path("tags").path(0).asText()).isEqualTo("Administração");
     }
 
     private static Set<String> pathKeys(JsonNode apiDocs) {
