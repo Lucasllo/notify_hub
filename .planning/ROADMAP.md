@@ -112,7 +112,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. O cliente que repete o POST com o mesmo `Idempotency-Key` e o mesmo payload recebe a notificação original sem duplicar, e com payload diferente recebe 422; `GET /notifications?status=&channel=` pagina por data de criação decrescente, `GET /notifications/stats` traz contagens por status e canal, e o Swagger UI documenta todos os endpoints
   4. `./mvnw verify` roda via Failsafe os ITs com Testcontainers (RabbitMQ + MongoDB) que provam retry → DLQ → reprocessamento → SENT, mensagem venenosa na DLQ sem loop, publish não roteável virando PUBLISH_FAILED e entrega duplicada concorrente com exatamente um envio; `./mvnw test` continua rodando sem Docker
 
-**Plans**: 3/7 plans executed
+**Plans**: 4/7 plans executed
 **Wave 1**
 
 - [x] 03-01-PLAN.md — harness de IT (`notify-it`, dois contextos na mesma JVM com Testcontainers), classifier `exec` e smokes (TST-04)
@@ -121,7 +121,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 03-03-PLAN.md — CR-01 (PENDING/RETRYING/PROCESSING → PENDING) e ITs do reprocess, mensagem venenosa e duplicata concorrente (TST-02, TST-03, ADM-01)
-- [ ] 03-04-PLAN.md — Idempotency-Key: replay, 422 e corrida com índice único parcial (API-03)
+- [x] 03-04-PLAN.md — Idempotency-Key: replay, 422 e corrida com índice único parcial (API-03)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -160,5 +160,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Entrega ponta a ponta no caminho feliz | 7/7 | Complete    | 2026-10-13 |
 | 2. Falhas, retry com backoff e resiliência | 8/8 | Complete    | 2026-10-21 |
-| 3. Reprocessamento, API operacional e testes de integração | 3/7 | In Progress|  |
+| 3. Reprocessamento, API operacional e testes de integração | 4/7 | In Progress|  |
 | 4. Observabilidade, demo e documentação | 0/TBD | Not started | - |

@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: Reprocessamento, API operacional e testes de integração
 status: executing
-stopped_at: Completed 03-03-PLAN.md
-last_updated: "2026-10-31T13:53:47.886Z"
+stopped_at: Completed 03-04-PLAN.md
+last_updated: "2026-10-31T14:26:51.012Z"
 last_activity: 2026-10-31
 last_activity_desc: Phase 03 execution started
-state_head: dfa527cec1a164eaca5845c6ed32b74416ca0e16
+state_head: 44b8b7a3a7c6f8ee966ee9b011f4d1f9c26cf9a2
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 22
-  completed_plans: 18
+  completed_plans: 19
   percent: 50
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-13)
 ## Current Position
 
 Phase: 03 (Reprocessamento, API operacional e testes de integração) — EXECUTING
-Plan: 4 of 7
+Plan: 5 of 7
 Status: Ready to execute
 Last activity: 2026-10-31 — Phase 03 execution started
 
@@ -75,6 +75,7 @@ Progress: [█████░░░░░] 50%
 | Phase 03 P01 | 17min | 2 tasks | 9 files |
 | Phase 03 P02 | 24min | 3 tasks | 15 files |
 | Phase 03 P03 | 23min | 3 tasks | 9 files |
+| Phase 03 P04 | 29min | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -125,6 +126,9 @@ Recent decisions affecting current work:
 - [Phase 03]: 03-02: /admin/** com ApiKeyInterceptor (SHA-256 + MessageDigest.isEqual, fail closed com chave vazia); 400 de parâmetro único via ApiExceptionHandler.invalidRequest e handleTypeMismatch
 - [Phase 03]: 03-03: reset deriva o status guardado por lease de reclaimableWhenStuck(); PROCESSING com lease vigente -> LeaseActive sem escrita (skipped no fim da DLQ); vencido ou nulo -> fence com $or leaseUntil < agora / nulo
 - [Phase 03]: 03-03: tabela D-01 aceita PENDING/RETRYING/PROCESSING -> PENDING só para o reset do reprocess; CR-01 da Fase 2 resolvido e provado por ReprocessEdgeCasesIT
+- [Phase 03]: 03-04: Idempotency-Key com idempotencyKey/requestHash no próprio documento e índice único parcial idempotencyKey_unique ($exists: true); DuplicateKeyException -> findOne pela chave -> replay (status atual, Idempotent-Replayed: true) ou 422 sem ecoar chave/id; sem chave ou sem documento relança
+- [Phase 03]: 03-04: RequestHasher = SHA-256 hex do pedido canônico (TreeMap + ORDER_MAP_ENTRIES_BY_KEYS), constante de referência fixada no RequestHasherTest; Spring Data lê o record pelo construtor canônico sem @PersistenceCreator
+- [Phase 03]: 03-04: Idempotency-Key fora de ^[\x21-\x7E]{1,255}$ dá 400 validation-error (campo Idempotency-Key) depois do binding do corpo; replay de PUBLISH_FAILED segue 202 com o status atual até o 03-05 (D-08)
 
 ### Pending Todos
 
@@ -156,6 +160,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-31T13:53:47.540Z
-Stopped at: Completed 03-03-PLAN.md
+Last session: 2026-10-31T14:26:50.784Z
+Stopped at: Completed 03-04-PLAN.md
 Resume file: None
