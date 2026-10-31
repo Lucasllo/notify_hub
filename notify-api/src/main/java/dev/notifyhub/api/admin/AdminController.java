@@ -1,6 +1,7 @@
 package dev.notifyhub.api.admin;
 
 import dev.notifyhub.api.admin.DlqReprocessService.Report;
+import dev.notifyhub.api.application.NotificationRepublisher;
 import dev.notifyhub.api.web.ApiExceptionHandler;
 import dev.notifyhub.api.web.ApiExceptionHandler.FieldProblem;
 import dev.notifyhub.common.domain.Channel;
@@ -30,10 +31,13 @@ public class AdminController {
             .collect(Collectors.joining(", ", "valores aceitos: ", ""));
 
     private final DlqReprocessService reprocessService;
+    private final NotificationRepublisher republisher;
     private final AdminProperties props;
 
-    public AdminController(DlqReprocessService reprocessService, AdminProperties props) {
+    public AdminController(DlqReprocessService reprocessService, NotificationRepublisher republisher,
+                           AdminProperties props) {
         this.reprocessService = reprocessService;
+        this.republisher = republisher;
         this.props = props;
     }
 

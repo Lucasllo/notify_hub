@@ -15,6 +15,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import dev.notifyhub.api.admin.DlqReprocessService.FailureReason;
 import dev.notifyhub.api.admin.DlqReprocessService.Report;
+import dev.notifyhub.api.application.NotificationRepublisher;
+import dev.notifyhub.api.application.NotificationRepublisher.RepublishReport;
 import dev.notifyhub.common.domain.Channel;
 import java.util.Arrays;
 import org.assertj.core.api.Assertions;
@@ -42,12 +44,16 @@ import org.springframework.web.ErrorResponseException;
 class AdminControllerTest {
 
     private static final String PATH = "/admin/dlq/email/reprocess";
+    private static final String REPUBLISH_PATH = "/admin/notifications/republish-failed";
 
     @Autowired
     private MockMvc mvc;
 
     @MockitoBean
     private DlqReprocessService service;
+
+    @MockitoBean
+    private NotificationRepublisher republisher;
 
     private static MockHttpServletRequestBuilder withKey(String path) {
         return post(path).header("X-API-Key", "test-key");
@@ -192,5 +198,56 @@ class AdminControllerTest {
                 .andExpect(jsonPath("$.skipped").value(0))
                 .andExpect(jsonPath("$.discarded").value(0))
                 .andExpect(jsonPath("$.reason").value("PUBLISH_TIMEOUT"));
+    }
+
+    // ---------------------------------------------------------------- republish-failed (ADM-03)
+
+    @Test
+    void republishFailedWithTheKeyAndWithoutMaxUsesTheDefaultOfOneHundred() throws Exception {
+        when(republisher.republishFailed(100)).thenReturn(new RepublishReport(100, 2));
+
+        mvc.perform(withKey(REPUBLISH_PATH))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.requested").value(100))
+                .andExpect(jsonPath("$.republished").value(2));
+        verify(republisher).republishFailed(100);
+    }
+
+    @Test
+    void republishFailedPassesMaxThrough() throws Exception {
+        when(republisher.republishFailed(5)).thenReturn(new RepublishReport(5, 1));
+
+        mvc.perform(withKey(REPUBLISH_PATH).param("max", "5"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.requested").value(5))
+                .andExpect(jsonPath("$.republished").value(1));
+        verify(republisher).republishFailed(5);
+    }
+
+    @Test
+    void republishFailedWithoutKeyIsUnauthorizedWithoutTouchingAnyNotification() throws Exception {
+        mvc.perform(post(REPUBLISH_PATH))
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value("urn:notify-hub:problem:unauthorized"));
+        verifyNoInteractions(republisher);
+    }
+
+    @Test
+    void republishFailedWithAWrongKeyIsUnauthorized() throws Exception {
+        mvc.perform(post(REPUBLISH_PATH).header("X-API-Key", "test-keyx"))
+                .andExpect(status().isUnauthorized());
+        verifyNoInteractions(republisher);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"0", "1001", "abc"})
+    void republishFailedWithMaxOutsideTheRangeIsAValidationError(String max) throws Exception {
+        mvc.perform(withKey(REPUBLISH_PATH).param("max", max))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value("urn:notify-hub:problem:validation-error"))
+                .andExpect(jsonPath("$.errors[0].field").value("max"));
+        verifyNoInteractions(republisher);
     }
 }

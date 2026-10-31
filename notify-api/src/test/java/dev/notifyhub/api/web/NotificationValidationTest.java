@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.notifyhub.api.application.NotificationRepublisher;
 import dev.notifyhub.api.application.NotificationService;
 import dev.notifyhub.api.messaging.NotificationPublisher;
 import dev.notifyhub.api.messaging.PublishProperties;
@@ -43,7 +44,7 @@ import org.springframework.test.web.servlet.ResultActions;
  * Mongo (API-06); id inexistente → 404 Problem Detail.
  */
 @WebMvcTest(NotificationController.class)
-@Import({NotificationService.class, NotificationPublisher.class})
+@Import({NotificationService.class, NotificationRepublisher.class, NotificationPublisher.class})
 @EnableConfigurationProperties(PublishProperties.class)
 class NotificationValidationTest {
 

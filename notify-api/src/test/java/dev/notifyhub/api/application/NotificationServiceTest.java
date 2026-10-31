@@ -43,8 +43,9 @@ class NotificationServiceTest {
 
     private final MongoTemplate mongo = mock(MongoTemplate.class);
     private final NotificationPublisher publisher = mock(NotificationPublisher.class);
-    private final NotificationService service = new NotificationService(mongo, publisher,
-            new PublishProperties(Duration.ofSeconds(5), Duration.ofSeconds(5)));
+    private final PublishProperties props = new PublishProperties(Duration.ofSeconds(5), Duration.ofSeconds(5));
+    private final NotificationService service = new NotificationService(mongo,
+            new NotificationRepublisher(mongo, publisher, props), props);
 
     private void updateMatches(long modified) {
         when(mongo.updateFirst(any(Query.class), any(Update.class), eq(NotificationDocument.class)))
@@ -79,7 +80,8 @@ class NotificationServiceTest {
         assertThat(set.get("status")).isEqualTo(NotificationStatus.PUBLISH_FAILED);
         assertThat(set.get("lastError")).isInstanceOfSatisfying(LastError.class, lastError -> {
             assertThat(lastError.code()).isEqualTo("PUBLISH_NACK");
-            assertThat(lastError.message()).isEqualTo("x");
+            // T-02-01/T-03-21: mensagem fixa derivada do código, nunca o texto do nack
+            assertThat(lastError.message()).isEqualTo("Publicação não confirmada pelo broker (PUBLISH_NACK)");
         });
         assertThat(set.get("updatedAt")).isInstanceOf(Instant.class);
         assertThat(update.getValue().getUpdateObject().keySet()).containsExactly("$set");

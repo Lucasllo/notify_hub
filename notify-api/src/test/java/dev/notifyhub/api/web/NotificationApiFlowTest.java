@@ -17,6 +17,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.jayway.jsonpath.JsonPath;
 import com.mongodb.client.result.UpdateResult;
+import dev.notifyhub.api.application.NotificationRepublisher;
 import dev.notifyhub.api.application.NotificationService;
 import dev.notifyhub.api.application.RequestHasher;
 import dev.notifyhub.api.messaging.NotificationPublisher;
@@ -57,7 +58,7 @@ import org.springframework.test.web.servlet.MvcResult;
  * Mongo e Rabbit simulados. Sem Docker.
  */
 @WebMvcTest(NotificationController.class)
-@Import({NotificationService.class, NotificationPublisher.class})
+@Import({NotificationService.class, NotificationRepublisher.class, NotificationPublisher.class})
 @EnableConfigurationProperties(PublishProperties.class)
 class NotificationApiFlowTest {
 
