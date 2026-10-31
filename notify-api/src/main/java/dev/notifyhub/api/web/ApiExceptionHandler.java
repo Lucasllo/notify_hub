@@ -6,6 +6,7 @@ import java.net.URI;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
+import org.springframework.beans.TypeMismatchException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -13,10 +14,12 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.ErrorResponseException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 /**
@@ -54,6 +57,30 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 : new FieldProblem(null, "corpo JSON inválido");
         return handleExceptionInternal(ex, validationProblem(List.of(error)), headers, HttpStatus.BAD_REQUEST,
                 request);
+    }
+
+    /**
+     * Parâmetro de query ou de path que não converte para o tipo esperado (ex.: {@code max=abc},
+     * {@code max=1.5} ou um número fora de {@code int}): 400 de validação com o nome do parâmetro, e
+     * não o {@code about:blank} padrão.
+     */
+    @Override
+    protected ResponseEntity<Object> handleTypeMismatch(TypeMismatchException ex, HttpHeaders headers,
+            HttpStatusCode status, WebRequest request) {
+        String field = ex instanceof MethodArgumentTypeMismatchException mismatch ? mismatch.getName()
+                : ex.getPropertyName();
+        return handleExceptionInternal(ex, validationProblem(List.of(new FieldProblem(field, "tem formato inválido"))),
+                headers, HttpStatus.BAD_REQUEST, request);
+    }
+
+    /**
+     * 400 de validação para erros de parâmetro detectados fora do Bean Validation (ex.: canal do path
+     * e {@code max} do admin). É a forma única do 400 de parâmetro da API.
+     *
+     * @param errors erros, na ordem em que devem aparecer
+     */
+    public static ErrorResponseException invalidRequest(List<FieldProblem> errors) {
+        return new ErrorResponseException(HttpStatus.BAD_REQUEST, validationProblem(errors), null);
     }
 
     @Override

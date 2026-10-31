@@ -42,3 +42,11 @@ notify:
     confirm-timeout: 5s
     # Valor do header Retry-After no 503
     retry-after: 5s
+  admin:
+    # Chave exigida no header X-API-Key dos endpoints /admin/**. Vazia = toda chamada recebe 401
+    # (fail closed); a demo define NOTIFY_ADMIN_API_KEY
+    api-key: ${NOTIFY_ADMIN_API_KEY:}
+    # max usado quando POST /admin/dlq/{canal}/reprocess vem sem o parâmetro
+    max-default: 100
+    # Maior max aceito; acima disso, 400
+    max-limit: 1000
