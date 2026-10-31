@@ -6,8 +6,9 @@
   **Found during:** 02-04 Task 2
 
 - CR-01: falha do Mongo no claim ou no update de resultado (e rejeições antes do claim) deixa o documento não terminal com a mensagem na DLQ
-  status: open
+  status: resolved
   target: Phase 3
+  **Resolved in:** Fase 3. O plano 03-02 entregou o reset genérico derivado da tabela e a cópia no fim da DLQ (`skipped`) para tudo o que não pode voltar à fila principal, sem travar na cabeça. O plano 03-03 entregou as transições D-01 (PENDING/RETRYING/PROCESSING → PENDING), o lease de PROCESSING no reset (`LeaseActive` com lease vigente; `$or` de `leaseUntil` vencido ou nulo no fence) e o `ReprocessEdgeCasesIT`, que prova os quatro casos até SENT com RabbitMQ e MongoDB reais.
   **What:** Nenhum mecanismo da Fase 2 recupera esses documentos:
   - claim que falha (`DeliveryProcessor`, `NotificationStateService.claim` lançando `DataAccessException`) deixa o documento em PENDING/RETRYING e a mensagem na DLQ sem `x-failure-class`;
   - falha em `markSent`/`markRetrying`/`markDeadLettered`/`markFailed` deixa o documento em PROCESSING com lease de 5m e a mensagem na DLQ (no `markSent`, o envio já aconteceu);
