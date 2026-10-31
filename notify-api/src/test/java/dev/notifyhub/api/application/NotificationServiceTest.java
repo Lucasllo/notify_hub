@@ -191,6 +191,61 @@ class NotificationServiceTest {
         verify(mongo, never()).findOne(any(Query.class), any(Class.class));
     }
 
+    // ---------------------------------------------------------------- D-08: replay de PUBLISH_FAILED republica
+
+    private NotificationDocument replayOfPublishFailed() {
+        NotificationDocument existing = existingWithHash(RequestHasher.hash(REQUEST), NotificationStatus.PUBLISH_FAILED,
+                Instant.parse("2026-10-30T10:00:00Z"));
+        when(mongo.insert(any(NotificationDocument.class))).thenThrow(new DuplicateKeyException("E11000"));
+        when(mongo.findOne(any(Query.class), eq(NotificationDocument.class))).thenReturn(existing);
+        return existing;
+    }
+
+    @Test
+    void replayOfPublishFailedRepublishesAndAnswersPending() {
+        NotificationDocument existing = replayOfPublishFailed();
+        updateMatches(1);
+        when(publisher.publish(any(), any())).thenReturn(PublishResult.acked());
+
+        NotificationService.CreateResult result = service.create(REQUEST, "k-1");
+
+        assertThat(result.replayed()).isTrue();
+        assertThat(result.response().id()).isEqualTo(existing.id());
+        assertThat(result.response().status()).isEqualTo(NotificationStatus.PENDING);
+        assertThat(result.response().createdAt()).isEqualTo(existing.createdAt());
+        verify(publisher).publish(any(), any());
+    }
+
+    @Test
+    void replayOfPublishFailedThatIsReturnedAgainIs503WithRetryAfter() {
+        NotificationDocument existing = replayOfPublishFailed();
+        updateMatches(1);
+        when(publisher.publish(any(), any())).thenReturn(PublishResult.unroutable("NO_ROUTE"));
+
+        assertThatThrownBy(() -> service.create(REQUEST, "k-1"))
+                .isInstanceOfSatisfying(PublishFailedException.class, e -> {
+                    assertThat(e.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+                    assertThat(e.getHeaders().getFirst("Retry-After")).isEqualTo("5");
+                    assertThat(e.getNotificationId()).isEqualTo(existing.id());
+                });
+    }
+
+    @Test
+    void replayOfPublishFailedWhoseFenceIsLostRereadsAndAnswersTheCurrentStatus() {
+        NotificationDocument existing = replayOfPublishFailed();
+        updateMatches(0);
+        NotificationDocument claimed = existingWithHash(existing.requestHash(), NotificationStatus.PROCESSING,
+                existing.createdAt());
+        when(mongo.findById(existing.id(), NotificationDocument.class)).thenReturn(claimed);
+
+        NotificationService.CreateResult result = service.create(REQUEST, "k-1");
+
+        assertThat(result.replayed()).isTrue();
+        assertThat(result.response().id()).isEqualTo(existing.id());
+        assertThat(result.response().status()).isEqualTo(NotificationStatus.PROCESSING);
+        verify(publisher, never()).publish(any(), any());
+    }
+
     private static NotificationDocument existingWithHash(String hash, NotificationStatus status, Instant createdAt) {
         return new NotificationDocument("11111111-2222-3333-4444-555555555555", Channel.EMAIL, "ana@exemplo.com",
                 "welcome", Map.of("name", "Ana"), status, 0, 1, null, null, List.of(),

@@ -11,6 +11,7 @@ public final class ProblemTypes {
     public static final URI REPROCESS_INTERRUPTED = URI.create("urn:notify-hub:problem:reprocess-interrupted");
     public static final URI UNAUTHORIZED = URI.create("urn:notify-hub:problem:unauthorized");
     public static final URI IDEMPOTENCY_KEY_REUSED = URI.create("urn:notify-hub:problem:idempotency-key-reused");
+    public static final URI REPUBLISH_INTERRUPTED = URI.create("urn:notify-hub:problem:republish-interrupted");
 
     private ProblemTypes() {
     }

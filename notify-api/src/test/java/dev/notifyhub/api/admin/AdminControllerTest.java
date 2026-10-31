@@ -17,6 +17,7 @@ import dev.notifyhub.api.admin.DlqReprocessService.FailureReason;
 import dev.notifyhub.api.admin.DlqReprocessService.Report;
 import dev.notifyhub.api.application.NotificationRepublisher;
 import dev.notifyhub.api.application.NotificationRepublisher.RepublishReport;
+import dev.notifyhub.api.application.RepublishInterruptedException;
 import dev.notifyhub.common.domain.Channel;
 import java.util.Arrays;
 import org.assertj.core.api.Assertions;
@@ -249,5 +250,19 @@ class AdminControllerTest {
                 .andExpect(jsonPath("$.type").value("urn:notify-hub:problem:validation-error"))
                 .andExpect(jsonPath("$.errors[0].field").value("max"));
         verifyNoInteractions(republisher);
+    }
+
+    @Test
+    void interruptedRepublishIsAServiceUnavailableProblemWithPartialCounts() throws Exception {
+        when(republisher.republishFailed(anyInt()))
+                .thenThrow(new RepublishInterruptedException(new RepublishReport(10, 1), "PUBLISH_TIMEOUT"));
+
+        mvc.perform(withKey(REPUBLISH_PATH).param("max", "10"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value("urn:notify-hub:problem:republish-interrupted"))
+                .andExpect(jsonPath("$.requested").value(10))
+                .andExpect(jsonPath("$.republished").value(1))
+                .andExpect(jsonPath("$.reason").value("PUBLISH_TIMEOUT"));
     }
 }

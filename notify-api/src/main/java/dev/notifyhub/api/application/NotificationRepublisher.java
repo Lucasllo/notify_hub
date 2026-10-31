@@ -47,6 +47,8 @@ public class NotificationRepublisher {
 
     private static final Logger log = LoggerFactory.getLogger(NotificationRepublisher.class);
 
+    public static final String MONGO_UNAVAILABLE = "MONGO_UNAVAILABLE";
+
     private final MongoTemplate mongoTemplate;
     private final NotificationPublisher publisher;
     private final PublishProperties props;
