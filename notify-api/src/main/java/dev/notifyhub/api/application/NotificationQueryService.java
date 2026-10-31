@@ -10,10 +10,15 @@ import dev.notifyhub.common.domain.NotificationStatus;
 import dev.notifyhub.common.persistence.Collections;
 import dev.notifyhub.common.persistence.NotificationDocument;
 import dev.notifyhub.common.persistence.NotificationDocument.Fields;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import org.bson.Document;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.aggregation.Aggregation;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.stereotype.Service;
 
@@ -25,9 +30,13 @@ import org.springframework.stereotype.Service;
  * que cobre filtro e ordenação ({@code status_channel_createdAt}, {@code status_createdAt},
  * {@code channel_createdAt} e {@code createdAt}, do {@code MongoIndexInitializer}), então o MongoDB
  * nunca precisa ordenar em memória (D-09, Armadilha 5).
+ *
+ * <p>O stats é uma única agregação {@code $group} por {@code status} + {@code channel} (API-07, D-12).
  */
 @Service
 public class NotificationQueryService {
+
+    private static final Logger log = LoggerFactory.getLogger(NotificationQueryService.class);
 
     private final MongoTemplate mongo;
 
@@ -78,8 +87,71 @@ public class NotificationQueryService {
         return new PageResponse<>(content, page, size, total, totalPages);
     }
 
-    /** Esqueleto do RED: ainda não agrega. */
+    /**
+     * Contagens por status, por canal e por canal × status, com todos os zeros (D-12).
+     *
+     * <p>Uma só agregação: {@code $group} com {@code _id {status, channel}} e {@code count}. O mapa
+     * cruzado nasce com as 3 × 7 combinações a zero, recebe a soma de cada linha, e {@code byStatus},
+     * {@code byChannel} e {@code total} saem dele. Uma linha com status ou canal que o enum não conhece
+     * (documento gravado fora da aplicação) é ignorada com log WARN, em vez de virar 500.
+     */
     public NotificationStats stats() {
-        return new NotificationStats(0, Map.of(), Map.of(), Map.of());
+        Aggregation aggregation = Aggregation.newAggregation(
+                Aggregation.group(Fields.STATUS, Fields.CHANNEL).count().as("count"));
+        List<Document> rows = mongo.aggregate(aggregation, Collections.NOTIFICATIONS, Document.class)
+                .getMappedResults();
+
+        Map<Channel, Map<NotificationStatus, Long>> byChannelAndStatus = new EnumMap<>(Channel.class);
+        for (Channel channel : Channel.values()) {
+            Map<NotificationStatus, Long> perStatus = new EnumMap<>(NotificationStatus.class);
+            for (NotificationStatus status : NotificationStatus.values()) {
+                perStatus.put(status, 0L);
+            }
+            byChannelAndStatus.put(channel, perStatus);
+        }
+
+        for (Document row : rows) {
+            Document key = row.get("_id", Document.class);
+            Object rawStatus = key == null ? null : key.get(Fields.STATUS);
+            Object rawChannel = key == null ? null : key.get(Fields.CHANNEL);
+            NotificationStatus status = parse(NotificationStatus.class, rawStatus);
+            Channel channel = parse(Channel.class, rawChannel);
+            Object rawCount = row.get("count");
+            if (status == null || channel == null || !(rawCount instanceof Number count)) {
+                log.warn("Linha de stats ignorada: status={} canal={} count={} fora dos valores conhecidos",
+                        rawStatus, rawChannel, rawCount);
+                continue;
+            }
+            byChannelAndStatus.get(channel).merge(status, count.longValue(), Long::sum);
+        }
+
+        Map<NotificationStatus, Long> byStatus = new EnumMap<>(NotificationStatus.class);
+        Map<Channel, Long> byChannel = new EnumMap<>(Channel.class);
+        for (NotificationStatus status : NotificationStatus.values()) {
+            byStatus.put(status, 0L);
+        }
+        long total = 0;
+        for (Map.Entry<Channel, Map<NotificationStatus, Long>> entry : byChannelAndStatus.entrySet()) {
+            long channelTotal = 0;
+            for (Map.Entry<NotificationStatus, Long> cell : entry.getValue().entrySet()) {
+                byStatus.merge(cell.getKey(), cell.getValue(), Long::sum);
+                channelTotal += cell.getValue();
+            }
+            byChannel.put(entry.getKey(), channelTotal);
+            total += channelTotal;
+        }
+        return new NotificationStats(total, byStatus, byChannel, byChannelAndStatus);
+    }
+
+    /** Nome exato do enum, ou nulo para valor ausente, que não é string ou que o enum não conhece. */
+    private static <E extends Enum<E>> E parse(Class<E> type, Object raw) {
+        if (!(raw instanceof String name)) {
+            return null;
+        }
+        try {
+            return Enum.valueOf(type, name);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 }

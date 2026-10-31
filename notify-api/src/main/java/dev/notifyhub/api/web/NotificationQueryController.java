@@ -18,7 +18,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Leitura operacional das notificações: {@code GET /notifications} lista com filtros e paginação
- * (API-05, D-09..D-11).
+ * (API-05, D-09..D-11), e {@code GET /notifications/stats} traz as contagens por status e canal
+ * (API-07, D-12).
  *
  * <p>É um controller separado do {@link NotificationController}, que cuida da criação e do GET por id.
  * Os dois dividem o prefixo {@code /notifications}. As rotas literais deste controller (como
@@ -81,7 +82,11 @@ public class NotificationQueryController {
         return service.list(statusFilter, channelFilter, resolvedPage, resolvedSize);
     }
 
-    /** Esqueleto do RED. */
+    /**
+     * Contagens {@code {total, byStatus, byChannel, byChannelAndStatus}}, com os 7 status e os 3 canais
+     * sempre presentes, inclusive com zero. Rota literal: tem precedência sobre
+     * {@code GET /notifications/{id}}, então nunca responde 404 de notificação.
+     */
     @GetMapping("/stats")
     public NotificationStats stats() {
         return service.stats();
