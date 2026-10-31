@@ -110,8 +110,14 @@ class DlqReprocessFlowTest {
     // ---------------------------------------------------------------- helpers
 
     private static NotificationDocument doc(String id, NotificationStatus status, int retryCount, int attemptCount) {
+        return leased(id, status, retryCount, attemptCount, null);
+    }
+
+    private static NotificationDocument leased(String id, NotificationStatus status, int retryCount, int attemptCount,
+            Instant leaseUntil) {
         return new NotificationDocument(id, Channel.EMAIL, "ana@exemplo.com", "welcome", Map.of("name", "Ana"),
-                status, retryCount, attemptCount, null, null, List.of(), CREATED, CREATED, null, null, null);
+                status, retryCount, attemptCount, null, null, List.of(), CREATED, CREATED,
+                leaseUntil != null ? CREATED : null, leaseUntil, null);
     }
 
     private void dlqReady(int ready) {
@@ -267,6 +273,95 @@ class DlqReprocessFlowTest {
         verify(ch).basicAck(7, false);
     }
 
+    // ---------------------------------------------------------------- não terminais (D-01, CR-01)
+
+    @Test
+    void retryingIsResetFencedByItsStatusAndRetryCount() throws Exception {
+        assertNonTerminalIsReset(doc(ID1, NotificationStatus.RETRYING, 1, 1), "RETRYING", 1);
+    }
+
+    @Test
+    void pendingIsResetFencedByItsStatusAndRetryCount() throws Exception {
+        assertNonTerminalIsReset(doc(ID1, NotificationStatus.PENDING, 0, 0), "PENDING", 0);
+    }
+
+    /** Documento não terminal sem lease: reset com fence {_id, status, retryCount}, publish, ack. */
+    private void assertNonTerminalIsReset(NotificationDocument before, String status, int retryCount)
+            throws Exception {
+        dlqReady(1);
+        when(ch.basicGet(DLQ, false)).thenReturn(delivery(7, ID1));
+        stored(before);
+        resetReturns(afterReset(before));
+        onPublish(DlqReprocessFlowTest::ack);
+        // Se o reset recusasse o status, a cópia para o fim confirmaria e a contagem acusaria skipped
+        onCopy(DlqReprocessFlowTest::ack);
+
+        assertThat(service.reprocess(Channel.EMAIL, 10)).isEqualTo(new Report(10, 1, 0, 0));
+
+        Document filter = capturedResetFilter();
+        assertThat(filter.keySet()).containsExactlyInAnyOrder("_id", "status", "retryCount");
+        assertThat(filter.get("_id")).isEqualTo(ID1);
+        assertThat(String.valueOf(filter.get("status"))).isEqualTo(status);
+        assertThat(filter.get("retryCount")).isEqualTo(retryCount);
+        verify(rabbit).convertAndSend(eq("notify.exchange"), eq("notification.email"),
+                eq(new NotificationMessage(ID1, Channel.EMAIL, "welcome", CREATED)), any(MessagePostProcessor.class),
+                any(CorrelationData.class));
+        verify(ch).basicAck(7, false);
+    }
+
+    @Test
+    void processingWithAnExpiredLeaseIsResetOnlyWhileTheLeaseIsStillExpiredOrAbsent() throws Exception {
+        Instant before = Instant.now();
+        assertProcessingIsReset(leased(ID1, NotificationStatus.PROCESSING, 2, 3, before.minus(Duration.ofMinutes(1))),
+                before);
+    }
+
+    @Test
+    void processingWithoutALeaseIsResetByTheSameQuery() throws Exception {
+        assertProcessingIsReset(leased(ID1, NotificationStatus.PROCESSING, 2, 3, null), Instant.now());
+    }
+
+    /**
+     * PROCESSING com lease vencido ou nulo: o fence ganha um {@code $or} de {@code leaseUntil < agora} e
+     * {@code leaseUntil} nulo, para um worker que reivindicou o documento no meio do caminho não perder
+     * a entrega para o reset.
+     */
+    private void assertProcessingIsReset(NotificationDocument processing, Instant before) throws Exception {
+        dlqReady(1);
+        when(ch.basicGet(DLQ, false)).thenReturn(delivery(7, ID1));
+        stored(processing);
+        resetReturns(afterReset(processing));
+        onPublish(DlqReprocessFlowTest::ack);
+        onCopy(DlqReprocessFlowTest::ack);
+
+        assertThat(service.reprocess(Channel.EMAIL, 10)).isEqualTo(new Report(10, 1, 0, 0));
+        Instant after = Instant.now();
+
+        Document filter = capturedResetFilter();
+        assertThat(filter.keySet()).containsExactlyInAnyOrder("_id", "status", "retryCount", "$or");
+        assertThat(filter.get("_id")).isEqualTo(ID1);
+        assertThat(String.valueOf(filter.get("status"))).isEqualTo("PROCESSING");
+        assertThat(filter.get("retryCount")).isEqualTo(2);
+        List<?> or = filter.get("$or", List.class);
+        assertThat(or).hasSize(2);
+        Document expired = (Document) or.get(0);
+        assertThat(expired.keySet()).containsExactly("leaseUntil");
+        Object lt = expired.get("leaseUntil", Document.class).get("$lt");
+        assertThat(lt).isInstanceOf(Instant.class);
+        assertThat((Instant) lt).isBetween(before, after);
+        Document absent = (Document) or.get(1);
+        assertThat(absent.keySet()).containsExactly("leaseUntil");
+        assertThat(absent.get("leaseUntil")).isNull();
+        verify(ch).basicAck(7, false);
+    }
+
+    private Document capturedResetFilter() {
+        ArgumentCaptor<Query> query = ArgumentCaptor.forClass(Query.class);
+        verify(mongo).findAndModify(query.capture(), any(Update.class), any(FindAndModifyOptions.class),
+                eq(NotificationDocument.class));
+        return query.getValue().getQueryObject();
+    }
+
     // ---------------------------------------------------------------- orçamento
 
     @Test
@@ -369,11 +464,12 @@ class DlqReprocessFlowTest {
     // ---------------------------------------------------------------- skipped: cópia para o fim da DLQ
 
     @Test
-    void statusTheTableCannotResetIsCopiedToTheDlqTailAndSkipped() throws Exception {
+    void processingWithAnActiveLeaseIsCopiedToTheDlqTailAndSkippedWithoutAnyWrite() throws Exception {
         byte[] original = body(ID1, Channel.EMAIL);
         dlqReady(1);
         when(ch.basicGet(DLQ, false)).thenReturn(delivery(7, ID1, original));
-        stored(doc(ID1, NotificationStatus.RETRYING, 2, 3));
+        // Lease vigente: um worker pode estar com o documento (D-02)
+        stored(leased(ID1, NotificationStatus.PROCESSING, 2, 3, Instant.now().plus(Duration.ofMinutes(5))));
         onCopy(DlqReprocessFlowTest::ack);
 
         assertThat(service.reprocess(Channel.EMAIL, 10)).isEqualTo(new Report(10, 0, 1, 0));
@@ -416,7 +512,7 @@ class DlqReprocessFlowTest {
     void copyNackPutsTheMessageBackAndStops() throws Exception {
         dlqReady(1);
         when(ch.basicGet(DLQ, false)).thenReturn(delivery(7, ID1));
-        stored(doc(ID1, NotificationStatus.RETRYING, 2, 3));
+        stored(leased(ID1, NotificationStatus.PROCESSING, 2, 3, Instant.now().plus(Duration.ofMinutes(5))));
         onCopy(DlqReprocessFlowTest::nack);
 
         assertThatThrownBy(() -> service.reprocess(Channel.EMAIL, 10))

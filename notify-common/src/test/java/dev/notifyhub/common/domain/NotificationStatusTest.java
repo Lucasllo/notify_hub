@@ -50,6 +50,20 @@ class NotificationStatusTest {
     }
 
     @Test
+    void reprocessResetAcceptsNonTerminalStatusesWhoseMessageIsInTheDlq() {
+        // D-01/CR-01: o reset do reprocessamento retoma documentos não terminais com a mensagem na DLQ
+        assertThat(PENDING.canTransitionTo(PENDING)).isTrue();
+        assertThat(RETRYING.canTransitionTo(PENDING)).isTrue();
+        assertThat(PROCESSING.canTransitionTo(PENDING)).isTrue();
+    }
+
+    @Test
+    void sourcesOfPendingAreDerivedFromTheTable() {
+        assertThat(NotificationStatus.sourcesOf(PENDING))
+                .containsExactlyInAnyOrder(PENDING, PUBLISH_FAILED, PROCESSING, RETRYING, FAILED, DEAD_LETTERED);
+    }
+
+    @Test
     void sourcesOfProcessingAreDerivedFromTheTable() {
         assertThat(NotificationStatus.sourcesOf(PROCESSING))
                 .containsExactlyInAnyOrder(PENDING, PUBLISH_FAILED, PROCESSING, RETRYING);
