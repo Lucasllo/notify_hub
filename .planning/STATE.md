@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: Reprocessamento, API operacional e testes de integração
 status: executing
-stopped_at: Completed 03-04-PLAN.md
-last_updated: "2026-10-31T14:26:51.012Z"
+stopped_at: Completed 03-05-PLAN.md
+last_updated: "2026-10-31T14:53:21.754Z"
 last_activity: 2026-10-31
 last_activity_desc: Phase 03 execution started
-state_head: 44b8b7a3a7c6f8ee966ee9b011f4d1f9c26cf9a2
+state_head: 51b556529557e976db19b2def3256244346c0c5a
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 22
-  completed_plans: 19
+  completed_plans: 20
   percent: 50
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-13)
 ## Current Position
 
 Phase: 03 (Reprocessamento, API operacional e testes de integração) — EXECUTING
-Plan: 5 of 7
+Plan: 6 of 7
 Status: Ready to execute
 Last activity: 2026-10-31 — Phase 03 execution started
 
@@ -76,6 +76,7 @@ Progress: [█████░░░░░] 50%
 | Phase 03 P02 | 24min | 3 tasks | 15 files |
 | Phase 03 P03 | 23min | 3 tasks | 9 files |
 | Phase 03 P04 | 29min | 3 tasks | 13 files |
+| Phase 03 P05 | 20min | 2 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -129,6 +130,8 @@ Recent decisions affecting current work:
 - [Phase 03]: 03-04: Idempotency-Key com idempotencyKey/requestHash no próprio documento e índice único parcial idempotencyKey_unique ($exists: true); DuplicateKeyException -> findOne pela chave -> replay (status atual, Idempotent-Replayed: true) ou 422 sem ecoar chave/id; sem chave ou sem documento relança
 - [Phase 03]: 03-04: RequestHasher = SHA-256 hex do pedido canônico (TreeMap + ORDER_MAP_ENTRIES_BY_KEYS), constante de referência fixada no RequestHasherTest; Spring Data lê o record pelo construtor canônico sem @PersistenceCreator
 - [Phase 03]: 03-04: Idempotency-Key fora de ^[\x21-\x7E]{1,255}$ dá 400 validation-error (campo Idempotency-Key) depois do binding do corpo; replay de PUBLISH_FAILED segue 202 com o status atual até o 03-05 (D-08)
+- [Phase 03]: 03-05: criação, replay de PUBLISH_FAILED e POST /admin/notifications/republish-failed passam pelo NotificationRepublisher; republish faz PUBLISH_FAILED -> PENDING condicional antes do publish (fence perdido não publica) e lastError de PUBLISH_FAILED grava 'Publicação não confirmada pelo broker (<código>)', nunca o reply text
+- [Phase 03]: 03-05: lote do republish-failed (createdAt asc, _id asc, limit max) para na primeira falha com 503 republish-interrupted {requested, republished, reason} (errorCode() ou MONGO_UNAVAILABLE); fence perdido não conta nem interrompe; replay de PUBLISH_FAILED responde 202 PENDING, 503 Retry-After ou o status atual relido
 
 ### Pending Todos
 
@@ -160,6 +163,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-31T14:26:50.784Z
-Stopped at: Completed 03-04-PLAN.md
+Last session: 2026-10-31T14:53:21.521Z
+Stopped at: Completed 03-05-PLAN.md
 Resume file: None

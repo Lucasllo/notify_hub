@@ -24,7 +24,7 @@
 
 - [x] **API-01**: O cliente pode criar uma notificação via `POST /notifications` (canal, destinatário, templateCode, variáveis) e recebe 202 + `Location`. A notificação é persistida como PENDING antes do publish
 - [x] **API-02**: A API publica com publisher confirms correlacionados + `mandatory`/returns. Confirm negativo, timeout ou mensagem devolvida grava PUBLISH_FAILED (update condicional) e responde 503 com Problem Detail + `Retry-After`
-- [ ] **API-03**: O cliente pode enviar o header `Idempotency-Key`. A mesma chave com o mesmo payload devolve a notificação original; a mesma chave com payload diferente devolve 422
+- [x] **API-03**: O cliente pode enviar o header `Idempotency-Key`. A mesma chave com o mesmo payload devolve a notificação original; a mesma chave com payload diferente devolve 422
 - [x] **API-04**: O cliente pode consultar `GET /notifications/{id}` com status, histórico de tentativas embutido e último erro
 - [ ] **API-05**: O cliente pode listar `GET /notifications?status=&channel=` com paginação e ordenação por data de criação decrescente
 - [x] **API-06**: Erros de validação estrutural (canal inválido, campos ausentes, formato de destinatário por canal) retornam 400 com Problem Details (RFC 9457)
@@ -63,7 +63,7 @@
 
 - [x] **ADM-01**: O operador pode chamar `POST /admin/dlq/{canal}/reprocess?max=N` para mover até N mensagens da DLQ de volta à fila principal. O fluxo é: `basicGet` com ack manual, reset no Mongo, republish confirmado, ack; para na primeira falha
 - [x] **ADM-02**: O reprocessamento zera o contador de tentativas, mantém o histórico `attempts[]` e registra um evento REPROCESSED
-- [ ] **ADM-03**: O operador pode chamar `POST /admin/notifications/republish-failed` para reenviar notificações em PUBLISH_FAILED
+- [x] **ADM-03**: O operador pode chamar `POST /admin/notifications/republish-failed` para reenviar notificações em PUBLISH_FAILED
 - [x] **ADM-04**: Os endpoints admin exigem o header `X-API-Key` (comparação em tempo constante) e validam o canal e o limite `max`
 
 ### Observabilidade (OBS)
@@ -76,7 +76,7 @@
 
 - [x] **TST-01**: Testes unitários do renderizador cobrem renderização, variável ausente, template inexistente e escape por canal
 - [x] **TST-02**: Um teste de integração com Testcontainers (RabbitMQ + MongoDB) cobre o fluxo retry → DLQ → reprocessamento → SENT, com TTLs curtos e Awaitility
-- [ ] **TST-03**: Testes de integração cobrem mensagem venenosa (chega à DLQ sem loop), publish não roteável (vira PUBLISH_FAILED) e entrega duplicada concorrente (exatamente um envio)
+- [x] **TST-03**: Testes de integração cobrem mensagem venenosa (chega à DLQ sem loop), publish não roteável (vira PUBLISH_FAILED) e entrega duplicada concorrente (exatamente um envio)
 - [x] **TST-04**: Testes de integração rodam via Failsafe (`*IT`), separados dos unitários
 
 ### Demo e benchmark (DEM)
@@ -137,7 +137,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MSG-05 | Phase 1 | Complete |
 | API-01 | Phase 1 | Complete |
 | API-02 | Phase 1 | Complete |
-| API-03 | Phase 3 | Pending |
+| API-03 | Phase 3 | Complete |
 | API-04 | Phase 1 | Complete |
 | API-05 | Phase 3 | Pending |
 | API-06 | Phase 1 | Complete |
@@ -161,14 +161,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 | RES-02 | Phase 2 | Complete |
 | ADM-01 | Phase 3 | Complete |
 | ADM-02 | Phase 3 | Complete |
-| ADM-03 | Phase 3 | Pending |
+| ADM-03 | Phase 3 | Complete |
 | ADM-04 | Phase 3 | Complete |
 | OBS-01 | Phase 2 | Complete |
 | OBS-02 | Phase 4 | Pending |
 | OBS-03 | Phase 4 | Pending |
 | TST-01 | Phase 2 | Complete |
 | TST-02 | Phase 3 | Complete |
-| TST-03 | Phase 3 | Pending |
+| TST-03 | Phase 3 | Complete |
 | TST-04 | Phase 3 | Complete |
 | DEM-01 | Phase 4 | Pending |
 | DEM-02 | Phase 4 | Pending |
