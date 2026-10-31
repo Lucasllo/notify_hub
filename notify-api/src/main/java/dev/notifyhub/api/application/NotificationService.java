@@ -64,6 +64,11 @@ public class NotificationService {
      * insert de uma chave já gravada lança {@link DuplicateKeyException}, e então o documento existente
      * é lido pela chave. Com o mesmo hash, a resposta é um replay com o status <b>atual</b> do documento
      * (inclusive PUBLISH_FAILED; a republicação no replay vem no plano 03-05, D-08), sem publicar de novo.
+     * Com outro hash, {@link IdempotencyKeyReusedException} (422), sem criar documento nem publicar.
+     *
+     * <p>A corrida entre dois POSTs com a mesma chave nova é resolvida pelo índice único: um insert
+     * vence, o perdedor recebe {@code DuplicateKeyException}, lê o vencedor pela chave e segue a mesma
+     * regra de replay ou 422 (D-05).
      *
      * <p>Uma {@code DuplicateKeyException} sem chave, ou cujo documento não é achado pela chave
      * (duplicata em outro índice único), é relançada, nunca tratada como replay (Armadilha 6).
@@ -98,7 +103,10 @@ public class NotificationService {
         return new CreateResult(new CreateNotificationResponse(id, NotificationStatus.PENDING, now), false);
     }
 
-    /** O insert perdeu para um documento com a mesma chave: replay com o mesmo hash. */
+    /**
+     * O insert perdeu para um documento com a mesma chave: replay com o mesmo hash, 422 com outro. É
+     * também o caminho do perdedor numa corrida de POSTs com a mesma chave nova (D-05).
+     */
     private CreateResult replayOrRethrow(String idempotencyKey, String requestHash, DuplicateKeyException e) {
         NotificationDocument existing = mongoTemplate.findOne(
                 query(where(Fields.IDEMPOTENCY_KEY).is(idempotencyKey)), NotificationDocument.class);
@@ -107,7 +115,10 @@ public class NotificationService {
             throw e;
         }
         if (!requestHash.equals(existing.requestHash())) {
-            throw e;
+            // D-06: log sem a chave; o 422 também não ecoa a chave nem o id original
+            log.info("Idempotency-Key reusada com outro payload (notificação original {}); respondendo 422",
+                    existing.id());
+            throw new IdempotencyKeyReusedException();
         }
         // Log sem a chave nem o destinatário: só o id da notificação original
         log.info("Replay de Idempotency-Key: devolvendo a notificação {} (status {})", existing.id(), existing.status());
