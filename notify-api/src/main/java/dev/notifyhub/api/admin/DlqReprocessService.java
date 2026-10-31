@@ -54,9 +54,9 @@ import org.springframework.stereotype.Service;
  * (Armadilha 4). O republish é montado a partir do documento resetado, não do corpo da DLQ.
  *
  * <p><b>Reset gravado, publish falho.</b> O documento fica PENDING com o evento REPROCESSED no
- * histórico e a mensagem volta à DLQ. Até as transições do plano 03-03, PENDING não pode ir a
- * PENDING, então um novo reprocess preserva essa mensagem no fim da DLQ ({@code skipped}); depois
- * delas, o próximo reprocess a retoma.
+ * histórico e a mensagem volta à DLQ. Como a tabela aceita PENDING → PENDING (D-01, plano 03-03), o
+ * próximo reprocess a retoma. PROCESSING com lease vigente chega aqui como {@code LeaseActive} e cai
+ * no ramo padrão: cópia no fim da DLQ ({@code skipped}).
  */
 @Service
 public class DlqReprocessService {

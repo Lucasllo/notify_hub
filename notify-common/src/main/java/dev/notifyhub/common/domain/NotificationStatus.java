@@ -10,6 +10,14 @@ import java.util.Set;
 /**
  * Ciclo de vida de uma notificação. A tabela {@link #ALLOWED} é o contrato: os filtros dos updates
  * condicionais no Mongo (claim, resultado, reprocessamento) são derivados dela, nunca escritos à mão.
+ *
+ * <p>O reset do reprocessamento da DLQ (Fase 3) só age quando {@code statusAtual.canTransitionTo(PENDING)}.
+ * Além de FAILED e DEAD_LETTERED, a tabela aceita PENDING, RETRYING e PROCESSING → PENDING (D-01,
+ * CR-01 da Fase 2): documentos não terminais cuja mensagem foi parar na DLQ (falha do Mongo no claim
+ * ou no update de resultado) são retomados pelo operador, em vez de travar a cabeça da DLQ.
+ * PROCESSING só é resetado com lease vencido ou ausente, regra aplicada pelo reset. Nenhuma dessas
+ * transições termina em PROCESSING, então {@link #claimableForDelivery()} e
+ * {@link #reclaimableWhenStuck()} não mudam.
  */
 public enum NotificationStatus {
     PENDING,
@@ -24,13 +32,17 @@ public enum NotificationStatus {
 
     static {
         Map<NotificationStatus, Set<NotificationStatus>> table = new EnumMap<>(NotificationStatus.class);
-        table.put(PENDING, EnumSet.of(PROCESSING, PUBLISH_FAILED));
+        // PENDING -> PENDING: reset do reprocessamento da DLQ (Fase 3, D-01/CR-01), usado só pelo reset do reprocess
+        table.put(PENDING, EnumSet.of(PROCESSING, PUBLISH_FAILED, PENDING));
         // PENDING: republicação administrativa (Fase 3)
         table.put(PUBLISH_FAILED, EnumSet.of(PROCESSING, PENDING));
         // PROCESSING -> PROCESSING: reclaim de uma entrega presa (Fase 2)
-        table.put(PROCESSING, EnumSet.of(SENT, RETRYING, FAILED, DEAD_LETTERED, PROCESSING));
+        // PROCESSING -> PENDING: reset do reprocessamento da DLQ (Fase 3, D-01/CR-01), usado só pelo reset do
+        // reprocess; PROCESSING só com lease vencido
+        table.put(PROCESSING, EnumSet.of(SENT, RETRYING, FAILED, DEAD_LETTERED, PROCESSING, PENDING));
         // DEAD_LETTERED: republicação para o próximo nível falhou (Fase 2, D-11)
-        table.put(RETRYING, EnumSet.of(PROCESSING, DEAD_LETTERED));
+        // RETRYING -> PENDING: reset do reprocessamento da DLQ (Fase 3, D-01/CR-01), usado só pelo reset do reprocess
+        table.put(RETRYING, EnumSet.of(PROCESSING, DEAD_LETTERED, PENDING));
         // FAILED/DEAD_LETTERED -> PENDING: reprocessamento (Fase 3)
         table.put(FAILED, EnumSet.of(PENDING));
         table.put(DEAD_LETTERED, EnumSet.of(PENDING));
