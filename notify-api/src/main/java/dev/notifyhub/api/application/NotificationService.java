@@ -22,7 +22,9 @@ import org.springframework.stereotype.Service;
 
 /**
  * Criação e consulta de notificações. A API é dona só dos estados PENDING e PUBLISH_FAILED e nunca
- * grava status depois de um confirm positivo (o worker pode já estar processando).
+ * grava status depois de um confirm positivo (o worker pode já estar processando). O publish e a
+ * marcação PUBLISH_FAILED ficam no {@link NotificationRepublisher}, o mesmo serviço do endpoint
+ * administrativo {@code republish-failed}.
  */
 @Service
 public class NotificationService {
