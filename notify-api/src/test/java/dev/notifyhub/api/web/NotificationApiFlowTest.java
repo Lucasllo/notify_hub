@@ -5,6 +5,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -16,15 +18,21 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.jayway.jsonpath.JsonPath;
 import com.mongodb.client.result.UpdateResult;
 import dev.notifyhub.api.application.NotificationService;
+import dev.notifyhub.api.application.RequestHasher;
 import dev.notifyhub.api.messaging.NotificationPublisher;
 import dev.notifyhub.api.messaging.PublishProperties;
+import dev.notifyhub.api.web.dto.CreateNotificationRequest;
 import dev.notifyhub.common.domain.Channel;
 import dev.notifyhub.common.domain.NotificationStatus;
 import dev.notifyhub.common.messaging.NotificationMessage;
 import dev.notifyhub.common.persistence.NotificationDocument;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.springframework.amqp.core.Message;
@@ -36,6 +44,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.http.MediaType;
@@ -44,8 +53,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 /**
- * Fatia web da criação e consulta (API-01, API-04): controller, serviço e publisher reais; Mongo e
- * Rabbit simulados. Sem Docker.
+ * Fatia web da criação e consulta (API-01, API-03, API-04): controller, serviço e publisher reais;
+ * Mongo e Rabbit simulados. Sem Docker.
  */
 @WebMvcTest(NotificationController.class)
 @Import({NotificationService.class, NotificationPublisher.class})
@@ -170,5 +179,96 @@ class NotificationApiFlowTest {
                 .andExpect(jsonPath("$.attempts").isEmpty())
                 .andExpect(jsonPath("$.createdAt").value("2026-10-12T12:00:00Z"))
                 .andExpect(jsonPath("$.updatedAt").value("2026-10-12T12:00:00Z"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidIdempotencyKeys")
+    void invalidIdempotencyKeyAnswers400WithoutInserting(String key) throws Exception {
+        brokerAnswers(true, null);
+
+        mvc.perform(post("/notifications")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Idempotency-Key", key)
+                        .content(VALID_BODY))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value("urn:notify-hub:problem:validation-error"))
+                .andExpect(jsonPath("$.errors[0].field").value("Idempotency-Key"));
+
+        verify(mongoTemplate, never()).insert(any(NotificationDocument.class));
+    }
+
+    static Stream<String> invalidIdempotencyKeys() {
+        return Stream.of("com espaço", "a".repeat(256), "");
+    }
+
+    @Test
+    void invalidBodyWithAValidKeyStillAnswersTheBodyValidation400() throws Exception {
+        mvc.perform(post("/notifications")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Idempotency-Key", "k-1")
+                        .content("""
+                                {"recipient":"ana@exemplo.com","templateCode":"welcome","variables":{"name":"Ana"}}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value("urn:notify-hub:problem:validation-error"))
+                .andExpect(jsonPath("$.errors[0].field").value("channel"));
+
+        verify(mongoTemplate, never()).insert(any(NotificationDocument.class));
+    }
+
+    @Test
+    void firstPostWithAKeyHasNoReplayHeaderAndAReplayHasIt() throws Exception {
+        brokerAnswers(true, null);
+
+        mvc.perform(post("/notifications")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Idempotency-Key", "k-1")
+                        .content(VALID_BODY))
+                .andExpect(status().isAccepted())
+                .andExpect(header().doesNotExist("Idempotent-Replayed"));
+
+        String existingId = "6f1c2a7e-1b2c-4d5e-8f90-123456789abc";
+        Instant createdAt = Instant.parse("2026-10-30T10:00:00Z");
+        String hash = RequestHasher.hash(new CreateNotificationRequest(
+                Channel.EMAIL, "ana@exemplo.com", "welcome", Map.of("name", "Ana")));
+        when(mongoTemplate.insert(any(NotificationDocument.class))).thenThrow(new DuplicateKeyException("E11000"));
+        when(mongoTemplate.findOne(any(Query.class), eq(NotificationDocument.class))).thenReturn(
+                keyedDocument(existingId, NotificationStatus.SENT, createdAt, "k-1", hash));
+
+        mvc.perform(post("/notifications")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Idempotency-Key", "k-1")
+                        .content(VALID_BODY))
+                .andExpect(status().isAccepted())
+                .andExpect(header().string("Location", "/notifications/" + existingId))
+                .andExpect(header().string("Idempotent-Replayed", "true"))
+                .andExpect(jsonPath("$.id").value(existingId))
+                .andExpect(jsonPath("$.status").value("SENT"))
+                .andExpect(jsonPath("$.createdAt").value("2026-10-30T10:00:00Z"))
+                .andExpect(jsonPath("$.idempotencyKey").doesNotExist())
+                .andExpect(jsonPath("$.requestHash").doesNotExist());
+    }
+
+    @Test
+    void getNeverExposesIdempotencyKeyNorRequestHash() throws Exception {
+        String id = "6f1c2a7e-1b2c-4d5e-8f90-123456789abc";
+        when(mongoTemplate.findById(id, NotificationDocument.class)).thenReturn(keyedDocument(
+                id, NotificationStatus.PENDING, Instant.parse("2026-10-12T12:00:00Z"), "k-segredo", "hash-segredo"));
+
+        MvcResult result = mvc.perform(get("/notifications/{id}", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(id))
+                .andExpect(jsonPath("$.idempotencyKey").doesNotExist())
+                .andExpect(jsonPath("$.requestHash").doesNotExist())
+                .andReturn();
+
+        assertThat(result.getResponse().getContentAsString()).doesNotContain("k-segredo").doesNotContain("hash-segredo");
+    }
+
+    private static NotificationDocument keyedDocument(String id, NotificationStatus status, Instant createdAt,
+            String key, String hash) {
+        return new NotificationDocument(id, Channel.EMAIL, "ana@exemplo.com", "welcome", Map.of("name", "Ana"),
+                status, 0, 0, null, null, List.of(), createdAt, createdAt, null, null, null, key, hash);
     }
 }

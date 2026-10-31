@@ -150,6 +150,16 @@ class IdempotencyIT extends EndToEndSupport {
         assertThat(successTimer(registry).count() - sendsBefore).isEqualTo(1);
     }
 
+    @Test
+    void invalidKeyIsRejectedWithoutCreatingANotification() {
+        HttpResult rejected = post("/notifications", BODY, "Idempotency-Key", "a".repeat(256));
+
+        assertThat(rejected.status()).as(rejected.raw()).isEqualTo(400);
+        assertThat(rejected.body().path("type").asText()).isEqualTo("urn:notify-hub:problem:validation-error");
+        assertThat(rejected.body().path("errors").path(0).path("field").asText()).isEqualTo("Idempotency-Key");
+        assertThat(mongo().count(new Query(), Collections.NOTIFICATIONS)).isZero();
+    }
+
     private static Timer successTimer(MeterRegistry registry) {
         return registry.get(DeliveryMetrics.DURATION).tags("channel", "email", "outcome", "success").timer();
     }

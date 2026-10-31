@@ -46,6 +46,11 @@ class NotificationDocumentMappingTest {
                 "id-1", Channel.EMAIL, "ana@exemplo.com", "welcome", Map.of("name", "Ana"), NOW);
     }
 
+    private static NotificationDocument keyed() {
+        return NotificationDocument.newPending(
+                "id-k", Channel.EMAIL, "ana@exemplo.com", "welcome", Map.of("name", "Ana"), "k-1", "abc123", NOW);
+    }
+
     @Test
     void newPendingStartsWithZeroCountersAndEmptyHistory() {
         NotificationDocument doc = pending();
@@ -79,17 +84,42 @@ class NotificationDocumentMappingTest {
 
     @Test
     void fieldConstantsMatchStoredKeys() {
-        Document bson = write(pending());
+        Document bson = write(keyed());
 
         assertThat(bson).containsKeys(
                 NotificationDocument.Fields.ID,
                 NotificationDocument.Fields.STATUS,
                 NotificationDocument.Fields.CHANNEL,
+                NotificationDocument.Fields.RECIPIENT,
+                NotificationDocument.Fields.TEMPLATE_CODE,
+                NotificationDocument.Fields.IDEMPOTENCY_KEY,
+                NotificationDocument.Fields.REQUEST_HASH,
                 NotificationDocument.Fields.RETRY_COUNT,
                 NotificationDocument.Fields.ATTEMPT_COUNT,
                 NotificationDocument.Fields.ATTEMPTS,
                 NotificationDocument.Fields.CREATED_AT,
                 NotificationDocument.Fields.UPDATED_AT);
+    }
+
+    @Test
+    void pendingWithoutKeyStoresNeitherKeyNorHash() {
+        Document bson = write(pending());
+
+        // A2: nulo não é gravado, então o documento fica fora do índice único parcial ($exists: true)
+        assertThat(bson).doesNotContainKey("idempotencyKey");
+        assertThat(bson).doesNotContainKey("requestHash");
+    }
+
+    @Test
+    void pendingWithKeyStoresBothValuesAndRoundTrips() {
+        NotificationDocument original = keyed();
+
+        Document bson = write(original);
+        NotificationDocument read = converter.read(NotificationDocument.class, bson);
+
+        assertThat(bson.get("idempotencyKey")).isEqualTo("k-1");
+        assertThat(bson.get("requestHash")).isEqualTo("abc123");
+        assertThat(read).isEqualTo(original);
     }
 
     @Test
