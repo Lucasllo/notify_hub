@@ -2,9 +2,11 @@ package dev.notifyhub.api.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertTimeout;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -27,6 +29,7 @@ import dev.notifyhub.common.persistence.LastError;
 import dev.notifyhub.common.persistence.NotificationDocument;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import org.bson.Document;
@@ -244,6 +247,8 @@ class NotificationServiceTest {
                     assertThat(e.getBody().getProperties()).isNull();
                 });
         verify(publisher, never()).publish(any(), any());
+        // o 422 vem antes de qualquer releitura ou espera do replay
+        verify(mongo, never()).findById(anyString(), any(Class.class));
     }
 
     @Test
@@ -393,6 +398,78 @@ class NotificationServiceTest {
         // 3 fences perdidos e depois um único publish sem fence, respondido pelo próprio confirm
         verify(mongo, times(3)).updateFirst(any(Query.class), any(Update.class), eq(NotificationDocument.class));
         verify(publisher, times(1)).publish(any(), any());
+    }
+
+    // ---------------------------------------------------------------- WR-02: PENDING recente espera a evidência
+
+    /** PENDING dentro da janela de publicação: {@code updatedAt} = agora (precisão do Mongo). */
+    private NotificationDocument replayOfFreshPending() {
+        NotificationDocument existing = existingWithHash(RequestHasher.hash(REQUEST), NotificationStatus.PENDING,
+                Instant.now().truncatedTo(ChronoUnit.MILLIS));
+        when(mongo.insert(any(NotificationDocument.class))).thenThrow(new DuplicateKeyException("E11000"));
+        when(mongo.findOne(any(Query.class), eq(NotificationDocument.class))).thenReturn(existing);
+        return existing;
+    }
+
+    private static NotificationDocument withStatus(NotificationDocument doc, NotificationStatus status) {
+        return new NotificationDocument(doc.id(), doc.channel(), doc.recipient(), doc.templateCode(), doc.variables(),
+                status, doc.retryCount(), doc.attemptCount(), doc.rendered(), doc.lastError(), doc.attempts(),
+                doc.createdAt(), doc.updatedAt(), doc.claimedAt(), doc.leaseUntil(), doc.sentAt(),
+                doc.idempotencyKey(), doc.requestHash());
+    }
+
+    @Test
+    void replayOfAFreshPendingWhoseOriginalPublishFailsNeverAnswers202() {
+        NotificationDocument existing = replayOfFreshPending();
+        // o vencedor da corrida falhou: o documento já está PUBLISH_FAILED na releitura
+        when(mongo.findById(existing.id(), NotificationDocument.class))
+                .thenReturn(withStatus(existing, NotificationStatus.PUBLISH_FAILED));
+        updateMatches(1);
+        when(publisher.publish(any(), any())).thenReturn(PublishResult.unroutable("NO_ROUTE"));
+
+        assertThatThrownBy(() -> service.create(REQUEST, "k-1"))
+                .isInstanceOfSatisfying(PublishFailedException.class, e -> {
+                    assertThat(e.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+                    assertThat(e.getHeaders().getFirst("Retry-After")).isEqualTo("5");
+                    assertThat(e.getNotificationId()).isEqualTo(existing.id());
+                });
+    }
+
+    @Test
+    void replayOfAFreshPendingClaimedByTheWorkerAnswers202WithTheCurrentStatusWithoutPublishing() {
+        NotificationDocument existing = replayOfFreshPending();
+        when(mongo.findById(existing.id(), NotificationDocument.class))
+                .thenReturn(withStatus(existing, NotificationStatus.PROCESSING));
+
+        NotificationService.CreateResult result = service.create(REQUEST, "k-1");
+
+        assertThat(result.replayed()).isTrue();
+        assertThat(result.response().status()).isEqualTo(NotificationStatus.PROCESSING);
+        verify(publisher, never()).publish(any(), any());
+        verify(mongo, never()).updateFirst(any(Query.class), any(Update.class), any(Class.class));
+    }
+
+    @Test
+    void replayOfAFreshPendingStillUnconfirmedAtTheEndOfTheWindowRepublishes() {
+        // janela de 100ms: 2 × confirm-timeout de 50ms
+        PublishProperties shortWindow = new PublishProperties(Duration.ofMillis(50), Duration.ofSeconds(5));
+        NotificationService shortWindowService = new NotificationService(mongo,
+                new NotificationRepublisher(mongo, publisher, shortWindow), shortWindow);
+        NotificationDocument existing = replayOfFreshPending();
+        when(mongo.findById(existing.id(), NotificationDocument.class)).thenReturn(existing);
+        updateMatches(1);
+        when(publisher.publish(any(), any())).thenReturn(PublishResult.acked());
+
+        NotificationService.CreateResult result = assertTimeout(Duration.ofSeconds(2),
+                () -> shortWindowService.create(REQUEST, "k-1"));
+
+        assertThat(result.replayed()).isTrue();
+        assertThat(result.response().status()).isEqualTo(NotificationStatus.PENDING);
+        verify(mongo, atLeastOnce()).findById(existing.id(), NotificationDocument.class);
+        verify(publisher, times(1)).publish(any(), any());
+        ArgumentCaptor<Query> query = ArgumentCaptor.forClass(Query.class);
+        verify(mongo).updateFirst(query.capture(), any(Update.class), eq(NotificationDocument.class));
+        assertThat(query.getValue().getQueryObject().get("updatedAt")).isEqualTo(existing.updatedAt());
     }
 
     private static NotificationDocument existingWithId(String id, NotificationStatus status) {
