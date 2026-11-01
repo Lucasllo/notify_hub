@@ -83,7 +83,7 @@
 
 - [ ] **DEM-01**: API e worker têm Dockerfiles multi-stage e sobem junto com a infra num único `docker compose up --build`
 - [x] **DEM-02**: Um script k6 dispara 1000 notificações (mix de canais e destinatários mágicos) e imprime um resumo das métricas e dos status ao final
-- [ ] **DEM-03**: Um benchmark compara virtual threads e threads de plataforma, alternando só o tipo de thread com concorrência alta e igual, latência bloqueante simulada, aquecimento e várias execuções. Os resultados vão para o README
+- [x] **DEM-03**: Um benchmark compara virtual threads e threads de plataforma, alternando só o tipo de thread com concorrência alta e igual, latência bloqueante simulada, aquecimento e várias execuções. Os resultados vão para o README
 
 ### Documentação (DOC)
 
@@ -172,7 +172,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TST-04 | Phase 3 | Complete |
 | DEM-01 | Phase 4 | Pending |
 | DEM-02 | Phase 4 | Complete |
-| DEM-03 | Phase 4 | Pending |
+| DEM-03 | Phase 4 | Complete |
 | DOC-01 | Phase 4 | Pending |
 | DOC-02 | Phase 4 | Pending |
 | DOC-03 | Phase 4 | Pending |

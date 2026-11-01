@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 04
 current_phase_name: Observabilidade, demo e documentação
 status: executing
-stopped_at: Completed 04-03-PLAN.md
-last_updated: "2026-11-01T22:59:18.595Z"
+stopped_at: Completed 04-04-PLAN.md
+last_updated: "2026-11-01T23:54:22.784Z"
 last_activity: 2026-11-01
 last_activity_desc: Phase 04 execution started
-state_head: 925d915a49c36b41cc36ffeb4c2fff6027c0438e
+state_head: 116296b7b0a93039a58f0ff08259d56aed7bc859
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 30
-  completed_plans: 28
+  completed_plans: 29
   percent: 75
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-11-01)
 ## Current Position
 
 Phase: 04 (Observabilidade, demo e documentação) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-11-01 — Phase 04 execution started
 
@@ -86,6 +86,7 @@ Progress: [████████░░] 75%
 | Phase 04 P01 | 22 min | 3 tasks | 10 files |
 | Phase 04 P02 | 6 min | 2 tasks | 8 files |
 | Phase 04 P03 | 12min | 3 tasks | 8 files |
+| Phase 04 P04 | 51min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -158,6 +159,8 @@ Recent decisions affecting current work:
 - [Phase 04]: 04-02: falha do MongoDB em publishOrMarkFailed não conta; a varredura conta o documento depois como publish_failed/unconfirmed. Reprocessamento da DLQ fica fora do contador
 - [Phase 04]: 04-03: resumo do k6 mede não terminais como crescimento desde o setup() (volume local tem PROCESSING abandonados antigos)
 - [Phase 04]: 04-03: dashboard Notify Hub escrito à mão, uid fixo, datasource uid prometheus em todo painel; Grafana 12.4.12 anônimo Viewer
+- [Phase 04]: 04-04: benchmark publicado como empate de vazão (virtual 744.4 x plataforma 786.2 msg/s, intervalos sobrepostos); diferença em threads de plataforma (40 x 636 em C=200, 1536 em C=500) e memória
+- [Phase 04]: 04-04: benchmark em projeto compose separado notify-bench com override só de ENV; carga concorrente de outro container declarada no docs/benchmark.md
 
 ### Pending Todos
 
@@ -189,6 +192,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-01T22:59:18.197Z
-Stopped at: Completed 04-03-PLAN.md
+Last session: 2026-11-01T23:54:22.434Z
+Stopped at: Completed 04-04-PLAN.md
 Resume file: None
