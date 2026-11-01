@@ -7,8 +7,11 @@ import org.springframework.web.ErrorResponseException;
 
 /**
  * O lote do {@code POST /admin/notifications/republish-failed} parou na primeira falha (padrão do
- * D-03): 503 com as contagens parciais e o motivo. As notificações que faltaram continuam
- * PUBLISH_FAILED, prontas para a próxima chamada.
+ * D-03): 503 com as contagens parciais e o motivo. As notificações que não foram republicadas
+ * continuam PUBLISH_FAILED, prontas para a próxima chamada. A exceção é a que estava em andamento
+ * quando o MongoDB caiu ({@link NotificationRepublisher#MONGO_UNAVAILABLE}): ela pode ter ficado
+ * PENDING sem confirm, e a varredura de publicações sem confirm ({@link UnconfirmedPublishSweeper}) a
+ * devolve a PUBLISH_FAILED.
  *
  * <p>{@code reason} vem só de {@link dev.notifyhub.api.messaging.PublishResult#errorCode()}
  * (PUBLISH_NACK, PUBLISH_RETURNED, PUBLISH_TIMEOUT, BROKER_UNAVAILABLE) ou da constante
@@ -31,7 +34,9 @@ public class RepublishInterruptedException extends ErrorResponseException {
         problem.setType(ProblemTypes.REPUBLISH_INTERRUPTED);
         problem.setTitle("Republicação interrompida");
         problem.setDetail("A republicação das notificações PUBLISH_FAILED parou na primeira falha (" + reason
-                + "). As que faltaram continuam PUBLISH_FAILED.");
+                + "). As que não foram republicadas continuam PUBLISH_FAILED; uma que tenha ficado PENDING sem"
+                + " confirm volta a PUBLISH_FAILED pela varredura de publicações sem confirm. Repita a chamada"
+                + " depois.");
         problem.setProperty("requested", partial.requested());
         problem.setProperty("republished", partial.republished());
         problem.setProperty("reason", reason);

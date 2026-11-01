@@ -144,6 +144,11 @@ public class NotificationRepublisher {
      * {@link #wasClaimedByWorker evidência de claim} segue como publicado. PUBLISH_FAILED, PENDING ou
      * documento ausente contam como falha.
      *
+     * <p>Se o MongoDB falhar na marcação ou na releitura ({@link DataAccessException}), o documento pode
+     * ter ficado PENDING sem mensagem no broker. Um log ERROR registra o id e o código (nunca a mensagem
+     * da exceção nem o destinatário) e a exceção é relançada; a varredura de publicações sem confirm
+     * ({@link #markUnconfirmedAsPublishFailed}, 03-08) leva esse documento a PUBLISH_FAILED.
+     *
      * @return vazio se o broker confirmou, ou se o update condicional casou 0 documentos e a releitura
      *         mostra o claim do worker (a mensagem chegou); o {@link PublishResult} da falha nos demais
      *         casos sem confirm
@@ -155,11 +160,21 @@ public class NotificationRepublisher {
         if (result.ok()) {
             return Optional.empty();
         }
-        if (markPublishFailed(doc.id(), result)) {
-            return Optional.of(result);
+        NotificationStatus status;
+        try {
+            if (markPublishFailed(doc.id(), result)) {
+                return Optional.of(result);
+            }
+            NotificationDocument current = mongoTemplate.findById(doc.id(), NotificationDocument.class);
+            status = current != null ? current.status() : null;
+        } catch (DataAccessException e) {
+            // T-03-33: o órfão fica rastreável pelo id. T-02-01: nunca a mensagem da exceção nem o destinatário
+            log.error("Publicação da notificação {} sem confirm ({}) e MongoDB indisponível ao marcar PUBLISH_FAILED"
+                    + " ou reler o documento ({}); ele pode ter ficado PENDING sem mensagem no broker, e a varredura de"
+                    + " publicações sem confirm o leva a PUBLISH_FAILED", doc.id(), result.errorCode(),
+                    e.getClass().getSimpleName());
+            throw e;
         }
-        NotificationDocument current = mongoTemplate.findById(doc.id(), NotificationDocument.class);
-        NotificationStatus status = current != null ? current.status() : null;
         if (wasClaimedByWorker(status)) {
             log.info("Publicação da notificação {} sem confirm ({}), mas o worker já a reivindicou (status {});"
                     + " seguindo como publicada", doc.id(), result.errorCode(), status);
@@ -202,7 +217,10 @@ public class NotificationRepublisher {
      * <p>A primeira falha para o lote (padrão do D-03): publish sem confirm lança
      * {@link RepublishInterruptedException} com {@code reason} = {@link PublishResult#errorCode()}, e
      * uma {@link DataAccessException} na busca ou num update lança com {@link #MONGO_UNAVAILABLE}. As
-     * duas levam as contagens acumuladas; as notificações não processadas continuam PUBLISH_FAILED.
+     * duas levam as contagens acumuladas. As notificações não processadas continuam PUBLISH_FAILED; a que
+     * estava em andamento quando o MongoDB caiu pode ter ficado PENDING sem confirm, e a varredura de
+     * publicações sem confirm a devolve a PUBLISH_FAILED (D-08: o replay de PUBLISH_FAILED passa pelo
+     * mesmo {@link #publishOrMarkFailed}).
      *
      * @param max já validado pelo controller (1..{@code notify.admin.max-limit})
      */
