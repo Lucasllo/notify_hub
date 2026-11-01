@@ -1,0 +1,58 @@
+# Override do benchmark virtual threads x threads de plataforma no worker.
+#
+# Como rodar (o script scripts/bench/run-bench.sh faz tudo isto sozinho):
+#   docker compose -p notify-bench -f docker-compose.yml -f docker-compose.bench.yml up -d --wait
+# O projeto "notify-bench" tem containers e volumes próprios, separados da demo (notify-hub). As portas
+# do host são as mesmas, então a demo precisa estar parada (stop, sem apagar volumes) antes.
+#
+# Entre os modos só VIRTUAL_THREADS do worker muda (BENCH_VIRTUAL_THREADS=true|false). Concorrência,
+# bulkhead, latência, failure-rate, pool do MongoDB, níveis de retry e logs ficam iguais nos dois.
+#
+# Este arquivo existe para o benchmark não usar o profile demo: lá o tempo aberto do circuit breaker e
+# os destinatários mágicos são literais da demo. Aqui o profile "bench" não tem arquivo próprio, então o
+# efeito é "nenhum profile": níveis de retry padrão (5s/25s/125s) e CB aberto por 2500ms nos dois apps,
+# o que passa na validação do 1º nível. Só ENV; o docker-compose.yml base não muda.
+
+services:
+  api:
+    environment:
+      SPRING_PROFILES_ACTIVE: bench
+      # O backlog fica parado na fila enquanto o worker está desligado; com o padrão (2m) a varredura
+      # marcaria as notificações ainda não reivindicadas como PUBLISH_FAILED
+      NOTIFY_PUBLISH_UNCONFIRMEDSWEEP_AFTER: 1h
+
+  worker:
+    environment:
+      SPRING_PROFILES_ACTIVE: bench
+      # A única variável entre os modos
+      VIRTUAL_THREADS: ${BENCH_VIRTUAL_THREADS:-true}
+      # C consumidores por canal e bulkhead = C, para o bulkhead nunca recusar
+      NOTIFY_WORKER_CHANNELS_EMAIL_CONCURRENCY: ${BENCH_C:-200}
+      NOTIFY_WORKER_CHANNELS_SMS_CONCURRENCY: ${BENCH_C:-200}
+      NOTIFY_WORKER_CHANNELS_WEBHOOK_CONCURRENCY: ${BENCH_C:-200}
+      NOTIFY_BULKHEAD_MAX_CONCURRENT: ${BENCH_C:-200}
+      # Latência fixa do adapter simulado (mínimo = máximo)
+      NOTIFY_SIMULATION_EMAIL_LATENCYMIN: ${BENCH_LATENCIA:-100ms}
+      NOTIFY_SIMULATION_EMAIL_LATENCYMAX: ${BENCH_LATENCIA:-100ms}
+      NOTIFY_SIMULATION_SMS_LATENCYMIN: ${BENCH_LATENCIA:-100ms}
+      NOTIFY_SIMULATION_SMS_LATENCYMAX: ${BENCH_LATENCIA:-100ms}
+      NOTIFY_SIMULATION_WEBHOOK_LATENCYMIN: ${BENCH_LATENCIA:-100ms}
+      NOTIFY_SIMULATION_WEBHOOK_LATENCYMAX: ${BENCH_LATENCIA:-100ms}
+      # Sem falhas: nenhuma mensagem passa pelas filas de delay
+      NOTIFY_SIMULATION_EMAIL_FAILURERATE: "0.0"
+      NOTIFY_SIMULATION_SMS_FAILURERATE: "0.0"
+      NOTIFY_SIMULATION_WEBHOOK_FAILURERATE: "0.0"
+      NOTIFY_SIMULATION_MAGIC_RECIPIENTS: "false"
+      # Circuit breaker neutralizado: janela e mínimo de chamadas altos, limiar de 100%
+      NOTIFY_CB_WINDOW_SIZE: "1000"
+      NOTIFY_CB_MIN_CALLS: "1000"
+      NOTIFY_CB_FAILURE_RATE: "100"
+      # Mesmo pool de conexões do MongoDB nos dois modos
+      MONGODB_URI: mongodb://mongo:27017/notify?maxPoolSize=${BENCH_POOL:-200}
+      # Logs por mensagem em WARN (por pacote: a ENV vira minúsculas e não acerta nome de classe)
+      LOGGING_LEVEL_DEV_NOTIFYHUB_WORKER_CHANNEL: WARN
+      LOGGING_LEVEL_DEV_NOTIFYHUB_WORKER_PROCESSING: WARN
+      # Vazio nas rodadas normais; a rodada de JFR liga o Flight Recorder por aqui
+      JAVA_TOOL_OPTIONS: ${BENCH_JAVA_TOOL_OPTIONS:-}
+    # Tempo para a JVM gravar o JFR na saída (SIGTERM do "docker compose stop")
+    stop_grace_period: 30s
