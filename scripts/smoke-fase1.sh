@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Smoke ponta a ponta da Fase 1 (plano 01-06).
 #
-# Sobe a infra (RabbitMQ + MongoDB) com o docker compose, inicia o worker e a API a partir dos jars
+# Sobe só a infra (rabbitmq e mongo) pelo docker compose, inicia o worker e a API a partir dos jars
+# locais (antes para os containers api/worker do compose da Fase 4, que usam as mesmas portas)
 # e confere o esqueleto inteiro contra o broker e o banco de verdade:
 #   - topologia no RabbitMQ (exchanges, filas principais, filas de delay por nível e DLQs);
 #   - índices nomeados e seed de templates no MongoDB;
@@ -204,6 +205,10 @@ info "Smoke da Fase 1 ($($PERFIL_DEMO && echo "perfil demo, níveis ${NIVEIS[*]}
 
 docker info >/dev/null 2>&1 || falhou "Docker não está rodando: inicie o Docker Desktop (ou rode 'docker desktop start')"
 ok "Docker respondendo"
+# Desde a Fase 4 o compose também tem os containers das apps (api e worker), e este smoke usa os
+# jars locais nessas portas: para os containers antes de checar. O smoke-fase4.sh sobe de novo.
+info "docker compose stop api worker"
+docker compose stop api worker >/dev/null 2>&1 || true
 porta_livre 8080 || falhou "a porta 8080 está ocupada: encerre a notify-api (ou outro processo) antes do smoke"
 porta_livre 8081 || falhou "a porta 8081 está ocupada: encerre o notify-worker (ou outro processo) antes do smoke"
 ok "portas 8080 e 8081 livres"
@@ -211,8 +216,8 @@ ok "portas 8080 e 8081 livres"
 # ---------------------------------------------------------------------------------------------
 # 2. Infra
 # ---------------------------------------------------------------------------------------------
-info "docker compose up -d --wait"
-docker compose up -d --wait || falhou "docker compose up -d --wait não deixou rabbitmq e mongo healthy"
+info "docker compose up -d --wait rabbitmq mongo"
+docker compose up -d --wait rabbitmq mongo || falhou "docker compose up -d --wait rabbitmq mongo não deixou rabbitmq e mongo healthy"
 ok "rabbitmq e mongo healthy"
 
 # ---------------------------------------------------------------------------------------------

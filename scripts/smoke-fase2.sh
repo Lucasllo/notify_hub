@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Smoke ponta a ponta da Fase 2 (plano 02-07).
 #
-# Sobe a infra (RabbitMQ 4.3 + MongoDB 8.0) com o docker compose, inicia o worker e a API no profile
-# demo (escada de retry 1s/5s/25s) e confere os critérios de sucesso da Fase 2 contra o broker e o
-# banco de verdade:
+# Sobe só a infra (rabbitmq e mongo: RabbitMQ 4.3 + MongoDB 8.0) pelo docker compose, inicia o
+# worker e a API a partir dos jars locais no profile demo (escada de retry 1s/5s/25s; antes para os
+# containers api/worker do compose da Fase 4, que usam as mesmas portas) e confere os critérios de
+# sucesso da Fase 2 contra o broker e o banco de verdade:
 #   - critério 1: always-transient desce a escada visível (RETRYING, fila retry.25s) até DEAD_LETTERED
 #     com 4 tentativas e cópia na DLQ com x-failure-class: TRANSIENT;
 #   - critério 2: falhas permanentes (always-permanent, template inexistente, variável obrigatória
@@ -127,12 +128,16 @@ info "Smoke da Fase 2 (perfil demo, níveis 1s 5s 25s)"
 
 docker info >/dev/null 2>&1 || falhou "Docker não está rodando: inicie o Docker Desktop"
 ok "Docker respondendo"
+# Desde a Fase 4 o compose também tem os containers das apps (api e worker), e este smoke usa os
+# jars locais nessas portas: para os containers antes de checar. O smoke-fase4.sh sobe de novo.
+info "docker compose stop api worker"
+docker compose stop api worker >/dev/null 2>&1 || true
 porta_livre 8080 || falhou "a porta 8080 está ocupada: encerre a notify-api (ou outro processo) antes do smoke"
 porta_livre 8081 || falhou "a porta 8081 está ocupada: encerre o notify-worker (ou outro processo) antes do smoke"
 ok "portas 8080 e 8081 livres"
 
-info "docker compose up -d --wait"
-docker compose up -d --wait || falhou "docker compose up -d --wait não deixou rabbitmq e mongo healthy"
+info "docker compose up -d --wait rabbitmq mongo"
+docker compose up -d --wait rabbitmq mongo || falhou "docker compose up -d --wait rabbitmq mongo não deixou rabbitmq e mongo healthy"
 ok "rabbitmq e mongo healthy"
 
 if $SEM_BUILD; then
