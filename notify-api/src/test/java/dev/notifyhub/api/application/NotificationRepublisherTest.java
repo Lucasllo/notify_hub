@@ -127,6 +127,59 @@ class NotificationRepublisherTest {
         verify(publisher, never()).publish(any(), any());
     }
 
+    // ---------------------------------------------------------------- republish de PENDING sem confirm (Gap 1)
+
+    @Test
+    void republishOfAnUnconfirmedPendingFencesOnStatusAndTheReadUpdatedAt() {
+        updateMatches(1);
+        when(publisher.publish(any(), any())).thenReturn(PublishResult.acked());
+
+        RepublishOutcome outcome = republisher.republish(withStatus("n-1", NotificationStatus.PENDING));
+
+        assertThat(outcome.kind()).isEqualTo(RepublishOutcome.Kind.REPUBLISHED);
+
+        ArgumentCaptor<Query> query = ArgumentCaptor.forClass(Query.class);
+        ArgumentCaptor<Update> update = ArgumentCaptor.forClass(Update.class);
+        verify(mongo).updateFirst(query.capture(), update.capture(), eq(NotificationDocument.class));
+        Document filter = query.getValue().getQueryObject();
+        assertThat(filter.keySet()).containsExactlyInAnyOrder("_id", "status", "updatedAt");
+        assertThat(filter.get("_id")).isEqualTo("n-1");
+        assertThat(String.valueOf(filter.get("status"))).isEqualTo("PENDING");
+        // o updatedAt lido do Mongo, nunca um Instant em memória
+        assertThat(filter.get("updatedAt")).isEqualTo(CREATED);
+        // toque: só updatedAt, sem mudar o status
+        assertThat(update.getValue().getUpdateObject().keySet()).containsExactly("$set");
+        Document set = (Document) update.getValue().getUpdateObject().get("$set");
+        assertThat(set.keySet()).containsExactly("updatedAt");
+        assertThat(set.get("updatedAt")).isInstanceOf(Instant.class);
+
+        verify(publisher).publish(any(), eq(Duration.ofSeconds(5)));
+    }
+
+    @Test
+    void republishOfAPendingWhoseFenceIsLostDoesNotPublish() {
+        updateMatches(0);
+
+        RepublishOutcome outcome = republisher.republish(withStatus("n-1", NotificationStatus.PENDING));
+
+        assertThat(outcome.kind()).isEqualTo(RepublishOutcome.Kind.FENCE_LOST);
+        verify(publisher, never()).publish(any(), any());
+        ArgumentCaptor<Query> query = ArgumentCaptor.forClass(Query.class);
+        verify(mongo).updateFirst(query.capture(), any(Update.class), eq(NotificationDocument.class));
+        assertThat(String.valueOf(query.getValue().getQueryObject().get("status"))).isEqualTo("PENDING");
+    }
+
+    @Test
+    void republishOfAClaimedDocumentWritesNothing() {
+        updateMatches(0);
+
+        RepublishOutcome outcome = republisher.republish(withStatus("n-1", NotificationStatus.PROCESSING));
+
+        assertThat(outcome.kind()).isEqualTo(RepublishOutcome.Kind.FENCE_LOST);
+        verify(mongo, never()).updateFirst(any(Query.class), any(Update.class), any(Class.class));
+        verify(publisher, never()).publish(any(), any());
+    }
+
     @Test
     void returnedPublishMarksPublishFailedAgainWithTheFixedMessage() {
         updateMatches(1);

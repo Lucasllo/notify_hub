@@ -3,9 +3,13 @@ package dev.notifyhub.it;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
+import dev.notifyhub.api.application.RequestHasher;
+import dev.notifyhub.api.web.dto.CreateNotificationRequest;
 import dev.notifyhub.common.domain.Channel;
 import dev.notifyhub.common.domain.NotificationStatus;
+import dev.notifyhub.common.persistence.Collections;
 import dev.notifyhub.common.persistence.NotificationDocument;
+import dev.notifyhub.common.persistence.NotificationDocument.Fields;
 import dev.notifyhub.it.support.EndToEndSupport;
 import java.time.Duration;
 import java.time.Instant;
@@ -14,6 +18,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
 
 /**
  * Saída do PENDING que nunca teve confirm do broker (Gap 1 do 03-VERIFICATION, CR-01 do 03-REVIEW),
@@ -26,6 +32,11 @@ import org.junit.jupiter.api.Test;
  * PUBLISH_UNCONFIRMED, e o {@code POST /admin/notifications/republish-failed} do operador o republica
  * até SENT (ADM-03). Um PENDING recente, avaliado pela mesma varredura, continua PENDING.
  *
+ * <p>O replay de um PENDING órfão com a mesma {@code Idempotency-Key} e o mesmo payload também não
+ * responde 202 sem publicar: com a janela de publicação vencida ({@code updatedAt} + 2×
+ * {@code confirm-timeout}), ele republica com fence {@code status} = PENDING + {@code updatedAt} lido e
+ * a notificação chega a SENT (CR-01 item 2 do 03-REVIEW).
+ *
  * <p>Toda espera é com Awaitility (D-16), nunca pausa fixa.
  */
 class UnconfirmedPublishRecoveryIT extends EndToEndSupport {
@@ -33,6 +44,9 @@ class UnconfirmedPublishRecoveryIT extends EndToEndSupport {
     private static final String REPUBLISH_PATH = "/admin/notifications/republish-failed";
     private static final Duration SWEEP_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration SENT_TIMEOUT = Duration.ofSeconds(15);
+    private static final String BODY = """
+            {"channel":"EMAIL","recipient":"ana@exemplo.com","templateCode":"welcome","variables":{"name":"Ana"}}
+            """;
 
     @Test
     void unconfirmedPendingIsSweptToPublishFailedAndRepublishedToSent() {
@@ -63,6 +77,29 @@ class UnconfirmedPublishRecoveryIT extends EndToEndSupport {
         awaitStatus(orphan, NotificationStatus.SENT, SENT_TIMEOUT);
     }
 
+    @Test
+    void replayOfAnUnconfirmedPendingRepublishesInsteadOfAnswering202() {
+        String key = UUID.randomUUID().toString();
+        String hash = RequestHasher.hash(new CreateNotificationRequest(Channel.EMAIL, "ana@exemplo.com", "welcome",
+                Map.of("name", "Ana")));
+        String id = UUID.randomUUID().toString();
+        // PENDING órfão com a chave: a janela de publicação (10s) já venceu e a varredura (1h no profile it)
+        // não o toca
+        Instant oneMinuteAgo = Instant.now().truncatedTo(ChronoUnit.MILLIS).minus(Duration.ofMinutes(1));
+        mongo().insert(NotificationDocument.newPending(id, Channel.EMAIL, "ana@exemplo.com", "welcome",
+                Map.of("name", "Ana"), key, hash, oneMinuteAgo));
+
+        HttpResult replay = post("/notifications", BODY, "Idempotency-Key", key);
+
+        assertThat(replay.status()).as(replay.raw()).isEqualTo(202);
+        assertThat(replay.header("Idempotent-Replayed")).isEqualTo("true");
+        assertThat(replay.body().path("id").asText()).isEqualTo(id);
+        assertThat(replay.body().path("status").asText()).isEqualTo("PENDING");
+
+        awaitStatus(id, NotificationStatus.SENT, SENT_TIMEOUT);
+        assertThat(countWithKey(key)).isEqualTo(1);
+    }
+
     /**
      * Insere direto no Mongo, sem publicar mensagem, um PENDING de e-mail para {@code ana@exemplo.com}
      * (template {@code welcome}, {@code name: Ana}) com {@code createdAt} = {@code updatedAt} = o instante
@@ -73,5 +110,9 @@ class UnconfirmedPublishRecoveryIT extends EndToEndSupport {
                 "ana@exemplo.com", "welcome", Map.of("name", "Ana"), NotificationStatus.PENDING, 0, 0, null, null,
                 List.of(), at, at, null, null, null);
         return mongo().insert(doc).id();
+    }
+
+    private static long countWithKey(String key) {
+        return mongo().count(new Query(Criteria.where(Fields.IDEMPOTENCY_KEY).is(key)), Collections.NOTIFICATIONS);
     }
 }

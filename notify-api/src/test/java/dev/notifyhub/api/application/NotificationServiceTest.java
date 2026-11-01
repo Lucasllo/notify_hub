@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -317,6 +318,81 @@ class NotificationServiceTest {
         assertThat(result.response().id()).isEqualTo(existing.id());
         assertThat(result.response().status()).isEqualTo(NotificationStatus.PROCESSING);
         verify(publisher, never()).publish(any(), any());
+    }
+
+    // ---------------------------------------------------------------- Gap 1: replay de PENDING sem confirm
+
+    /** PENDING com a janela de publicação vencida: {@code updatedAt} = 2026-10-30T10:00:00Z. */
+    private NotificationDocument replayOfUnconfirmedPending() {
+        NotificationDocument existing = existingWithHash(RequestHasher.hash(REQUEST), NotificationStatus.PENDING,
+                Instant.parse("2026-10-30T10:00:00Z"));
+        when(mongo.insert(any(NotificationDocument.class))).thenThrow(new DuplicateKeyException("E11000"));
+        when(mongo.findOne(any(Query.class), eq(NotificationDocument.class))).thenReturn(existing);
+        return existing;
+    }
+
+    @Test
+    void replayOfAnUnconfirmedPendingRepublishesBeforeAnswering202() {
+        NotificationDocument existing = replayOfUnconfirmedPending();
+        updateMatches(1);
+        when(publisher.publish(any(), any())).thenReturn(PublishResult.acked());
+
+        NotificationService.CreateResult result = service.create(REQUEST, "k-1");
+
+        assertThat(result.replayed()).isTrue();
+        assertThat(result.response().id()).isEqualTo(existing.id());
+        assertThat(result.response().status()).isEqualTo(NotificationStatus.PENDING);
+        verify(publisher, times(1)).publish(any(), any());
+        ArgumentCaptor<Query> query = ArgumentCaptor.forClass(Query.class);
+        verify(mongo).updateFirst(query.capture(), any(Update.class), eq(NotificationDocument.class));
+        assertThat(query.getValue().getQueryObject()).containsKey("updatedAt");
+    }
+
+    @Test
+    void replayOfAnUnconfirmedPendingWhosePublishIsNackedIs503() {
+        NotificationDocument existing = replayOfUnconfirmedPending();
+        when(mongo.updateFirst(any(Query.class), any(Update.class), eq(NotificationDocument.class)))
+                .thenReturn(UpdateResult.acknowledged(1, 1L, null))
+                .thenReturn(UpdateResult.acknowledged(1, 1L, null));
+        when(publisher.publish(any(), any())).thenReturn(PublishResult.nacked("simulated nack"));
+
+        assertThatThrownBy(() -> service.create(REQUEST, "k-1"))
+                .isInstanceOfSatisfying(PublishFailedException.class, e -> {
+                    assertThat(e.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+                    assertThat(e.getHeaders().getFirst("Retry-After")).isEqualTo("5");
+                    assertThat(e.getNotificationId()).isEqualTo(existing.id());
+                });
+    }
+
+    @Test
+    void replayOfAnUnconfirmedPendingWhoseFenceIsLostRereadsAndAnswersTheClaimedStatus() {
+        NotificationDocument existing = replayOfUnconfirmedPending();
+        updateMatches(0);
+        NotificationDocument claimed = existingWithHash(existing.requestHash(), NotificationStatus.PROCESSING,
+                existing.createdAt());
+        when(mongo.findById(existing.id(), NotificationDocument.class)).thenReturn(claimed);
+
+        NotificationService.CreateResult result = service.create(REQUEST, "k-1");
+
+        assertThat(result.replayed()).isTrue();
+        assertThat(result.response().status()).isEqualTo(NotificationStatus.PROCESSING);
+        verify(publisher, never()).publish(any(), any());
+    }
+
+    @Test
+    void replayThatKeepsLosingTheFencePublishesWithoutFenceAndAnswersWithItsOwnConfirm() {
+        NotificationDocument existing = replayOfUnconfirmedPending();
+        updateMatches(0);
+        when(mongo.findById(existing.id(), NotificationDocument.class)).thenReturn(existing);
+        when(publisher.publish(any(), any())).thenReturn(PublishResult.acked());
+
+        NotificationService.CreateResult result = service.create(REQUEST, "k-1");
+
+        assertThat(result.replayed()).isTrue();
+        assertThat(result.response().status()).isEqualTo(NotificationStatus.PENDING);
+        // 3 fences perdidos e depois um único publish sem fence, respondido pelo próprio confirm
+        verify(mongo, times(3)).updateFirst(any(Query.class), any(Update.class), eq(NotificationDocument.class));
+        verify(publisher, times(1)).publish(any(), any());
     }
 
     private static NotificationDocument existingWithId(String id, NotificationStatus status) {
