@@ -1,18 +1,18 @@
 ---
 gsd_state_version: "1.0"
 current_phase: 04
-current_phase_name: observabilidade-demo-e-documenta-o
+current_phase_name: Observabilidade, demo e documentação
 status: executing
-stopped_at: Phase 4 context gathered
-last_updated: "2026-11-01T18:19:15.565Z"
+stopped_at: Completed 04-01-PLAN.md
+last_updated: "2026-11-01T21:45:07.570Z"
 last_activity: 2026-11-01
-last_activity_desc: Phase 03 complete, transitioned to Phase 4
-state_head: 8291705ebcebaca2a12e8ecf830c7a9f1298c50b
+last_activity_desc: Phase 04 execution started
+state_head: 2b3ef61dc23af7c2a749b5acd4cdcf57848b82a7
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 30
-  completed_plans: 25
+  completed_plans: 26
   percent: 75
 ---
 
@@ -23,14 +23,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-01)
 
 **Core value:** Uma notificação aceita pela API nunca se perde em silêncio: é entregue, passa por retries com backoff exponencial ou termina na DLQ com histórico completo, de onde pode ser reprocessada, tudo observável e demonstrável com `docker compose up` + script.
-**Current focus:** Phase 4 — Observabilidade, demo e documentação
+**Current focus:** Phase 04 — Observabilidade, demo e documentação
 
 ## Current Position
 
-Phase: 04 (observabilidade-demo-e-documenta-o) — READY TO EXECUTE
-Plan: Not started
+Phase: 04 (Observabilidade, demo e documentação) — EXECUTING
+Plan: 2 of 5
 Status: Ready to execute
-Last activity: 2026-11-01 — Phase 03 complete, transitioned to Phase 4
+Last activity: 2026-11-01 — Phase 04 execution started
 
 Progress: [████████░░] 75%
 
@@ -83,6 +83,7 @@ Progress: [████████░░] 75%
 | Phase 03 P08 | 24min | 2 tasks | 8 files |
 | Phase 03 P10 | 16min | 2 tasks | 7 files |
 | Phase 03 P09 | 21min | 2 tasks | 5 files |
+| Phase 04 P01 | 22 min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -148,6 +149,9 @@ Recent decisions affecting current work:
 - [Phase 03]: 03-09: replay de PENDING com a janela vencida (updatedAt + 2x confirm-timeout) republica com fence status PENDING + updatedAt lido, só tocando updatedAt
 - [Phase 03]: 03-09: dentro da janela, o replay espera (polling de 100ms) o documento sair de PENDING ou ter o updatedAt trocado; no fim da janela republica com fence (WR-02)
 - [Phase 03]: 03-09: laço do replay limitado a 3 rodadas; esgotado, publica sem fence e responde pelo próprio confirm
+- [Phase 04]: Imagens da API e do worker: build multi-stage com os 4 POMs, cache notify-m2 e só o exec.jar no runtime; usuário app (uid 999), java como PID 1
+- [Phase 04]: Queries PromQL em scripts do Git Bash usam MSYS_NO_PATHCONV=1 (o seletor uri com barra vira caminho do Windows)
+- [Phase 04]: Smokes com jars locais (Fases 1 e 2) param os containers api/worker e sobem só rabbitmq e mongo pelo compose
 
 ### Pending Todos
 
@@ -179,6 +183,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-01T17:00:21.687Z
-Stopped at: Phase 4 context gathered
-Resume file: .planning/phases/04-observabilidade-demo-e-documenta-o/04-CONTEXT.md
+Last session: 2026-11-01T21:44:52.876Z
+Stopped at: Completed 04-01-PLAN.md
+Resume file: None
