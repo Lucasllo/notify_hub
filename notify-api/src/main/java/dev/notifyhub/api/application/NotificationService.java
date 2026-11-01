@@ -25,11 +25,21 @@ import org.springframework.stereotype.Service;
  * grava status depois de um confirm positivo (o worker pode já estar processando). O publish e a
  * marcação PUBLISH_FAILED ficam no {@link NotificationRepublisher}, o mesmo serviço do endpoint
  * administrativo {@code republish-failed}.
+ *
+ * <p>Todo 202, de criação ou de replay com a mesma {@code Idempotency-Key}, se apoia num confirm próprio
+ * do broker ou em evidência de claim do worker ({@link NotificationRepublisher#wasClaimedByWorker}).
+ * PENDING sozinho nunca prova que a mensagem chegou (Gap 1 do 03-VERIFICATION, D-07, D-08).
  */
 @Service
 public class NotificationService {
 
     private static final Logger log = LoggerFactory.getLogger(NotificationService.class);
+
+    /** Rodadas do laço do replay antes de publicar sem fence. */
+    static final int MAX_REPLAY_ROUNDS = 3;
+
+    /** Janela de publicação de um PENDING: {@code updatedAt} + este fator × {@code confirm-timeout}. */
+    static final int PUBLISH_WINDOW_FACTOR = 2;
 
     private final MongoTemplate mongoTemplate;
     private final NotificationRepublisher republisher;
@@ -59,10 +69,13 @@ public class NotificationService {
      * <p>Com chave, o documento leva a chave e o {@link RequestHasher#hash hash do pedido canônico}. A
      * atomicidade entre requisições vem só do índice único parcial {@code idempotencyKey_unique}: o
      * insert de uma chave já gravada lança {@link DuplicateKeyException}, e então o documento existente
-     * é lido pela chave. Com o mesmo hash, a resposta é um replay com o status <b>atual</b> do documento,
-     * sem publicar de novo. A exceção é PUBLISH_FAILED: o replay tenta republicar pelo mesmo caminho do
-     * {@code republish-failed} e responde 202 PENDING ou 503 com {@code Retry-After} (D-08).
-     * Com outro hash, {@link IdempotencyKeyReusedException} (422), sem criar documento nem publicar.
+     * é lido pela chave. Com o mesmo hash, a resposta é um replay, e todo 202 de replay tem confirm próprio
+     * ou evidência de claim: o documento já reivindicado pelo worker responde com o status <b>atual</b>,
+     * sem publicar de novo (D-07); PUBLISH_FAILED (D-08) e PENDING sem confirm (janela de publicação
+     * vencida, Gap 1) são republicados pelo mesmo serviço do {@code republish-failed}, com fence pelo
+     * status lido, e respondem 202 PENDING ou 503 com {@code Retry-After} (ver {@code replay}).
+     * Com outro hash, {@link IdempotencyKeyReusedException} (422), antes de qualquer leitura extra, sem
+     * criar documento nem publicar.
      *
      * <p>A corrida entre dois POSTs com a mesma chave nova é resolvida pelo índice único: um insert
      * vence, o perdedor recebe {@code DuplicateKeyException}, lê o vencedor pela chave e segue a mesma
@@ -120,40 +133,86 @@ public class NotificationService {
                     existing.id());
             throw new IdempotencyKeyReusedException();
         }
-        if (existing.status() == NotificationStatus.PUBLISH_FAILED) {
-            return replayPublishFailed(existing);
-        }
-        // Log sem a chave nem o destinatário: só o id da notificação original
-        log.info("Replay de Idempotency-Key: devolvendo a notificação {} (status {})", existing.id(), existing.status());
-        return new CreateResult(
-                new CreateNotificationResponse(existing.id(), existing.status(), existing.createdAt()), true);
+        return replay(existing);
     }
 
     /**
-     * D-08: o replay de uma notificação PUBLISH_FAILED tenta republicá-la pelo mesmo caminho do
-     * {@code POST /admin/notifications/republish-failed} ({@link NotificationRepublisher#republish}).
-     * Republicada → 202 PENDING; publish sem confirm → 503 com {@code Retry-After}, e o documento
-     * continua PUBLISH_FAILED; fence perdido (o worker ou outro republish já agiu) → relê o documento e
-     * devolve o status atual, sem publicar.
+     * Replay com a mesma {@code Idempotency-Key} e o mesmo payload. Regra única (Gap 1 do
+     * 03-VERIFICATION): todo 202 se apoia em evidência de claim do worker
+     * ({@link NotificationRepublisher#wasClaimedByWorker}) ou num confirm próprio do broker. PENDING não
+     * prova que a mensagem chegou.
+     *
+     * <p>Laço sobre o documento corrente, limitado a {@link #MAX_REPLAY_ROUNDS} rodadas. Em cada uma:
+     * <ol>
+     *   <li>reivindicado pelo worker → 202 com o status atual, sem publicar (D-07);</li>
+     *   <li>PENDING dentro da {@link #publishWindowEnd janela de publicação} → 202 com o status atual
+     *       (comportamento do 03-04);</li>
+     *   <li>PUBLISH_FAILED (D-08) ou PENDING com a janela vencida → {@link NotificationRepublisher#republish}
+     *       cercado pelo status lido, o mesmo serviço do {@code republish-failed}. Republicada → 202 PENDING;
+     *       publish sem confirm → 503 com {@code Retry-After}; fence perdido → relê e decide na rodada
+     *       seguinte.</li>
+     * </ol>
+     * Esgotadas as rodadas sem decisão (três interferências concorrentes seguidas), o documento reivindicado
+     * responde 202 com o status atual; senão o replay publica sem fence ({@link
+     * NotificationRepublisher#publishOrMarkFailed}) e responde pelo próprio confirm. Uma cópia extra da
+     * mensagem é descartada pelo claim exclusivo do worker, sem segundo envio.
      */
-    private CreateResult replayPublishFailed(NotificationDocument existing) {
-        NotificationRepublisher.RepublishOutcome outcome = republisher.republish(existing);
-        switch (outcome.kind()) {
-            case FAILED -> throw new PublishFailedException(existing.id(), props.retryAfter(), outcome.failure());
-            case REPUBLISHED -> {
-                log.info("Replay de Idempotency-Key: notificação {} republicada", existing.id());
-                return new CreateResult(new CreateNotificationResponse(existing.id(), NotificationStatus.PENDING,
-                        existing.createdAt()), true);
+    private CreateResult replay(NotificationDocument existing) {
+        NotificationDocument current = existing;
+        for (int round = 1; round <= MAX_REPLAY_ROUNDS; round++) {
+            if (NotificationRepublisher.wasClaimedByWorker(current.status())) {
+                return replayed(current, current.status());
             }
-            default -> {
-                NotificationDocument current = mongoTemplate.findById(existing.id(), NotificationDocument.class);
-                NotificationStatus status = current != null ? current.status() : existing.status();
-                log.info("Replay de Idempotency-Key: notificação {} já saiu de PUBLISH_FAILED (status {})",
-                        existing.id(), status);
-                return new CreateResult(new CreateNotificationResponse(existing.id(), status, existing.createdAt()),
-                        true);
+            if (current.status() == NotificationStatus.PENDING && Instant.now().isBefore(publishWindowEnd(current))) {
+                return replayed(current, current.status());
+            }
+            NotificationRepublisher.RepublishOutcome outcome = republisher.republish(current);
+            switch (outcome.kind()) {
+                case REPUBLISHED -> {
+                    log.info("Replay de Idempotency-Key: notificação {} republicada", current.id());
+                    return replayed(current, NotificationStatus.PENDING);
+                }
+                case FAILED -> throw new PublishFailedException(current.id(), props.retryAfter(), outcome.failure());
+                case FENCE_LOST -> current = reread(current.id());
             }
         }
+        if (NotificationRepublisher.wasClaimedByWorker(current.status())) {
+            return replayed(current, current.status());
+        }
+        log.warn("Replay de Idempotency-Key: notificação {} perdeu o fence em {} rodadas; publicando sem fence",
+                current.id(), MAX_REPLAY_ROUNDS);
+        String id = current.id();
+        republisher.publishOrMarkFailed(current).ifPresent(result -> {
+            throw new PublishFailedException(id, props.retryAfter(), result);
+        });
+        return replayed(current, NotificationStatus.PENDING);
+    }
+
+    /** 202 de replay (D-07). Log sem a chave nem o destinatário: só o id e o status (T-03-40). */
+    private static CreateResult replayed(NotificationDocument doc, NotificationStatus status) {
+        log.info("Replay de Idempotency-Key: devolvendo a notificação {} (status {})", doc.id(), status);
+        return new CreateResult(new CreateNotificationResponse(doc.id(), status, doc.createdAt()), true);
+    }
+
+    /**
+     * Fim da janela de publicação: {@code updatedAt} + {@link #PUBLISH_WINDOW_FACTOR} ×
+     * {@code confirm-timeout}. Depois dele, quem publicou esse PENDING (a criação ou um republish) já
+     * teria respondido. Sem {@code updatedAt}, a janela é considerada vencida.
+     */
+    private Instant publishWindowEnd(NotificationDocument doc) {
+        if (doc.updatedAt() == null) {
+            return Instant.EPOCH;
+        }
+        return doc.updatedAt().plus(props.confirmTimeout().multipliedBy(PUBLISH_WINDOW_FACTOR));
+    }
+
+    /** Relê o documento pelo id. Ausente só acontece na limpeza dos ITs. */
+    private NotificationDocument reread(String id) {
+        NotificationDocument doc = mongoTemplate.findById(id, NotificationDocument.class);
+        if (doc == null) {
+            throw new IllegalStateException("Notificação " + id + " sumiu durante o replay de Idempotency-Key");
+        }
+        return doc;
     }
 
     public Optional<NotificationView> find(String id) {

@@ -26,9 +26,10 @@ import org.springframework.stereotype.Service;
 
 /**
  * Serviço único de publish e republish da API. É usado pela criação ({@code POST /notifications}),
- * pelo replay de uma notificação PUBLISH_FAILED com a mesma {@code Idempotency-Key} (D-08) e pelo
- * endpoint administrativo {@code POST /admin/notifications/republish-failed} (ADM-03), para que os
- * três caminhos tenham exatamente as mesmas transições e o mesmo {@code lastError}.
+ * pelo replay com a mesma {@code Idempotency-Key} de uma notificação PUBLISH_FAILED (D-08) ou PENDING
+ * sem confirm (Gap 1 do 03-VERIFICATION) e pelo endpoint administrativo
+ * {@code POST /admin/notifications/republish-failed} (ADM-03, só PUBLISH_FAILED), para que os caminhos
+ * tenham exatamente as mesmas transições e o mesmo {@code lastError}.
  *
  * <p>Transições, todas condicionais ao status lido (Padrão 4b):
  * <ul>
@@ -36,9 +37,10 @@ import org.springframework.stereotype.Service;
  *       relido: só um status com {@link #wasClaimedByWorker evidência de claim} mostra que o worker já
  *       reivindicou a notificação, ou seja, que a mensagem chegou (Armadilha 4 da Fase 1). PUBLISH_FAILED
  *       (gravado pela varredura ou por outro republish), PENDING ou documento ausente contam como falha;</li>
- *   <li>republish: PUBLISH_FAILED → PENDING antes do publish confirmado. Se casar 0 documentos, outro
- *       caminho já agiu (o worker ou outro republish) e nada é publicado, o que evita um segundo envio
- *       ao destinatário (T-03-22);</li>
+ *   <li>republish: fence escolhido pelo status lido antes do publish confirmado. PUBLISH_FAILED →
+ *       PENDING; PENDING sem confirm → toque de {@code updatedAt} cercado pelo {@code updatedAt} lido.
+ *       Se o fence casar 0 documentos, outro caminho já agiu (o worker, outro republish ou a varredura)
+ *       e nada é publicado, o que evita um segundo envio ao destinatário (T-03-22, T-03-38);</li>
  *   <li>varredura de PENDING sem confirm ({@link #markUnconfirmedAsPublishFailed}): PENDING sem claim e
  *       com {@code updatedAt} anterior ao corte → PUBLISH_FAILED com {@code lastError.code}
  *       {@link #PUBLISH_UNCONFIRMED}. É a saída do PENDING que nunca teve confirm (Gap 1 do
@@ -87,7 +89,7 @@ public class NotificationRepublisher {
 
         /** Desfechos do republish. */
         public enum Kind {
-            /** PUBLISH_FAILED → PENDING e publish confirmado. */
+            /** Fence ganho (PUBLISH_FAILED → PENDING, ou toque do PENDING lido) e publish confirmado. */
             REPUBLISHED,
             /**
              * O documento saiu do estado lido (o worker, outro republish ou a varredura agiu antes):
@@ -189,19 +191,44 @@ public class NotificationRepublisher {
     }
 
     /**
-     * Republica uma notificação PUBLISH_FAILED: PUBLISH_FAILED → PENDING condicional e depois
-     * {@link #publishOrMarkFailed publish confirmado}.
+     * Republica uma notificação com um fence escolhido pelo status <b>lido</b> ({@code doc.status()}) e
+     * depois faz o {@link #publishOrMarkFailed publish confirmado}:
+     * <ul>
+     *   <li>PUBLISH_FAILED → PENDING, condicional a {@code status} = PUBLISH_FAILED (D-08 e o lote do
+     *       {@code republish-failed});</li>
+     *   <li>PENDING sem confirm (replay com a mesma {@code Idempotency-Key}, Gap 1) → só um toque de
+     *       {@code updatedAt}, condicional a {@code status} = PENDING e {@code updatedAt} igual ao lido.
+     *       O status não muda, então não há transição nova na tabela de {@link NotificationStatus}. O
+     *       valor comparado é o {@code updatedAt} lido do Mongo (precisão de milissegundos), nunca um
+     *       {@code Instant} em memória. Como o toque deixa {@code updatedAt} novo, ele também protege contra
+     *       outro replay concorrente (que perde o fence) e contra a varredura de publicações sem confirm
+     *       ({@link #markUnconfirmedAsPublishFailed}), que só marca PENDING anterior ao corte;</li>
+     *   <li>qualquer outro status (o worker já reivindicou): {@link RepublishOutcome.Kind#FENCE_LOST} sem
+     *       escrever nada.</li>
+     * </ul>
+     * Fence perdido (o update casou 0 documentos) → {@link RepublishOutcome.Kind#FENCE_LOST}, sem publish.
+     * O lote {@link #republishFailed} continua buscando só PUBLISH_FAILED (ADM-03).
      */
     public RepublishOutcome republish(NotificationDocument doc) {
-        UpdateResult update = mongoTemplate.updateFirst(
-                query(where(Fields.ID).is(doc.id()).and(Fields.STATUS).is(NotificationStatus.PUBLISH_FAILED)),
-                new Update()
-                        .set(Fields.STATUS, NotificationStatus.PENDING)
-                        .set(Fields.UPDATED_AT, Instant.now()),
-                NotificationDocument.class);
-        if (update.getModifiedCount() == 0) {
-            // T-03-22: outro caminho já tirou a notificação de PUBLISH_FAILED; publicar geraria um segundo envio
-            log.info("Notificação {} já não estava PUBLISH_FAILED; nada republicado", doc.id());
+        Query fence;
+        Update update;
+        if (doc.status() == NotificationStatus.PUBLISH_FAILED) {
+            fence = query(where(Fields.ID).is(doc.id()).and(Fields.STATUS).is(NotificationStatus.PUBLISH_FAILED));
+            update = new Update()
+                    .set(Fields.STATUS, NotificationStatus.PENDING)
+                    .set(Fields.UPDATED_AT, Instant.now());
+        } else if (doc.status() == NotificationStatus.PENDING) {
+            fence = query(where(Fields.ID).is(doc.id()).and(Fields.STATUS).is(NotificationStatus.PENDING)
+                    .and(Fields.UPDATED_AT).is(doc.updatedAt()));
+            update = new Update().set(Fields.UPDATED_AT, Instant.now());
+        } else {
+            log.info("Notificação {} já reivindicada (status {}); nada republicado", doc.id(), doc.status());
+            return RepublishOutcome.fenceLost();
+        }
+        UpdateResult fenced = mongoTemplate.updateFirst(fence, update, NotificationDocument.class);
+        if (fenced.getModifiedCount() == 0) {
+            // T-03-22: outro caminho já tirou a notificação do estado lido; publicar geraria um segundo envio
+            log.info("Notificação {} saiu do estado lido ({}); nada republicado", doc.id(), doc.status());
             return RepublishOutcome.fenceLost();
         }
         Optional<PublishResult> failure = publishOrMarkFailed(doc);
