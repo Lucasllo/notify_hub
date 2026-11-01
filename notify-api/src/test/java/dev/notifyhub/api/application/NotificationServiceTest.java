@@ -10,6 +10,10 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.mongodb.client.result.UpdateResult;
 import dev.notifyhub.api.messaging.NotificationPublisher;
 import dev.notifyhub.api.messaging.PublishProperties;
@@ -25,8 +29,12 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import org.bson.Document;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Query;
@@ -47,6 +55,22 @@ class NotificationServiceTest {
     private final PublishProperties props = new PublishProperties(Duration.ofSeconds(5), Duration.ofSeconds(5));
     private final NotificationService service = new NotificationService(mongo,
             new NotificationRepublisher(mongo, publisher, props), props);
+
+    /** Eventos de log do {@link NotificationRepublisher}, independentes do layout (não há logback-test.xml). */
+    private final ListAppender<ILoggingEvent> republisherLog = new ListAppender<>();
+    private final Logger republisherLogger = (Logger) LoggerFactory.getLogger(NotificationRepublisher.class);
+
+    @BeforeEach
+    void attachLogAppender() {
+        republisherLog.start();
+        republisherLogger.addAppender(republisherLog);
+    }
+
+    @AfterEach
+    void detachLogAppender() {
+        republisherLogger.detachAppender(republisherLog);
+        republisherLog.stop();
+    }
 
     private void updateMatches(long modified) {
         when(mongo.updateFirst(any(Query.class), any(Update.class), eq(NotificationDocument.class)))
@@ -122,6 +146,30 @@ class NotificationServiceTest {
         ArgumentCaptor<NotificationDocument> inserted = ArgumentCaptor.forClass(NotificationDocument.class);
         verify(mongo).insert(inserted.capture());
         verify(mongo).findById(inserted.getValue().id(), NotificationDocument.class);
+    }
+
+    @Test
+    void nackThenMongoDownWhileMarkingPublishFailedLogsTheIdAndPropagates() {
+        when(publisher.publish(any(), any())).thenReturn(PublishResult.nacked("simulated nack"));
+        DataAccessResourceFailureException mongoDown = new DataAccessResourceFailureException("conexão caiu");
+        when(mongo.updateFirst(any(Query.class), any(Update.class), eq(NotificationDocument.class)))
+                .thenThrow(mongoDown);
+
+        assertThatThrownBy(() -> service.create(REQUEST, null)).isSameAs(mongoDown);
+
+        ArgumentCaptor<NotificationDocument> inserted = ArgumentCaptor.forClass(NotificationDocument.class);
+        verify(mongo).insert(inserted.capture());
+        String id = inserted.getValue().id();
+        // T-03-33: o órfão (PENDING sem mensagem) fica rastreável pelo id; T-03-34: sem mensagem da exceção
+        // nem destinatário
+        assertThat(republisherLog.list)
+                .filteredOn(event -> event.getLevel() == Level.ERROR)
+                .singleElement()
+                .satisfies(event -> assertThat(event.getFormattedMessage())
+                        .contains(id)
+                        .contains("PUBLISH_NACK")
+                        .doesNotContain("conexão caiu")
+                        .doesNotContain("ana@exemplo.com"));
     }
 
     @Test

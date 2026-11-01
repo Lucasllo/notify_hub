@@ -10,6 +10,10 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.mongodb.client.result.UpdateResult;
 import dev.notifyhub.api.application.NotificationRepublisher.RepublishOutcome;
 import dev.notifyhub.api.messaging.NotificationPublisher;
@@ -25,8 +29,11 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import org.bson.Document;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Query;
@@ -46,9 +53,29 @@ class NotificationRepublisherTest {
     private final NotificationRepublisher republisher = new NotificationRepublisher(mongo, publisher,
             new PublishProperties(Duration.ofSeconds(5), Duration.ofSeconds(5)));
 
+    /** Eventos de log do {@link NotificationRepublisher}, independentes do layout (não há logback-test.xml). */
+    private final ListAppender<ILoggingEvent> republisherLog = new ListAppender<>();
+    private final Logger republisherLogger = (Logger) LoggerFactory.getLogger(NotificationRepublisher.class);
+
+    @BeforeEach
+    void attachLogAppender() {
+        republisherLog.start();
+        republisherLogger.addAppender(republisherLog);
+    }
+
+    @AfterEach
+    void detachLogAppender() {
+        republisherLogger.detachAppender(republisherLog);
+        republisherLog.stop();
+    }
+
     private static NotificationDocument publishFailed(String id) {
+        return withStatus(id, NotificationStatus.PUBLISH_FAILED);
+    }
+
+    private static NotificationDocument withStatus(String id, NotificationStatus status) {
         return new NotificationDocument(id, Channel.EMAIL, "ana@exemplo.com", "welcome", Map.of("name", "Ana"),
-                NotificationStatus.PUBLISH_FAILED, 0, 0, null, null, List.of(), CREATED, CREATED, null, null, null);
+                status, 0, 0, null, null, List.of(), CREATED, CREATED, null, null, null);
     }
 
     private void updateMatches(long modified) {
@@ -123,7 +150,86 @@ class NotificationRepublisherTest {
         });
     }
 
+    @Test
+    void republishWithNackThenMongoDownWhileMarkingPublishFailedLogsTheIdAndPropagates() {
+        DataAccessResourceFailureException mongoDown = new DataAccessResourceFailureException("conexão caiu");
+        when(mongo.updateFirst(any(Query.class), any(Update.class), eq(NotificationDocument.class)))
+                .thenReturn(matched(1))
+                .thenThrow(mongoDown);
+        when(publisher.publish(any(), any())).thenReturn(PublishResult.nacked("simulated nack"));
+
+        assertThatThrownBy(() -> republisher.republish(publishFailed("n-1"))).isSameAs(mongoDown);
+
+        // T-03-33: o órfão que ficou PENDING sem mensagem é rastreável pelo id; T-03-34: sem a mensagem
+        // da exceção nem o destinatário
+        assertThat(republisherLog.list)
+                .filteredOn(event -> event.getLevel() == Level.ERROR)
+                .singleElement()
+                .satisfies(event -> assertThat(event.getFormattedMessage())
+                        .contains("n-1")
+                        .contains("PUBLISH_NACK")
+                        .doesNotContain("conexão caiu")
+                        .doesNotContain("ana@exemplo.com"));
+    }
+
+    // ---------------------------------------------------------------- releitura do update que casa 0
+
+    private void nackWithSecondUpdateMatchingNothingAndRereadAs(NotificationDocument current) {
+        when(mongo.updateFirst(any(Query.class), any(Update.class), eq(NotificationDocument.class)))
+                .thenReturn(matched(1))
+                .thenReturn(matched(0));
+        when(publisher.publish(any(), any())).thenReturn(PublishResult.nacked("simulated nack"));
+        when(mongo.findById("n-1", NotificationDocument.class)).thenReturn(current);
+    }
+
+    @Test
+    void zeroMatchWhileMarkingPublishFailedWithTheDocumentAlreadyPublishFailedIsAFailure() {
+        nackWithSecondUpdateMatchingNothingAndRereadAs(publishFailed("n-1"));
+
+        RepublishOutcome outcome = republisher.republish(publishFailed("n-1"));
+
+        assertThat(outcome.kind()).isEqualTo(RepublishOutcome.Kind.FAILED);
+        assertThat(outcome.failure().errorCode()).isEqualTo("PUBLISH_NACK");
+    }
+
+    @Test
+    void zeroMatchWhileMarkingPublishFailedWithTheWorkerClaimIsRepublished() {
+        nackWithSecondUpdateMatchingNothingAndRereadAs(withStatus("n-1", NotificationStatus.PROCESSING));
+
+        RepublishOutcome outcome = republisher.republish(publishFailed("n-1"));
+
+        assertThat(outcome.kind()).isEqualTo(RepublishOutcome.Kind.REPUBLISHED);
+        assertThat(outcome.failure()).isNull();
+    }
+
+    @Test
+    void zeroMatchWhileMarkingPublishFailedWithTheDocumentMissingIsAFailure() {
+        nackWithSecondUpdateMatchingNothingAndRereadAs(null);
+
+        RepublishOutcome outcome = republisher.republish(publishFailed("n-1"));
+
+        assertThat(outcome.kind()).isEqualTo(RepublishOutcome.Kind.FAILED);
+        assertThat(outcome.failure().errorCode()).isEqualTo("PUBLISH_NACK");
+    }
+
     // ---------------------------------------------------------------- lote
+
+    @Test
+    void batchWithNackThenMongoDownWhileMarkingPublishFailedIs503WithATrueDetail() {
+        when(mongo.find(any(Query.class), eq(NotificationDocument.class))).thenReturn(List.of(publishFailed("n-1")));
+        when(mongo.updateFirst(any(Query.class), any(Update.class), eq(NotificationDocument.class)))
+                .thenReturn(matched(1))
+                .thenThrow(new DataAccessResourceFailureException("conexão caiu"));
+        when(publisher.publish(any(), any())).thenReturn(PublishResult.nacked("simulated nack"));
+
+        assertThatThrownBy(() -> republisher.republishFailed(10))
+                .isInstanceOfSatisfying(RepublishInterruptedException.class, e -> {
+                    assertThat(e.getReason()).isEqualTo(NotificationRepublisher.MONGO_UNAVAILABLE);
+                    assertThat(e.getReport().republished()).isZero();
+                    // a que estava em andamento pode ter ficado PENDING: o detail promete a varredura
+                    assertThat(e.getBody().getDetail()).contains("varredura").doesNotContain("conexão");
+                });
+    }
 
     @Test
     void batchSearchesPublishFailedOldestFirstAndStopsAtTheFirstFailureWith503Partial() {
@@ -212,7 +318,10 @@ class NotificationRepublisherTest {
         assertThat(e.getStatusCode().value()).isEqualTo(503);
         assertThat(e.getBody().getType()).hasToString("urn:notify-hub:problem:republish-interrupted");
         assertThat(e.getBody().getTitle()).isEqualTo("Republicação interrompida");
-        assertThat(e.getBody().getDetail()).contains("PUBLISH_TIMEOUT").contains("PUBLISH_FAILED");
+        assertThat(e.getBody().getDetail())
+                .contains("PUBLISH_TIMEOUT")
+                .contains("PUBLISH_FAILED")
+                .contains("varredura");
         assertThat(e.getBody().getProperties())
                 .containsEntry("requested", 10)
                 .containsEntry("republished", 1)
