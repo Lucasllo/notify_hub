@@ -160,6 +160,44 @@ class NotificationApiFlowTest {
         assertThat(result.getResponse().getContentAsString()).doesNotContain("simulated nack");
     }
 
+    /**
+     * Tracer do 03-10 (Gap 1, T-03-35): publish sem confirm, o update condicional PENDING → PUBLISH_FAILED
+     * casa 0 e a releitura acha o documento já PUBLISH_FAILED (como se a varredura do 03-08 o tivesse
+     * marcado). Sem evidência de claim do worker, a resposta é 503, e o detail não afirma o status gravado.
+     */
+    @Test
+    void unconfirmedPublishWhoseDocumentIsAlreadyPublishFailedAnswers503WithATrueDetail() throws Exception {
+        brokerAnswers(false, "simulated nack");
+        when(mongoTemplate.updateFirst(any(Query.class), any(Update.class), eq(NotificationDocument.class)))
+                .thenReturn(UpdateResult.acknowledged(0, 0L, null));
+        when(mongoTemplate.findById(any(String.class), eq(NotificationDocument.class)))
+                .thenAnswer(invocation -> sweptToPublishFailed(invocation.getArgument(0)));
+
+        MvcResult result = mvc.perform(post("/notifications")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(VALID_BODY))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(header().string("Retry-After", "5"))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value("urn:notify-hub:problem:publish-failed"))
+                .andReturn();
+
+        ArgumentCaptor<NotificationDocument> doc = ArgumentCaptor.forClass(NotificationDocument.class);
+        verify(mongoTemplate).insert(doc.capture());
+        String detail = JsonPath.read(result.getResponse().getContentAsString(), "$.detail");
+        assertThat(detail)
+                .startsWith("O broker não confirmou a publicação da notificação")
+                .contains(doc.getValue().id())
+                .contains("PUBLISH_NACK")
+                .doesNotContain("simulated nack");
+    }
+
+    private static NotificationDocument sweptToPublishFailed(String id) {
+        Instant created = Instant.parse("2026-10-30T10:00:00Z");
+        return new NotificationDocument(id, Channel.EMAIL, "ana@exemplo.com", "welcome", Map.of("name", "Ana"),
+                NotificationStatus.PUBLISH_FAILED, 0, 0, null, null, List.of(), created, created, null, null, null);
+    }
+
     @Test
     void getReturnsFullRepresentation() throws Exception {
         String id = "6f1c2a7e-1b2c-4d5e-8f90-123456789abc";

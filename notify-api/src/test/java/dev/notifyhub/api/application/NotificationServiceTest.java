@@ -3,6 +3,7 @@ package dev.notifyhub.api.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -61,6 +62,7 @@ class NotificationServiceTest {
                 .isInstanceOfSatisfying(PublishFailedException.class, e -> {
                     assertThat(e.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
                     assertThat(e.getHeaders().getFirst("Retry-After")).isEqualTo("5");
+                    assertThat(e.getBody().getDetail()).contains(e.getNotificationId()).contains("PUBLISH_NACK");
                 });
 
         ArgumentCaptor<NotificationDocument> inserted = ArgumentCaptor.forClass(NotificationDocument.class);
@@ -91,12 +93,35 @@ class NotificationServiceTest {
     void timeoutAfterWorkerAlreadyClaimedStillAnswers202() {
         when(publisher.publish(any(), any())).thenReturn(PublishResult.timeout());
         updateMatches(0);
+        // releitura: o worker já reivindicou (PROCESSING), ou seja, a mensagem chegou ao broker
+        when(mongo.findById(anyString(), eq(NotificationDocument.class))).thenAnswer(invocation ->
+                existingWithId(invocation.getArgument(0), NotificationStatus.PROCESSING));
 
         CreateNotificationResponse response = service.create(REQUEST, null).response();
 
         assertThat(response.status()).isEqualTo(NotificationStatus.PENDING);
         assertThat(response.id()).isNotBlank();
         verify(mongo).updateFirst(any(Query.class), any(Update.class), eq(NotificationDocument.class));
+    }
+
+    @Test
+    void timeoutWhoseConditionalUpdateMatchesNothingAndTheDocumentIsPublishFailedIs503() {
+        when(publisher.publish(any(), any())).thenReturn(PublishResult.timeout());
+        updateMatches(0);
+        // releitura: a varredura (ou outro republish) já marcou PUBLISH_FAILED; não há evidência de claim
+        when(mongo.findById(anyString(), eq(NotificationDocument.class))).thenAnswer(invocation ->
+                existingWithId(invocation.getArgument(0), NotificationStatus.PUBLISH_FAILED));
+
+        assertThatThrownBy(() -> service.create(REQUEST, null))
+                .isInstanceOfSatisfying(PublishFailedException.class, e -> {
+                    assertThat(e.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+                    assertThat(e.getHeaders().getFirst("Retry-After")).isEqualTo("5");
+                    assertThat(e.getBody().getDetail()).contains(e.getNotificationId()).contains("PUBLISH_TIMEOUT");
+                });
+
+        ArgumentCaptor<NotificationDocument> inserted = ArgumentCaptor.forClass(NotificationDocument.class);
+        verify(mongo).insert(inserted.capture());
+        verify(mongo).findById(inserted.getValue().id(), NotificationDocument.class);
     }
 
     @Test
@@ -244,6 +269,12 @@ class NotificationServiceTest {
         assertThat(result.response().id()).isEqualTo(existing.id());
         assertThat(result.response().status()).isEqualTo(NotificationStatus.PROCESSING);
         verify(publisher, never()).publish(any(), any());
+    }
+
+    private static NotificationDocument existingWithId(String id, NotificationStatus status) {
+        Instant createdAt = Instant.parse("2026-10-30T10:00:00Z");
+        return new NotificationDocument(id, Channel.EMAIL, "ana@exemplo.com", "welcome", Map.of("name", "Ana"),
+                status, 0, 0, null, null, List.of(), createdAt, createdAt, null, null, null);
     }
 
     private static NotificationDocument existingWithHash(String hash, NotificationStatus status, Instant createdAt) {
