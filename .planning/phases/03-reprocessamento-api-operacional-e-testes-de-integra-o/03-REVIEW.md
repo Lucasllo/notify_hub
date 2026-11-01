@@ -1,273 +1,257 @@
 ---
 phase: 03-reprocessamento-api-operacional-e-testes-de-integra-o
-reviewed: 2026-10-31T18:16:43Z
+reviewed: 2026-11-01T01:00:16Z
 depth: standard
-files_reviewed: 56
+files_reviewed: 14
 files_reviewed_list:
-  - notify-api/pom.xml
-  - notify-api/src/main/java/dev/notifyhub/api/admin/AdminController.java
-  - notify-api/src/main/java/dev/notifyhub/api/admin/AdminProperties.java
-  - notify-api/src/main/java/dev/notifyhub/api/admin/AdminWebConfiguration.java
-  - notify-api/src/main/java/dev/notifyhub/api/admin/DlqReprocessService.java
-  - notify-api/src/main/java/dev/notifyhub/api/admin/ReprocessInterruptedException.java
-  - notify-api/src/main/java/dev/notifyhub/api/application/IdempotencyKeyReusedException.java
-  - notify-api/src/main/java/dev/notifyhub/api/application/NotificationQueryService.java
   - notify-api/src/main/java/dev/notifyhub/api/application/NotificationRepublisher.java
-  - notify-api/src/main/java/dev/notifyhub/api/application/NotificationResetService.java
   - notify-api/src/main/java/dev/notifyhub/api/application/NotificationService.java
+  - notify-api/src/main/java/dev/notifyhub/api/application/PublishFailedException.java
   - notify-api/src/main/java/dev/notifyhub/api/application/RepublishInterruptedException.java
-  - notify-api/src/main/java/dev/notifyhub/api/application/RequestHasher.java
-  - notify-api/src/main/java/dev/notifyhub/api/messaging/NotificationPublisher.java
-  - notify-api/src/main/java/dev/notifyhub/api/web/ApiExceptionHandler.java
-  - notify-api/src/main/java/dev/notifyhub/api/web/dto/NotificationStats.java
-  - notify-api/src/main/java/dev/notifyhub/api/web/dto/NotificationSummary.java
-  - notify-api/src/main/java/dev/notifyhub/api/web/dto/PageResponse.java
-  - notify-api/src/main/java/dev/notifyhub/api/web/NotificationController.java
-  - notify-api/src/main/java/dev/notifyhub/api/web/NotificationQueryController.java
-  - notify-api/src/main/java/dev/notifyhub/api/web/OpenApiConfiguration.java
-  - notify-api/src/main/java/dev/notifyhub/api/web/ProblemTypes.java
+  - notify-api/src/main/java/dev/notifyhub/api/application/UnconfirmedPublishSweeper.java
+  - notify-api/src/main/java/dev/notifyhub/api/application/UnconfirmedSweepProperties.java
+  - notify-api/src/main/java/dev/notifyhub/api/config/ApiConfiguration.java
   - notify-api/src/main/resources/application.yml
-  - notify-api/src/main/resources/application-demo.yml
-  - notify-common/src/main/java/dev/notifyhub/common/domain/AttemptOutcome.java
-  - notify-common/src/main/java/dev/notifyhub/common/domain/NotificationStatus.java
-  - notify-common/src/main/java/dev/notifyhub/common/persistence/MongoIndexInitializer.java
-  - notify-common/src/main/java/dev/notifyhub/common/persistence/NotificationDocument.java
-  - notify-worker/pom.xml
-  - notify-worker/src/main/java/dev/notifyhub/worker/metrics/DeliveryMetrics.java
-  - notify-it/pom.xml
-  - pom.xml
-  - scripts/smoke-fase1.sh
-  - scripts/smoke-lib.sh
-  - notify-it/src/test/java/dev/notifyhub/it/support/EndToEndSupport.java
-  - notify-it/src/test/resources/it/application-it.yml
-  - notify-api/src/test/java/dev/notifyhub/api/admin/AdminControllerTest.java
-  - notify-api/src/test/java/dev/notifyhub/api/admin/DlqReprocessFlowTest.java
-  - notify-api/src/test/java/dev/notifyhub/api/admin/MongoBson.java
   - notify-api/src/test/java/dev/notifyhub/api/application/NotificationRepublisherTest.java
   - notify-api/src/test/java/dev/notifyhub/api/application/NotificationServiceTest.java
-  - notify-api/src/test/java/dev/notifyhub/api/application/RequestHasherTest.java
+  - notify-api/src/test/java/dev/notifyhub/api/application/UnconfirmedPublishSweeperTest.java
   - notify-api/src/test/java/dev/notifyhub/api/web/NotificationApiFlowTest.java
-  - notify-api/src/test/java/dev/notifyhub/api/web/NotificationQueryControllerTest.java
-  - notify-api/src/test/java/dev/notifyhub/api/web/NotificationValidationTest.java
-  - notify-common/src/test/java/dev/notifyhub/common/domain/NotificationStatusTest.java
-  - notify-common/src/test/java/dev/notifyhub/common/persistence/MongoIndexInitializerTest.java
-  - notify-common/src/test/java/dev/notifyhub/common/persistence/NotificationDocumentMappingTest.java
-  - notify-it/src/test/java/dev/notifyhub/it/ApiDocsIT.java
-  - notify-it/src/test/java/dev/notifyhub/it/DeliveryGuaranteesIT.java
-  - notify-it/src/test/java/dev/notifyhub/it/HarnessSmokeIT.java
-  - notify-it/src/test/java/dev/notifyhub/it/IdempotencyIT.java
-  - notify-it/src/test/java/dev/notifyhub/it/ListAndStatsIT.java
-  - notify-it/src/test/java/dev/notifyhub/it/ReprocessEdgeCasesIT.java
-  - notify-it/src/test/java/dev/notifyhub/it/ReprocessFlowIT.java
-  - notify-it/src/test/java/dev/notifyhub/it/UnroutablePublishIT.java
+  - notify-it/src/test/java/dev/notifyhub/it/UnconfirmedPublishRecoveryIT.java
+  - notify-it/src/test/resources/it/application-it.yml
 findings:
-  critical: 1
-  warning: 4
-  info: 7
-  total: 12
+  critical: 0
+  warning: 7
+  info: 11
+  total: 18
 status: issues_found
 ---
 
-# Fase 03: Relatório de Code Review
+# Fase 03: Relatório de Code Review (incremental, pós gap-closure 03-08, 03-09 e 03-10)
 
-**Revisado em:** 2026-10-31T18:16:43Z
+**Revisado em:** 2026-11-01T01:00:16Z
 **Profundidade:** standard
-**Arquivos revisados:** 56
+**Arquivos revisados:** 14 (diff `e5069b04..HEAD`)
 **Status:** issues_found
 
 ## Resumo
 
-Revisei o código de produção da Fase 3: reprocessamento da DLQ, republicação de PUBLISH_FAILED, Idempotency-Key, listagem e stats, Swagger, a tabela de transições, os índices, os POMs e os scripts de smoke. Os testes unitários e de integração foram lidos com foco na confiabilidade.
+Esta revisão é incremental. Ela cobre só os arquivos alterados pelos planos de gap-closure 03-08 (varredura de PENDING sem confirm), 03-09 (replay idempotente só com evidência) e 03-10 (rastro e resposta verdadeira do publish sem confirm). Este relatório substitui o anterior. Os achados anteriores em arquivos fora deste escopo foram mantidos como **abertos (não verificados nesta passada)**. O Maven não foi executado: há um `./mvnw verify` rodando em segundo plano.
 
-No geral o código é cuidadoso. Ack só depois do confirm, nack com requeue num `finally`, cercas otimistas em todos os updates e motivos de falha de um conjunto fechado estão todos corretos. A comparação da chave de admin em tempo constante, via SHA-256, também está correta.
+Tracei os caminhos concorrentes da varredura, do republish cercado, do laço de replay e das esperas: criação × varredura, replay × varredura, replay × replay, replay × lote `republish-failed`, replay × worker e reset da DLQ × varredura. **Não encontrei caminho de perda silenciosa.** Todo PENDING sem mensagem é alcançado pela varredura em até `after` + `interval`. Todo PUBLISH_FAILED com mensagem em fila continua reivindicável pelo worker. Os fences (`status` + `updatedAt` lido; `status` = PUBLISH_FAILED) são atômicos por documento e se resolvem corretamente contra o `updateMulti` da varredura.
 
-O principal problema é o edge case que um executor deixou sem correção. Uma falha do MongoDB entre um publish não confirmado e a marcação PUBLISH_FAILED deixa o documento em PENDING sem mensagem em fila nenhuma. Nenhum caminho de recuperação enxerga esse estado, e o replay idempotente o transforma num 202 enganoso. Isso fere diretamente o Core Value do projeto ("nunca se perde em silêncio"), por isso está classificado como BLOCKER.
+O preço da correção do WR-02 é alto, e o código o descreve errado:
+- como o documento não guarda nenhuma evidência de confirm, todo replay de um PENDING **confirmado mas ainda não reivindicado** espera a janela inteira (10s) e publica uma cópia duplicada (WR-05). Isso acontece justamente com o worker atrasado ou fora;
+- a latência do replay não é limitada a 2 × `confirm-timeout`, como diz o Javadoc. Ela chega a cerca de 7 × `confirm-timeout`, e replays concorrentes estendem a espera uns dos outros (WR-06);
+- o fallback "publicar sem fence" responde 202 PENDING com o documento ainda PUBLISH_FAILED (WR-07);
+- a falha do Mongo depois de um publish sem confirm agora é rastreável no log, mas o cliente continua recebendo um 500 genérico, sem `notificationId` (WR-08).
 
-Os outros achados:
-- uma mensagem cujo documento não pode ser lido trava a cabeça da DLQ para sempre;
-- o replay de um documento PENDING devolve 202 sem prova de confirm;
-- o reset de estados não terminais zera `retryCount` e com isso reabre a cerca de token obsoleto do worker;
-- a listagem pública expõe os destinatários em massa.
+### Situação dos achados do relatório anterior
+
+| ID anterior | Situação | Evidência |
+|---|---|---|
+| **CR-01** (PENDING órfão sem caminho de recuperação; replay 202 sem publicar) | **Resolvido** | Item 1: `UnconfirmedPublishSweeper` + `NotificationRepublisher.markUnconfirmedAsPublishFailed` (`:301-314`) levam o PENDING órfão a PUBLISH_FAILED/PUBLISH_UNCONFIRMED, com corte validado no startup (`UnconfirmedPublishSweeper.java:53-59`). Item 2: o replay de PENDING com a janela vencida republica com fence `status`+`updatedAt` lido (`NotificationRepublisher.java:220-223`). Item 3: ERROR com o id antes de relançar (`:175-182`) e detail do 503 do lote verdadeiro (`RepublishInterruptedException.java:36-39`). Os testes pedidos existem (`nackThenMongoDownWhileMarkingPublishFailedLogsTheIdAndPropagates`, `republishWithNackThenMongoDown...`, `batchWithNackThenMongoDown...`) e há o IT `UnconfirmedPublishRecoveryIT`. Ressalva: a resposta ao cliente nesse caso continua um 500 genérico (ver WR-08). |
+| **WR-02** (replay de PENDING devolve 202 sem evidência) | **Resolvido**, com regressões novas | `NotificationService.replay`/`awaitPublishWindow` (`:170-243`): nenhum 202 de replay sai sem claim do worker ou confirm próprio. As regressões introduzidas estão em WR-05, WR-06 e WR-07. |
+| WR-01 (documento ilegível trava a cabeça da DLQ) | **Aberto** (fora do escopo, não verificado) | `DlqReprocessService.java` e `NotificationResetService.java` não mudaram desde `e5069b04`. |
+| WR-03 (reset de não terminais zera `retryCount`) | **Aberto** (fora do escopo, não verificado) | `NotificationResetService.java` não mudou. |
+| WR-04 (`GET /notifications` expõe destinatários) | **Aberto** (fora do escopo, não verificado) | `NotificationSummary.java`/`NotificationQueryService.java` não mudaram. |
+| IN-01, IN-02, IN-03, IN-06, IN-07 | **Abertos** (fora do escopo, não verificados) | Arquivos não mudaram. |
+| IN-04 (reset com publish falho deixa PENDING com a mensagem na DLQ) | **Aberto, parcialmente mitigado** (não verificado) | Depois de `after` (2m), a varredura agora leva esse PENDING a PUBLISH_FAILED/PUBLISH_UNCONFIRMED. Ele passa a ser visível como falha, mas o `lastError` não diz que a causa foi o reprocessamento. |
+| IN-05 (transições escritas à mão no `NotificationRepublisher`) | **Aberto** (no escopo, verificado) | Continua igual e ganhou mais uma ocorrência: `markUnconfirmedAsPublishFailed` grava PENDING → PUBLISH_FAILED literal (`:304-308`). |
 
 ## Narrative Findings (AI reviewer)
 
-## Critical Issues
-
-### CR-01: Falha do Mongo depois de um publish não confirmado deixa o documento PENDING sem mensagem e sem nenhum caminho de recuperação (e o replay idempotente responde 202)
-
-**Arquivos:**
-- `notify-api/src/main/java/dev/notifyhub/api/application/NotificationRepublisher.java:115-128` (`publishOrMarkFailed`)
-- `notify-api/src/main/java/dev/notifyhub/api/application/NotificationRepublisher.java:134-152` (`republish`)
-- `notify-api/src/main/java/dev/notifyhub/api/application/NotificationRepublisher.java:185-190` (`republishFailed`)
-- `notify-api/src/main/java/dev/notifyhub/api/application/NotificationRepublisher.java:199-214` (`markPublishFailed`)
-- `notify-api/src/main/java/dev/notifyhub/api/application/NotificationService.java:98-100`
-- `notify-api/src/main/java/dev/notifyhub/api/application/NotificationService.java:122-128`
-
-**Problema:** confirmei e classifiquei o edge case que o executor apontou. Ele é pior do que "o republish-failed não recupera".
-
-1. **Criação (`create`).** O insert grava PENDING e o `publish` volta sem ACK (NACK, RETURNED, BROKER_UNAVAILABLE). Em seguida `markPublishFailed` lança `DataAccessException`, e não há tratamento. O cliente recebe um 500 genérico e o documento fica **PENDING sem mensagem em fila nenhuma**:
-   - o worker nunca o vê;
-   - o `republish-failed` filtra só `status = PUBLISH_FAILED` (linha 169);
-   - o reprocessamento da DLQ só age sobre mensagens que estão na DLQ.
-
-   Não existe varredura de PENDING antigos. A causa mais provável nem é rara: uma queda de rede no host da API derruba broker e Mongo ao mesmo tempo. O mesmo estado também aparece com um kill/OOM/restart da JVM entre o insert e o confirm, numa janela de até `confirm-timeout` (5s).
-2. **Replay idempotente.** O cliente faz o que o contrato manda e repete o POST com a mesma `Idempotency-Key`. `replayOrRethrow` acha o documento com o mesmo hash e status PENDING, que não é PUBLISH_FAILED (linha 122). Por isso cai na linha 127 e devolve **202 `Idempotent-Replayed: true` com status PENDING, sem publicar**. A API confirma como aceita uma notificação que nunca será entregue. Essa é exatamente a perda silenciosa que o Core Value proíbe.
-3. **`republish` (D-08 e lote admin).** O código faz PUBLISH_FAILED → PENDING (linha 135), o publish falha e então o `markPublishFailed` falha no Mongo. O documento que **estava** recuperável sai do conjunto PUBLISH_FAILED e fica PENDING órfão. No lote, o 503 `MONGO_UNAVAILABLE` ainda afirma "As que faltaram continuam PUBLISH_FAILED" (`RepublishInterruptedException.java:33-34`), o que é falso para esse documento. No replay D-08, o próximo POST com a chave devolve o 202 enganoso do item 2.
-
-Nenhum teste cobre a falha de Mongo dentro de `markPublishFailed`. `NotificationRepublisherTest.mongoDownOnAFenceUpdateIs503WithTheAccumulatedCounts` só derruba o update PUBLISH_FAILED → PENDING, em que o documento continua PUBLISH_FAILED.
-
-**Correção:** é preciso um caminho que encontre PENDING "nunca confirmado". A opção mais simples e segura é uma varredura agendada na API que leva PENDING velhos sem claim para PUBLISH_FAILED. É seguro porque PUBLISH_FAILED continua reivindicável pelo worker (PUBLISH_FAILED → PROCESSING na tabela). Se a mensagem tiver chegado de fato, nada se perde, e o republish é cercado pelo status.
-```java
-@Scheduled(fixedDelayString = "${notify.publish.orphan-sweep-interval:30s}")
-void markUnconfirmedPending() {
-    Instant cutoff = Instant.now().minus(props.confirmTimeout().multipliedBy(3));
-    UpdateResult r = mongoTemplate.updateMulti(
-            query(where(Fields.STATUS).is(NotificationStatus.PENDING)
-                    .and(Fields.UPDATED_AT).lt(cutoff)
-                    .and(Fields.CLAIMED_AT).exists(false)),
-            new Update().set(Fields.STATUS, NotificationStatus.PUBLISH_FAILED)
-                    .set(Fields.LAST_ERROR, new LastError("PUBLISH_UNCONFIRMED",
-                            "Publicação sem confirm registrado", null, Instant.now()))
-                    .set(Fields.UPDATED_AT, Instant.now()),
-            NotificationDocument.class);
-    if (r.getModifiedCount() > 0) log.warn("{} notificações PENDING órfãs marcadas PUBLISH_FAILED", r.getModifiedCount());
-}
-```
-Além disso:
-- no `replayOrRethrow`, um PENDING com `updatedAt` mais antigo que o cutoff deve seguir o caminho do `replayPublishFailed` (republish cercado por `status = PENDING` + `updatedAt` lido), e não devolver 202 direto;
-- `publishOrMarkFailed` deve logar ERROR com o id quando o `markPublishFailed` lançar, para o órfão ficar rastreável;
-- falta um teste unitário com `updateFirst` lançando `DataAccessResourceFailureException` depois de um publish NACK.
-
 ## Warnings
 
-### WR-01: Uma mensagem cujo documento não pode ser mapeado trava a cabeça da DLQ para sempre
+### WR-05: Todo replay de um PENDING confirmado e ainda não reivindicado espera 2 × `confirm-timeout` e publica uma cópia duplicada
 
 **Arquivos:**
-- `notify-api/src/main/java/dev/notifyhub/api/admin/DlqReprocessService.java:110-128`
-- `notify-api/src/main/java/dev/notifyhub/api/admin/DlqReprocessService.java:188-193`
-- `notify-api/src/main/java/dev/notifyhub/api/application/NotificationResetService.java:78-88`
+- `notify-api/src/main/java/dev/notifyhub/api/application/NotificationService.java:176-186`
+- `notify-api/src/main/java/dev/notifyhub/api/application/NotificationService.java:223-243`
+- `notify-api/src/main/java/dev/notifyhub/api/application/NotificationRepublisher.java:220-223`
 
-**Problema:** `handle` só trata `DataAccessException` do reset. Nenhuma destas exceções é `DataAccessException`:
-- `ConversionFailedException`: status ou canal fora do enum, por exemplo um documento gravado por outra versão ou à mão;
-- `MappingInstantiationException`: documento corrompido;
-- `NullPointerException` em `previousStatus.canTransitionTo(...)` (linha 86) quando o documento não tem `status`.
+**Problema:** depois de um confirm positivo, nada é gravado no documento (`NotificationService.java:123`). Por isso "PENDING publicado com ack, esperando na fila" é indistinguível de "PENDING órfão". O `awaitPublishWindow` só sai cedo quando o status ou o `updatedAt` mudam, e um PENDING confirmado não muda nenhum dos dois até o worker reivindicar. Na prática:
 
-`MongoTemplate.findById` não traduz exceções do conversor. A exceção vira `tally.unexpected`, a entrega volta com nack+requeue **para a cabeça** da DLQ e o endpoint responde 500. Toda chamada seguinte lê a mesma mensagem primeiro e falha igual: o canal fica com a DLQ travada até alguém intervir à mão no broker. É justamente o "travar a cabeça da DLQ" que o D-01/CR-01 quis eliminar.
+1. O cliente faz POST com a chave K, recebe 202 (ack) e repete o POST, por exemplo porque a resposta se perdeu ou o timeout HTTP dele expirou.
+2. O worker está com backlog ou fora (é exatamente o cenário da demo de carga e de retry).
+3. O replay dorme a janela inteira (`updatedAt` + 10s). No fim, o documento continua "igual", então ele faz o toque cercado e **publica outra cópia** (`republish` → `publishOrMarkFailed`).
 
-**Correção:** trate como "documento ilegível" e preserve no fim da DLQ, como já acontece com corpo ilegível:
+Cada replay repetido adiciona mais uma cópia à fila principal. O toque também renova `updatedAt`, então o replay seguinte espera mais 10s. A cópia extra costuma ser descartada pelo claim. Mesmo assim, o Javadoc do `replay` (`:167-168`) afirma "sem segundo envio", e isso é forte demais: uma cópia de nível 0 que chega entre o `markRetrying` e o `advanceRetryLevel` do worker (`DeliveryProcessor.java:212-243`, janela que inclui a espera do confirm do token, até 5s) encontra `RETRYING` com `retryCount = 0 ≤ 0` e é reivindicada de novo. O resultado é uma cadeia de retry paralela, o mesmo efeito descrito no WR-03.
+
+**Correção:** registre a evidência de confirm no próprio documento com um update cercado que não muda o status. Ele não viola a regra "nada depois do confirm", porque só casa se o documento ainda estiver PENDING com o `updatedAt` gravado por quem publicou:
 ```java
-ResetResult result;
-try {
-    result = resetService.resetForReprocess(message.notificationId());
-} catch (DataAccessException e) {
-    return Step.failed(FailureReason.MONGO_UNAVAILABLE);
-} catch (RuntimeException unreadable) { // ConversionFailedException, MappingInstantiationException, NPE de status nulo
-    log.warn("Documento {} ilegível ({}): mensagem preservada no fim da DLQ",
-            message.notificationId(), unreadable.getClass().getSimpleName());
-    return copyToTail(channel, delivery);
+// NotificationRepublisher.publishOrMarkFailed, ramo result.ok()
+mongoTemplate.updateFirst(
+        query(where(Fields.ID).is(doc.id()).and(Fields.STATUS).is(NotificationStatus.PENDING)),
+        new Update().set(Fields.PUBLISH_CONFIRMED_AT, Instant.now()),   // campo novo
+        NotificationDocument.class);
+```
+Depois:
+- no `replay`, trate `PENDING && publishConfirmedAt != null` como evidência (202 imediato, sem publicar);
+- na varredura, acrescente `publishConfirmedAt` nulo ao filtro, o que também elimina o falso positivo do backlog;
+- no `republish` (fence) e no reset da DLQ, faça `$unset` do campo.
+
+Uma falha desse update depois do ack só degrada para o comportamento atual, então ela pode ser logada e ignorada.
+
+### WR-06: A latência do replay não é limitada a 2 × `confirm-timeout`, e replays concorrentes estendem a espera uns dos outros
+
+**Arquivos:**
+- `notify-api/src/main/java/dev/notifyhub/api/application/NotificationService.java:172-205`
+- `notify-api/src/main/java/dev/notifyhub/api/application/NotificationService.java:214-217` (Javadoc "no máximo 2 × confirm-timeout")
+
+**Problema:** cada rodada recalcula a janela a partir do `updatedAt` **atual** (`publishWindowEnd(current)`). Um toque de outro replay muda o `updatedAt`, a rodada termina com `continue` e a rodada seguinte espera uma janela nova e completa. O pior caso é:
+- 3 rodadas × 2 × `confirm-timeout` de espera;
+- um `confirm-timeout` de publish dentro de alguma rodada;
+- mais um `confirm-timeout` no publish sem fence depois do laço.
+
+Isso dá cerca de 7 × 5s = 35s por requisição, sem deadline no servidor. O cenário que produz isso é o próprio uso esperado da chave: N clientes ou retries com a mesma K. Cada replay que ganha o fence toca o `updatedAt`, e os outros que estão esperando reiniciam a janela. Um cliente com timeout HTTP abaixo disso desiste e repete, criando mais um replay que vai tocar e republicar, enquanto o anterior continua rodando no servidor sem saber que o cliente sumiu. É um ciclo de realimentação de requisições penduradas e de cópias na fila (ver WR-05). O Javadoc promete "no máximo 2 × confirm-timeout", e isso é falso.
+
+**Correção:** use um deadline único por replay, calculado uma vez no início, e respeite-o em todas as rodadas e no publish final:
+```java
+Instant deadline = Instant.now().plus(props.confirmTimeout().multipliedBy(PUBLISH_WINDOW_FACTOR));
+...
+NotificationDocument latest = awaitPublishWindow(current, min(publishWindowEnd(current), deadline));
+...
+if (Instant.now().isAfter(deadline)) {
+    throw new ReplayInProgressException(current.id(), props.retryAfter()); // 409/425 + Retry-After
 }
 ```
-No `NotificationResetService`, devolva `NotResettable(null)` quando `current.status() == null`, em vez de deixar estourar NPE.
+Corrija também o Javadoc para o limite real. Responder 409 "requisição original em andamento" com `Retry-After` é o padrão de várias APIs com Idempotency-Key, e quebra o ciclo.
 
-### WR-02: O replay de um documento PENDING devolve 202 sem nenhuma evidência de confirm
+### WR-07: O publish sem fence do fim do laço responde 202 PENDING com o documento ainda PUBLISH_FAILED e pula o republish cercado do estado recém-lido
 
-**Arquivo:** `notify-api/src/main/java/dev/notifyhub/api/application/NotificationService.java:109-128`
+**Arquivo:** `notify-api/src/main/java/dev/notifyhub/api/application/NotificationService.java:179-183,196-205`
 
-**Problema:** o contrato (D-04 e a descrição do POST no Swagger) diz que o 202 só sai "depois do confirm do broker". Na corrida de POSTs com a mesma chave nova, quem perde lê o vencedor enquanto ele ainda está no `publish`, com o documento PENDING, e responde 202 na hora. Se o publish do vencedor falhar, o vencedor responde 503 e o documento vai a PUBLISH_FAILED. Mas os perdedores já disseram 202 a clientes que não vão repetir o pedido.
+**Problema:** há dois defeitos ligados.
+1. Quando a **terceira** rodada termina pelo `continue` da linha 182, porque o documento mudou durante a espera (por exemplo, o vencedor gravou PUBLISH_FAILED), o laço acaba sem nunca ter tentado o republish cercado desse estado. O código cai direto no publish sem fence. O Javadoc fala em "três interferências concorrentes seguidas", mas basta uma mudança legítima em cada uma de três esperas, e esse é exatamente o padrão da corrida de replays do WR-06.
+2. `publishOrMarkFailed(current)` não faz transição nenhuma. Com `current` em PUBLISH_FAILED, o ack devolve `replayed(current, PENDING)` (linha 205), mas o documento **continua PUBLISH_FAILED** com o `lastError` antigo. O cliente ouve PENDING. O `GET`/`/stats` mostram falha. O próximo `republish-failed` do operador publica mais uma cópia. Não há perda, porque o worker reivindica PUBLISH_FAILED, mas a resposta contradiz o estado gravado e gera envio redundante.
 
-Não há perda total, porque PUBLISH_FAILED é visível e o operador pode republicar. Mesmo assim, o cliente recebe respostas contraditórias para a mesma chave. Junto com o CR-01, isso mostra que "PENDING no replay" não é um estado confiável para responder 202.
-
-**Correção:** no replay, devolva 202 para PENDING só se o documento já tiver passado da janela de confirm do vencedor. Uma forma é reler depois de `confirmTimeout`, ou fazer polling curto até sair de PENDING ou estourar o prazo. Se ele terminar PUBLISH_FAILED, siga o caminho do `replayPublishFailed`. Também dá para responder 409/425 "requisição original em andamento" com `Retry-After`, como fazem várias APIs com Idempotency-Key.
-
-### WR-03: O reset de PENDING/RETRYING para `retryCount` 0 reabre a cerca de token obsoleto do worker e cria cadeias de retry paralelas
-
-**Arquivos:**
-- `notify-api/src/main/java/dev/notifyhub/api/application/NotificationResetService.java:108-113`
-- `notify-common/src/main/java/dev/notifyhub/common/domain/NotificationStatus.java:36,45`
-- relacionado: `notify-worker/src/main/java/dev/notifyhub/worker/processing/NotificationStateService.java:104-106`
-
-**Problema:** o claim do worker recusa tokens obsoletos com a cerca `doc.retryCount ≤ h` (WR-01 da Fase 2). O reset grava `retryCount = 0` também para estados **não terminais**, que podem ter um token vivo em outra fila. O caso concreto é uma cópia antiga na DLQ, por exemplo depois de um reprocess cujo publish deu TIMEOUT mas foi roteado e voltou com nack, enquanto o documento segue RETRYING com token no nível h.
-
-Depois do reset, o token de nível h sai da fila de delay e encontra `retryCount = 0 ≤ h`, então é reivindicado de novo. Com isso aparecem duas cadeias para a mesma notificação:
-- tentativas e entradas em `attempts[]` em dobro;
-- a escada "comprimida";
-- duas cópias possíveis na DLQ, que no próximo reprocess geram mais cadeias.
-
-Os claims continuam exclusivos, então não há SENT duplo. Mas o histórico e as métricas de retry deixam de refletir a escada, e o `fail-until-reprocess`/`fail-N-then-ok` passa a se comportar de forma não determinística.
-
-**Correção:** para PENDING e RETRYING, prefira preservar no fim da DLQ (`skipped`) enquanto o documento tiver `updatedAt` recente. Outra opção: não zerar `retryCount` nesses estados e publicar o token com o `retryCount` atual, para manter a cerca. Se o reset de não terminais continuar, documente o trade-off no DOC-03 e cubra com um IT (RETRYING + token vivo na fila de delay + cópia na DLQ).
-
-### WR-04: `GET /notifications` sem autenticação expõe em massa os destinatários de todas as notificações
-
-**Arquivos:**
-- `notify-api/src/main/java/dev/notifyhub/api/web/dto/NotificationSummary.java:21-30`
-- `notify-api/src/main/java/dev/notifyhub/api/application/NotificationQueryService.java:80-81`
-
-**Problema:** a listagem pública e paginada (até 100 por página, sem chave) devolve `recipient` em claro, ou seja, e-mails e telefones. Antes desta fase, ler um destinatário exigia adivinhar um UUID. Agora `GET /notifications?size=100&page=N` enumera todos, e os ids devolvidos abrem o `GET /{id}` com `variables` e `rendered`.
-
-Isso contradiz o modelo de ameaça que o próprio código usa:
-- o 422 não ecoa o id "porque a API pública não tem autenticação" (`IdempotencyKeyReusedException`);
-- os logs mascaram o destinatário (`RecipientRules.mask`).
-
-O Javadoc do resumo também diz que ele exclui "PII", mas inclui o destinatário. O D-11 decidiu incluir `recipient`, mas a decisão não considerou essa exposição.
-
-**Correção:** mascare no resumo, usando a regra que já existe nos logs:
+**Correção:** no fim do laço, se `current.status() == PUBLISH_FAILED`, faça uma última tentativa cercada (`republisher.republish(current)`) em vez do publish cru. Só use o publish sem fence para PENDING. Outra opção é contar só as rodadas que terminaram em `FENCE_LOST`, e não as que terminaram por mudança observada na espera:
 ```java
-// ao montar a resposta da listagem
-new NotificationSummary(s.id(), s.status(), s.channel(), RecipientRules.mask(s.channel(), s.recipient()), ...)
+if (current.status() == NotificationStatus.PUBLISH_FAILED) {
+    RepublishOutcome last = republisher.republish(current);
+    if (last.kind() == REPUBLISHED) return replayed(current, PENDING);
+    if (last.kind() == FAILED) throw new PublishFailedException(current.id(), props.retryAfter(), last.failure());
+    current = reread(current.id());
+    if (NotificationRepublisher.wasClaimedByWorker(current.status())) return replayed(current, current.status());
+}
 ```
-A alternativa é proteger `GET /notifications` e `/stats` com o mesmo `X-API-Key` do admin (`addPathPatterns("/admin/**", "/notifications")` com exclusão do POST). No mínimo, registre o risco na seção de limitações do README.
+
+### WR-08: A falha do MongoDB depois de um publish sem confirm ainda chega ao cliente como um 500 genérico, sem `notificationId`, e numa criação sem chave isso leva a envio em dobro
+
+**Arquivos:**
+- `notify-api/src/main/java/dev/notifyhub/api/application/NotificationRepublisher.java:175-182`
+- `notify-api/src/main/java/dev/notifyhub/api/application/NotificationService.java:120-122,264-270`
+- relacionado: `notify-api/src/main/java/dev/notifyhub/api/web/ApiExceptionHandler.java` (sem handler para `DataAccessException`)
+
+**Problema:** o 03-10 só loga ERROR e relança a `DataAccessException`. Como o `ApiExceptionHandler` não a trata, ela vira o 500 padrão do Boot: sem `notificationId`, sem `Retry-After` e sem indicar que a notificação **existe** e pode ser recuperada. O mesmo vale para uma falha do Mongo no meio do replay (`reread` em `awaitPublishWindow`, ou o fence do `republish`). A sequência é esta:
+1. O cliente fez POST **sem** `Idempotency-Key`.
+2. Recebe o 500 e faz o retry natural, criando uma segunda notificação, que é entregue.
+3. Agora o 03-08 recupera a primeira: a varredura a leva a PUBLISH_FAILED depois de 2m, e o `republish-failed` do operador a entrega.
+
+O destinatário recebe duas vezes. Antes do 03-08 o órfão se perdia. Agora ele é recuperado, mas o cliente não tem como saber disso.
+
+**Correção:** no `create`, capture a `DataAccessException` que sai de `publishOrMarkFailed` e responda 503 com `Retry-After` e um problem que carregue o `notificationId` e diga que o estado é indeterminado e será reconciliado. Não afirme status nenhum:
+```java
+try {
+    failure = republisher.publishOrMarkFailed(doc);
+} catch (DataAccessException e) {
+    throw new PublishOutcomeUnknownException(id, props.retryAfter()); // 503, type publish-outcome-unknown
+}
+```
+Documente no Swagger do POST que um retry desse 503 deve usar `Idempotency-Key`, ou consultar `GET /notifications/{id}`, para não duplicar.
+
+### WR-01 (mantido do relatório anterior): Uma mensagem cujo documento não pode ser mapeado trava a cabeça da DLQ para sempre
+
+**Arquivos:** `notify-api/src/main/java/dev/notifyhub/api/admin/DlqReprocessService.java:110-128,188-193`, `notify-api/src/main/java/dev/notifyhub/api/application/NotificationResetService.java:78-88`
+**Situação:** aberto. O arquivo está fora do escopo desta passada e não foi verificado de novo.
+**Problema:** `ConversionFailedException`, `MappingInstantiationException` e o NPE de `status` nulo (`NotificationResetService.java:86`) não são `DataAccessException`. Eles viram nack+requeue para a cabeça da DLQ e um 500 a cada chamada.
+**Correção:** trate como documento ilegível, com `catch (RuntimeException)`, e copie a mensagem para o fim da DLQ. Devolva `NotResettable(null)` quando o status for nulo.
+
+### WR-03 (mantido do relatório anterior): O reset de PENDING/RETRYING para `retryCount` 0 reabre a cerca de token obsoleto do worker
+
+**Arquivos:** `notify-api/src/main/java/dev/notifyhub/api/application/NotificationResetService.java:108-113`, `notify-common/src/main/java/dev/notifyhub/common/domain/NotificationStatus.java:36,45`
+**Situação:** aberto. O arquivo está fora do escopo desta passada e não foi verificado de novo. O WR-05 acima cria mais uma fonte de tokens de nível 0 duplicados, o que agrava este achado.
+**Correção:** preserve no fim da DLQ os estados não terminais com `updatedAt` recente, ou não zere `retryCount` neles. Outra opção é documentar o trade-off e cobri-lo com um IT.
+
+### WR-04 (mantido do relatório anterior): `GET /notifications` sem autenticação expõe em massa os destinatários
+
+**Arquivos:** `notify-api/src/main/java/dev/notifyhub/api/web/dto/NotificationSummary.java:21-30`, `notify-api/src/main/java/dev/notifyhub/api/application/NotificationQueryService.java:80-81`
+**Situação:** aberto. Os arquivos estão fora do escopo desta passada e não foram verificados de novo.
+**Correção:** mascare com `RecipientRules.mask` no resumo, ou proteja a listagem e o `/stats` com o `X-API-Key`.
 
 ## Info
 
-### IN-01: Descrições do Swagger com sequências de ~20 espaços no meio do texto
+### IN-08: Interrompida, a espera do replay segue para o publish em vez de abortar
+
+**Arquivo:** `notify-api/src/main/java/dev/notifyhub/api/application/NotificationService.java:239-242`
+**Problema:** o `InterruptedException` restaura o flag e devolve `latest`. O laço então faz o toque cercado e chama `publish` com a thread interrompida. O `NotificationPublisher.awaitConfirm` (`NotificationPublisher.java:107-109`) transforma a interrupção em `PUBLISH_TIMEOUT` na hora, mesmo que o `send` já tenha saído. Com isso, o documento é marcado PUBLISH_FAILED, o cliente recebe 503 e as rodadas seguintes não esperam mais nada. Tudo isso acontece no shutdown.
+**Correção:** na interrupção, lance uma exceção 503 sem tocar nem publicar, por exemplo um `PublishFailedException` com um código `INTERRUPTED`, ou propague a interrupção.
+
+### IN-09: `UnconfirmedSweepProperties.interval` não é usado, e o intervalo não é validado
+
+**Arquivos:** `notify-api/src/main/java/dev/notifyhub/api/application/UnconfirmedSweepProperties.java:20`, `notify-api/src/main/java/dev/notifyhub/api/application/UnconfirmedPublishSweeper.java:89-90`
+**Problema:** o `@Scheduled` lê `${notify.publish.unconfirmed-sweep.interval:30s}` direto, com o padrão duplicado. O componente `interval` do record nunca é lido. Um `interval: 0s` (ou um valor negativo) não é recusado como o `after` é. Com zero, a varredura passa a rodar em laço contra o Mongo.
+**Correção:** valide `interval > 0` no construtor do sweeper e agende a partir do bean, com `fixedDelayString = "#{@unconfirmedSweepProperties.interval().toMillis()}"` ou com um `SchedulingConfigurer`. Outra opção é remover o componente do record.
+
+### IN-10: Javadocs que afirmam mais do que o código garante
 
 **Arquivos:**
-- `notify-api/src/main/java/dev/notifyhub/api/admin/AdminController.java:79,120`
-- `notify-api/src/main/java/dev/notifyhub/api/web/NotificationController.java:84`
-- `notify-api/src/main/java/dev/notifyhub/api/web/NotificationQueryController.java:74,115`
+- `notify-api/src/main/java/dev/notifyhub/api/application/PublishFailedException.java:13-15`: diz que, "se o MongoDB falhou na marcação", o documento fica PENDING. Nesse caso, porém, quem sai é a `DataAccessException`, e não este 503. O `PublishFailedException` com documento PENDING só acontece quando a releitura acha PENDING (outro ator o devolveu) ou no publish sem fence do WR-07.
+- `notify-api/src/main/java/dev/notifyhub/api/application/UnconfirmedPublishSweeper.java:31-34`: "a varredura nunca alcança uma publicação ainda em voo". O `updatedAt` da criação é o instante **anterior** ao insert (`NotificationService.java:100`). Um `basicPublish` bloqueado por alarme de memória ou disco do RabbitMQ (connection.blocked) não tem timeout. Os dois podem passar de `after`. O efeito é inofensivo, porque PUBLISH_FAILED é reivindicável, mas a garantia escrita não existe.
+- `notify-api/src/main/java/dev/notifyhub/api/application/NotificationService.java:167-168`: "sem segundo envio" (ver WR-05).
 
-**Problema:** cada text block está numa única linha física com blocos de espaços onde deveria haver quebra. Provavelmente o `\` de continuação se perdeu numa edição. O `/v3/api-docs` publica esses espaços. O `OpenApiConfiguration.java:26-31` usa `\` corretamente.
-**Correção:** quebre as linhas com `\` no fim, como no `OpenApiConfiguration`.
+**Correção:** ajuste os textos para descrever o comportamento real.
 
-### IN-02: `MAX_DESCRIPTION` com padrão e limite fixos no texto, embora sejam configuráveis
+### IN-11: Lacunas de teste nos ramos novos do replay
+
+**Arquivos:** `notify-api/src/test/java/dev/notifyhub/api/application/NotificationServiceTest.java:403-473`, `notify-it/src/test/java/dev/notifyhub/it/UnconfirmedPublishRecoveryIT.java`
+**Problema:** não há teste para:
+- o ramo "`updatedAt` trocado por outro replay" (`NotificationService.java:179-183`);
+- o esgotamento das rodadas por mudanças observadas na espera, que é o caminho do WR-07;
+- uma `DataAccessException` no `reread` durante a espera;
+- a interrupção.
+
+Nenhum IT exercita a corrida real do WR-02 (dois POSTs simultâneos com a mesma chave nova). O teste `replayThatKeepsLosingTheFencePublishesWithoutFence...` só cobre o esgotamento por `FENCE_LOST` com PENDING antigo.
+**Correção:** acrescente testes unitários com `findById` devolvendo PENDING com `updatedAt` novo em sequência, e um caso com `thenThrow(DataAccessResourceFailureException)`.
+
+### IN-05 (mantido, verificado): `NotificationRepublisher` escreve transições à mão, contra o contrato da tabela
+
+**Arquivo:** `notify-api/src/main/java/dev/notifyhub/api/application/NotificationRepublisher.java:215-219,304-308,325-327`
+**Problema:** PUBLISH_FAILED → PENDING, PENDING → PUBLISH_FAILED (`markPublishFailed`) e agora também a varredura (`markUnconfirmedAsPublishFailed`) gravam status literais, sem `canTransitionTo`. O Javadoc de `NotificationStatus` diz que os filtros "são derivados dela, nunca escritos à mão".
+**Correção:** adicione uma guarda `if (!PENDING.canTransitionTo(PUBLISH_FAILED)) throw new IllegalStateException(...)`, como o worker faz em `recordFailure`, ou corrija o Javadoc da tabela.
+
+### IN-01 (mantido): Descrições do Swagger com sequências de cerca de 20 espaços no meio do texto
+
+**Arquivos:** `notify-api/src/main/java/dev/notifyhub/api/admin/AdminController.java:79,120`, `notify-api/src/main/java/dev/notifyhub/api/web/NotificationController.java:84`, `notify-api/src/main/java/dev/notifyhub/api/web/NotificationQueryController.java:74,115`
+**Situação:** aberto (fora do escopo, não verificado). **Correção:** quebre as linhas com `\` no fim.
+
+### IN-02 (mantido): `MAX_DESCRIPTION` com padrão e limite fixos no texto
 
 **Arquivo:** `notify-api/src/main/java/dev/notifyhub/api/admin/AdminController.java:53`
-**Problema:** "padrão 100, de 1 a 1000" fica errado se `notify.admin.max-default`/`max-limit` mudarem.
-**Correção:** use um texto genérico ("de 1 a notify.admin.max-limit") ou monte a descrição via `OpenApiCustomizer` a partir de `AdminProperties`.
+**Situação:** aberto (fora do escopo, não verificado). **Correção:** use um texto genérico ou um `OpenApiCustomizer`.
 
-### IN-03: O profile demo traz uma chave de admin padrão conhecida
+### IN-03 (mantido): O profile demo traz uma chave de admin padrão conhecida
 
 **Arquivo:** `notify-api/src/main/resources/application-demo.yml:9`
-**Problema:** com `demo` ativo e sem `NOTIFY_ADMIN_API_KEY`, `/admin/**` aceita `demo-admin-key`, que é pública no repositório. É intencional, mas o compose da Fase 4 pode expor a porta.
-**Correção:** logue um WARN no startup quando a chave em uso for a de demo, e mantenha a porta da API presa a `127.0.0.1` no compose.
+**Situação:** aberto (fora do escopo, não verificado). **Correção:** logue um WARN no startup e prenda a porta a `127.0.0.1` no compose.
 
-### IN-04: Reset gravado com publish falho deixa o documento PENDING enquanto a mensagem está na DLQ
+### IN-04 (mantido, parcialmente mitigado): Reset gravado com publish falho deixa o documento PENDING enquanto a mensagem está na DLQ
 
 **Arquivo:** `notify-api/src/main/java/dev/notifyhub/api/admin/DlqReprocessService.java:195-200`
-**Problema:** depois do 503, o documento aparece como PENDING (em andamento) no GET e no stats, mas está parado na DLQ. Cada tentativa falha acrescenta mais um `REPROCESSED` ao histórico. A contagem de DEAD_LETTERED subestima o que está na DLQ. O comportamento está documentado, mas engana a operação.
-**Correção:** num publish falho depois do reset, devolva o documento ao status anterior com uma cerca condicional (PENDING + `updatedAt` gravado), ou registre no `lastError` um código `REPROCESS_PUBLISH_FAILED`.
+**Situação:** aberto (fora do escopo, não verificado). Depois de `after`, a varredura do 03-08 leva o documento a PUBLISH_FAILED/PUBLISH_UNCONFIRMED. Ele passa a ser visível, mas com um código que não aponta o reprocessamento como causa. **Correção:** volte ao status anterior com uma cerca condicional, ou grave o código `REPROCESS_PUBLISH_FAILED`.
 
-### IN-05: `NotificationRepublisher` escreve transições à mão, contra o contrato da tabela
-
-**Arquivo:** `notify-api/src/main/java/dev/notifyhub/api/application/NotificationRepublisher.java:135-140,202-208`
-**Problema:** o Javadoc de `NotificationStatus` diz que os filtros "são derivados dela, nunca escritos à mão". PUBLISH_FAILED → PENDING e PENDING → PUBLISH_FAILED estão literais aqui, sem `canTransitionTo`.
-**Correção:** adicione `assert`/guarda `NotificationStatus.PUBLISH_FAILED.canTransitionTo(PENDING)` (e o inverso), ou corrija o Javadoc da tabela.
-
-### IN-06: O `basicNack` do `finally` pode mascarar a exceção original e relatar BROKER_UNAVAILABLE
+### IN-06 (mantido): O `basicNack` do `finally` pode mascarar a exceção original
 
 **Arquivo:** `notify-api/src/main/java/dev/notifyhub/api/admin/DlqReprocessService.java:158-163`
-**Problema:** se `handle` lança um `RuntimeException` (bug) e o `basicNack` do `finally` também falha, porque o canal fechou, o `IOException` substitui a exceção original. Ela vira `AmqpException` no `execute` e é relatada como `BROKER_UNAVAILABLE`, e a causa real se perde.
-**Correção:** no `finally`, envolva o nack em try/catch e use `addSuppressed` na exceção original, ou guarde a original antes.
+**Situação:** aberto (fora do escopo, não verificado). **Correção:** envolva o nack em try/catch e use `addSuppressed`.
 
-### IN-07: `resetState()` dos ITs não espera entregas em voo (unacked)
+### IN-07 (mantido): `resetState()` dos ITs não espera entregas em voo (unacked)
 
 **Arquivo:** `notify-it/src/test/java/dev/notifyhub/it/support/EndToEndSupport.java:341-356`
-**Problema:** a espera olha só `readyCount` das filas principais e de delay. Uma mensagem que o worker está processando (unacked) pode publicar um token de retry ou uma cópia na DLQ **depois** do purge e vazar para o teste seguinte, que tem contagens exatas de DLQ (`ReprocessEdgeCasesIT.awaitReady`). O risco é baixo, porque a maioria dos testes espera o status final, mas alguns terminam com notificações em voo, como `IdempotencyIT.sameKeyWithADifferentPayloadIs422`.
-**Correção:** inclua `unackedCount(queue) == 0` (API de gerenciamento, com o `atMost` já usado) na condição de espera, ou aguarde o status final em todos os testes que criam notificações.
+**Situação:** aberto (fora do escopo, não verificado). **Correção:** inclua `unackedCount(queue) == 0` na condição de espera.
 
 ---
 
-_Revisado em: 2026-10-31T18:16:43Z_
+_Revisado em: 2026-11-01T01:00:16Z_
 _Revisor: Claude (gsd-code-reviewer)_
 _Profundidade: standard_
