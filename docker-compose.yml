@@ -35,6 +35,35 @@ services:
       retries: 6
       start_period: 20s
 
+  api:
+    # Build multi-stage com o Maven dentro do container (sem JDK no host); contexto na raiz
+    build:
+      context: .
+      dockerfile: notify-api/Dockerfile
+    environment:
+      # Profile demo: escada 1s/5s/25s. A chave admin vem do próprio profile (demo-admin-key),
+      # por isso NOTIFY_ADMIN_API_KEY não é definida aqui
+      SPRING_PROFILES_ACTIVE: demo
+      MONGODB_URI: mongodb://mongo:27017/notify
+      RABBITMQ_HOST: rabbitmq
+      # Liga as probes do actuator (readiness), usadas pelo healthcheck abaixo
+      MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+      # Credenciais: notify/notify já é o padrão de RABBITMQ_USER/RABBITMQ_PASS (ver o worker)
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      # A readiness só fica UP depois dos ApplicationRunners (índices e declaração da topologia)
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/actuator/health/readiness"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 40s
+
   worker:
     # Build multi-stage com o Maven dentro do container (sem JDK no host); contexto na raiz
     build:
@@ -45,7 +74,7 @@ services:
       SPRING_PROFILES_ACTIVE: demo
       MONGODB_URI: mongodb://mongo:27017/notify
       RABBITMQ_HOST: rabbitmq
-      # Liga /actuator/health/readiness, usado pelo healthcheck abaixo
+      # Liga as probes do actuator (readiness), usadas pelo healthcheck abaixo
       MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
       # Credenciais: notify/notify já é o padrão de RABBITMQ_USER/RABBITMQ_PASS nos dois apps
       # e bate com o RABBITMQ_DEFAULT_USER/PASS do serviço rabbitmq, então não há ENV extra

@@ -42,7 +42,16 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        # prometheus: taxa e p95 do POST /notifications e resultado do publish (D-02). Lista explícita,
+        # nunca "*" (sem env/heapdump). Sem autenticação: só contagens e latências agregadas, sem PII,
+        # e a porta escuta só no loopback ou na rede do compose (o Prometheus da Fase 4 coleta daqui)
+        include: health,info,prometheus
+  metrics:
+    distribution:
+      percentiles-histogram:
+        # Sem isto o http_server_requests_seconds sai como summary, sem buckets, e o p95 agregável
+        # do dashboard (D-02, histogram_quantile) não existe
+        http.server.requests: true
 
 notify:
   publish:
