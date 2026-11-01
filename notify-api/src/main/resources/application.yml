@@ -50,6 +50,12 @@ notify:
     confirm-timeout: 5s
     # Valor do header Retry-After no 503
     retry-after: 5s
+    unconfirmed-sweep:
+      # Idade mínima do updatedAt para um PENDING sem claim virar PUBLISH_FAILED (PUBLISH_UNCONFIRMED).
+      # Precisa ser >= 3x confirm-timeout, senão a API não sobe: a varredura nunca alcança uma publicação em voo
+      after: 2m
+      # Atraso entre o fim de uma varredura e o início da próxima
+      interval: 30s
   admin:
     # Chave exigida no header X-API-Key dos endpoints /admin/**. Vazia = toda chamada recebe 401
     # (fail closed); a demo define NOTIFY_ADMIN_API_KEY

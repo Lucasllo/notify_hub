@@ -1,9 +1,11 @@
 package dev.notifyhub.api.application;
 
 import dev.notifyhub.api.messaging.PublishProperties;
+import java.time.Duration;
 import java.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -25,17 +27,36 @@ import org.springframework.stereotype.Component;
  * <p>Um falso positivo (fila com backlog maior que {@code after}) é inofensivo: PUBLISH_FAILED continua
  * reivindicável pelo worker, que entrega a mensagem normalmente, e o {@code markSent} remove o
  * {@code lastError}.
+ *
+ * <p><b>Corte validado no startup.</b> {@code after} precisa ser ≥ {@value #MIN_AFTER_FACTOR}×
+ * {@code notify.publish.confirm-timeout}; senão o construtor lança {@link IllegalStateException} e a API
+ * não sobe. Com essa folga, a varredura nunca alcança uma publicação ainda em voo (que espera o confirm
+ * por até {@code confirm-timeout} depois do insert ou do fence do republish) nem a janela do replay.
+ *
+ * <p><b>MongoDB fora.</b> Uma {@link DataAccessException} numa varredura vira só um WARN com o nome da
+ * classe da exceção, nunca o texto (T-02-01), e a varredura devolve 0. A próxima execução agendada
+ * tenta de novo, sem retry em laço.
  */
 @Component
 public class UnconfirmedPublishSweeper {
 
     private static final Logger log = LoggerFactory.getLogger(UnconfirmedPublishSweeper.class);
 
+    /** {@code after} mínimo, em múltiplos de {@code notify.publish.confirm-timeout}. */
+    static final int MIN_AFTER_FACTOR = 3;
+
     private final NotificationRepublisher republisher;
     private final UnconfirmedSweepProperties props;
 
     public UnconfirmedPublishSweeper(NotificationRepublisher republisher, UnconfirmedSweepProperties props,
                                      PublishProperties publishProps) {
+        Duration minimum = publishProps.confirmTimeout().multipliedBy(MIN_AFTER_FACTOR);
+        if (props.after().compareTo(minimum) < 0) {
+            throw new IllegalStateException("notify.publish.unconfirmed-sweep.after (" + props.after()
+                    + ") precisa ser no mínimo " + MIN_AFTER_FACTOR + "x notify.publish.confirm-timeout ("
+                    + publishProps.confirmTimeout() + "), ou seja, " + minimum
+                    + ", para a varredura nunca alcançar uma publicação em voo");
+        }
         this.republisher = republisher;
         this.props = props;
     }
@@ -44,11 +65,19 @@ public class UnconfirmedPublishSweeper {
      * Uma varredura: marca PUBLISH_FAILED os PENDING sem claim com {@code updatedAt} anterior a
      * agora − {@code after}.
      *
-     * @return quantos documentos foram marcados
+     * @return quantos documentos foram marcados; 0 também quando o MongoDB está fora
      */
     public long sweep() {
         Instant cutoff = Instant.now().minus(props.after());
-        long marked = republisher.markUnconfirmedAsPublishFailed(cutoff);
+        long marked;
+        try {
+            marked = republisher.markUnconfirmedAsPublishFailed(cutoff);
+        } catch (DataAccessException e) {
+            // T-02-01: só o nome da classe, nunca o texto da exceção do driver
+            log.warn("Varredura de PENDING sem confirm não executada: MongoDB indisponível ({}); tentando de novo"
+                    + " na próxima execução", e.getClass().getSimpleName());
+            return 0;
+        }
         if (marked > 0) {
             // Sem ids nem destinatários no log (T-02-01)
             log.warn("{} notificações PENDING sem confirm há mais de {} marcadas PUBLISH_FAILED (PUBLISH_UNCONFIRMED);"
