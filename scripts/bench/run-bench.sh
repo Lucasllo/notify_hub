@@ -8,7 +8,9 @@
 #
 # Uso (a partir de qualquer pasta; o script vai para a raiz do repositório):
 #   bash scripts/bench/run-bench.sh [--calibrar] [--varredura] [--sem-build] [--manter]
-#     --calibrar   uma rodada por modo com N_CAL notificações e sugere N e W para as rodadas oficiais
+#     (sem flag)   protocolo oficial: BENCH_REPETICOES rodadas por modo, intercaladas (vt1, pt1, vt2,
+#                  pt2...), mais uma rodada com JFR fora da mediana, e o resumo com mediana, mínimo e máximo
+#     --calibrar   só uma rodada por modo com N_CAL notificações e sugere N e W para as rodadas oficiais
 #     --varredura  depois das rodadas oficiais, uma rodada por modo com C=50 e C=500
 #     --sem-build  não reconstrói as imagens da api e do worker
 #     --manter     não derruba o projeto notify-bench no fim (para olhar o Grafana ou o RabbitMQ)
@@ -29,8 +31,12 @@
 # Duração esperada: a calibração leva uns 10 minutos; as rodadas oficiais com --varredura, de 40 a
 # 60 minutos, dependendo da máquina.
 #
-# Resultados em target/bench/ (ignorado pelo git): resultados.csv (uma linha por rodada, de todas as
-# execuções), k6-<tag>.log (saída do k6 de cada rodada).
+# Resultados em target/bench/ (ignorado pelo git):
+#   resumo.txt       ambiente, parâmetros, mediana/mín/máx por modo, contagem de pinning e varredura
+#   resultados.csv   uma linha por rodada, de todas as execuções (a coluna execucao separa uma da outra)
+#   worker-vt.jfr    gravação JFR da rodada vt-jfr; jfr-pinned.txt traz os eventos jdk.VirtualThreadPinned
+#   k6-<tag>.log     saída do k6 de cada rodada; build.log, saída do build das imagens
+# Para guardar a saída inteira: bash scripts/bench/run-bench.sh --varredura > target/bench/execucao.log 2>&1
 #
 # Atenção: o benchmark roda num projeto compose separado (notify-bench), com volumes próprios, mas usa
 # as mesmas portas do host que a demo. Por isso o script PARA a demo (docker compose stop, sem apagar
@@ -113,6 +119,29 @@ rss_worker_mib() {
 
 maior() { awk -v a="$1" -v b="$2" 'BEGIN { print (a + 0 >= b + 0) ? a : b }'; }
 
+# Valores de uma coluna do CSV para as rodadas desta execução cujo tag casa com a regex.
+# Colunas: 8 = msgs_por_s, 9 = pico_threads, 10 = rss_max_mib.
+coluna() { awk -F, -v e="$EXECUCAO" -v r="$1" -v c="$2" '$1 == e && $2 ~ r { print $c }' "$CSV"; }
+
+# Mediana da entrada (um número por linha): elemento central; com quantidade par, média dos dois centrais.
+mediana() {
+  sort -g | awk '{ a[NR] = $1 } END {
+    if (NR == 0) { print "n/a"; exit }
+    if (NR % 2) print a[(NR + 1) / 2]; else print (a[NR / 2] + a[NR / 2 + 1]) / 2
+  }'
+}
+minimo() { sort -g | head -n 1; }
+maximo() { sort -g | tail -n 1; }
+
+# Linha "<modo> mediana_msgs=... min_msgs=... max_msgs=... mediana_pico_threads=... mediana_rss_mib=..."
+# das rodadas oficiais (tags vtN ou ptN; JFR e varredura ficam de fora).
+linha_modo() {
+  local nome=$1 regex=$2
+  echo "$nome mediana_msgs=$(coluna "$regex" 8 | mediana) min_msgs=$(coluna "$regex" 8 | minimo)" \
+    "max_msgs=$(coluna "$regex" 8 | maximo) mediana_pico_threads=$(coluna "$regex" 9 | mediana)" \
+    "mediana_rss_mib=$(coluna "$regex" 10 | mediana)"
+}
+
 # Filas do Notify Hub com mensagens prontas (nome por linha).
 filas_com_mensagens() {
   MSYS_NO_PATHCONV=1 "${COMPOSE[@]}" exec -T rabbitmq rabbitmqctl -q list_queues name messages | tr -d '\r' |
@@ -151,8 +180,10 @@ rodada() {
   [ "$pendentes" = "$total" ] && [ "$falhas" = "0" ] ||
     falhou "backlog da rodada $tag inválido: PENDING=$pendentes (esperado $total) PUBLISH_FAILED=$falhas"
 
-  # 4. worker num container novo (JVM nova) com o modo da rodada
-  BENCH_VIRTUAL_THREADS=$vt BENCH_C=$c "${COMPOSE[@]}" up -d --wait --no-deps --force-recreate worker >/dev/null 2>&1 ||
+  # 4. worker num container novo (JVM nova) com o modo da rodada. MSYS_NO_PATHCONV também vale para as
+  #    ENVs: sem ele o Git Bash trocaria o /tmp/worker.jfr do BENCH_JAVA_TOOL_OPTIONS por um caminho do Windows
+  MSYS_NO_PATHCONV=1 BENCH_VIRTUAL_THREADS=$vt BENCH_C=$c \
+    "${COMPOSE[@]}" up -d --wait --no-deps --force-recreate worker >/dev/null 2>&1 ||
     falhou "o worker não ficou saudável na rodada $tag (veja: ${COMPOSE[*]} logs worker)"
 
   # 5. drenagem, registrando o pico de memória e de espera no pool do MongoDB
@@ -221,6 +252,101 @@ if $CALIBRAR; then
   # Janela medida de ~30s na maior vazão (e nunca menos de 30000 notificações)
   SUGESTAO_N=$(awk -v x="$MAIOR_MSGS" 'BEGIN { n = x * 30 / 1000; c = int(n); if (c < n) c++; c *= 1000; if (c < 30000) c = 30000; print c }')
   echo "CALIBRACAO maior_msgs=$MAIOR_MSGS sugestao_n=$SUGESTAO_N sugestao_w=$((SUGESTAO_N / 5))"
+fi
+
+# ---------------------------------------------------------------------------------------------
+# Protocolo oficial (modo padrão): ambiente, rodadas intercaladas, JFR, varredura e resumo
+# ---------------------------------------------------------------------------------------------
+
+if ! $CALIBRAR; then
+  # Ambiente declarado: CPU vista de dentro de um container, recursos da VM do Docker e a JVM das imagens
+  CPU=$(MSYS_NO_PATHCONV=1 "${COMPOSE[@]}" exec -T api grep -m1 "model name" /proc/cpuinfo | tr -d '\r' | cut -d: -f2- | sed 's/^ *//')
+  NCPU=$(docker info --format '{{.NCPU}}' | tr -d '\r')
+  MEM_GIB=$(awk -v b="$(docker info --format '{{.MemTotal}}' | tr -d '\r')" 'BEGIN { printf "%.1f", b / 1073741824 }')
+  DOCKER_VERSAO=$(docker info --format '{{.ServerVersion}}' | tr -d '\r')
+  SO=$(docker info --format '{{.OperatingSystem}}' | tr -d '\r')
+  JVM=$(MSYS_NO_PATHCONV=1 "${COMPOSE[@]}" exec -T api java -version 2>&1 | tr -d '\r' | head -n 1)
+  info "ambiente: cpu=\"$CPU\" ncpu=$NCPU memoria_gib=$MEM_GIB docker=$DOCKER_VERSAO so=\"$SO\" jvm=$JVM"
+  # Outros containers na mesma VM do Docker competem por CPU e memória: ficam registrados no log
+  OUTROS=$(docker ps --format '{{.Names}}' | tr -d '\r' | grep -v '^notify-bench-' || true)
+  if [ -n "$OUTROS" ]; then
+    # shellcheck disable=SC2086
+    info "outros containers no ar (carga concorrente): $(docker stats --no-stream --format '{{.Name}} cpu={{.CPUPerc}} mem={{.MemUsage}}' $OUTROS | tr -d '\r' | paste -sd ';' -)"
+  else
+    info "outros containers no ar: nenhum"
+  fi
+
+  # Rodadas oficiais intercaladas (vt1, pt1, vt2, pt2...): dilui deriva térmica e de cache entre os modos
+  for i in $(seq 1 "$BENCH_REPETICOES"); do
+    rodada "vt$i" true "$BENCH_C" "$BENCH_N" "$BENCH_W"
+    rodada "pt$i" false "$BENCH_C" "$BENCH_N" "$BENCH_W"
+  done
+
+  # Rodada com JFR (fora da mediana: o Flight Recorder tem custo próprio). Limiar de 1ms para
+  # jdk.VirtualThreadPinned (o padrão do JDK é 20ms). O dump acontece na saída da JVM, por isso o
+  # worker para com SIGTERM (docker compose stop) antes da cópia
+  export BENCH_JAVA_TOOL_OPTIONS="-XX:StartFlightRecording=filename=/tmp/worker.jfr,settings=profile,jdk.VirtualThreadPinned#threshold=1ms"
+  rodada vt-jfr true "$BENCH_C" "$BENCH_N" "$BENCH_W"
+  unset BENCH_JAVA_TOOL_OPTIONS
+  "${COMPOSE[@]}" stop worker >/dev/null 2>&1
+  rm -f "$BENCH_DIR/worker-vt.jfr"
+  if ! MSYS_NO_PATHCONV=1 "${COMPOSE[@]}" cp worker:/tmp/worker.jfr "$BENCH_DIR/worker-vt.jfr" >/dev/null 2>&1; then
+    # Fallback: docker cp direto no container parado do worker
+    WORKER_CID=$("${COMPOSE[@]}" ps -aq worker | tr -d '\r')
+    MSYS_NO_PATHCONV=1 docker cp "$WORKER_CID:/tmp/worker.jfr" "$BENCH_DIR/worker-vt.jfr" >/dev/null 2>&1 || true
+  fi
+  [ -s "$BENCH_DIR/worker-vt.jfr" ] ||
+    falhou "gravação JFR ausente ou vazia ($BENCH_DIR/worker-vt.jfr): a JVM do worker não gravou o arquivo na saída"
+  MSYS_NO_PATHCONV=1 "${COMPOSE[@]}" cp "$BENCH_DIR/worker-vt.jfr" api:/tmp/worker-vt.jfr >/dev/null 2>&1 ||
+    falhou "não deu para copiar o JFR para o container api"
+  # Lido com o jfr da imagem (eclipse-temurin:21-jre tem jfr, não tem jcmd); root se a cópia ficou sem leitura
+  JFR_SUMMARY=$(MSYS_NO_PATHCONV=1 "${COMPOSE[@]}" exec -T api jfr summary /tmp/worker-vt.jfr 2>&1 | tr -d '\r' ||
+    MSYS_NO_PATHCONV=1 "${COMPOSE[@]}" exec -T -u 0 api jfr summary /tmp/worker-vt.jfr 2>&1 | tr -d '\r' || true)
+  PINNED=$(awk '$1 == "jdk.VirtualThreadPinned" { print $2; exit }' <<<"$JFR_SUMMARY")
+  [ -n "$PINNED" ] || {
+    echo "$JFR_SUMMARY" | tail -n 20
+    falhou "jfr summary sem a linha jdk.VirtualThreadPinned: a gravação está vazia ou o evento não foi habilitado"
+  }
+  MSYS_NO_PATHCONV=1 "${COMPOSE[@]}" exec -T -u 0 api jfr print --stack-depth 32 --events jdk.VirtualThreadPinned /tmp/worker-vt.jfr |
+    tr -d '\r' >"$BENCH_DIR/jfr-pinned.txt" || true
+  ok "JFR gravado em $BENCH_DIR/worker-vt.jfr: jdk.VirtualThreadPinned=$PINNED (detalhes em $BENCH_DIR/jfr-pinned.txt)"
+
+  # Varredura de concorrência: uma rodada por modo, só para mostrar como as threads crescem com C
+  if $VARREDURA; then
+    for c in 50 500; do
+      rodada "vt-c$c" true "$c" "$BENCH_N" "$BENCH_W"
+      rodada "pt-c$c" false "$c" "$BENCH_N" "$BENCH_W"
+    done
+  fi
+
+  # Resumo, reescrito a cada execução
+  RESUMO="$BENCH_DIR/resumo.txt"
+  {
+    echo "data=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "hardware=cpu=\"$CPU\" ncpu=$NCPU memoria_gib=$MEM_GIB docker=$DOCKER_VERSAO so=\"$SO\""
+    echo "jvm=$JVM"
+    echo "parametros c=$BENCH_C n=$BENCH_N w=$BENCH_W latencia=$BENCH_LATENCIA pool=$BENCH_POOL prefetch=10 repeticoes=$BENCH_REPETICOES"
+    linha_modo virtual '^vt[0-9]+$'
+    linha_modo plataforma '^pt[0-9]+$'
+    echo "jfr virtual_thread_pinned=$PINNED"
+    if $VARREDURA; then
+      for c in 50 500; do
+        echo "varredura c=$c virtual msgs=$(coluna "^vt-c$c\$" 8) pico_threads=$(coluna "^vt-c$c\$" 9) rss_mib=$(coluna "^vt-c$c\$" 10)"
+        echo "varredura c=$c plataforma msgs=$(coluna "^pt-c$c\$" 8) pico_threads=$(coluna "^pt-c$c\$" 9) rss_mib=$(coluna "^pt-c$c\$" 10)"
+      done
+    fi
+  } >"$RESUMO"
+
+  # Sanidade do modo: com threads de plataforma, cada um dos 3 x C consumidores tem a sua thread do SO.
+  # Se o pico não passar de 3 x C, ou não for maior que o do modo virtual, o modo não foi aplicado
+  PICO_PT=$(coluna '^pt[0-9]+$' 9 | mediana)
+  PICO_VT=$(coluna '^vt[0-9]+$' 9 | mediana)
+  awk -v p="$PICO_PT" -v v="$PICO_VT" -v c="$BENCH_C" 'BEGIN { exit !(p + 0 >= 3 * c && p + 0 > v + 0) }' ||
+    falhou "sanidade do modo: mediana do pico de threads de plataforma no modo plataforma ($PICO_PT) precisa ser >= 3 x C ($((3 * BENCH_C))) e maior que a do modo virtual ($PICO_VT)"
+  ok "sanidade do modo: pico de threads plataforma=$PICO_PT >= $((3 * BENCH_C)) e > virtual=$PICO_VT"
+
+  echo "==== $RESUMO ===="
+  cat "$RESUMO"
 fi
 
 # ---------------------------------------------------------------------------------------------
