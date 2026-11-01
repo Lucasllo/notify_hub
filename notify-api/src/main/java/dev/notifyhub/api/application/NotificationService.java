@@ -93,8 +93,9 @@ public class NotificationService {
         log.info("Notificação {} criada (canal={}, destinatário={})", id, request.channel(),
                 RecipientRules.mask(request.channel(), request.recipient()));
 
-        // Sem confirm e com o documento marcado PUBLISH_FAILED: 503 com Retry-After. Sem confirm, mas com
-        // o worker já tendo reivindicado (update condicional casou 0), a mensagem chegou: segue o 202
+        // Sem confirm e sem evidência de claim do worker: 503 com Retry-After. Sem confirm, mas com a
+        // releitura mostrando o claim do worker (NotificationRepublisher.wasClaimedByWorker), a mensagem
+        // chegou: segue o 202
         republisher.publishOrMarkFailed(doc).ifPresent(result -> {
             throw new PublishFailedException(id, props.retryAfter(), result);
         });

@@ -32,8 +32,10 @@ import org.springframework.stereotype.Service;
  *
  * <p>Transições, todas condicionais ao status lido (Padrão 4b):
  * <ul>
- *   <li>publish sem confirm: PENDING → PUBLISH_FAILED. Se o update casar 0 documentos, o worker já
- *       reivindicou a notificação, ou seja, a mensagem chegou (Armadilha 4 da Fase 1);</li>
+ *   <li>publish sem confirm: PENDING → PUBLISH_FAILED. Se o update casar 0 documentos, o documento é
+ *       relido: só um status com {@link #wasClaimedByWorker evidência de claim} mostra que o worker já
+ *       reivindicou a notificação, ou seja, que a mensagem chegou (Armadilha 4 da Fase 1). PUBLISH_FAILED
+ *       (gravado pela varredura ou por outro republish), PENDING ou documento ausente contam como falha;</li>
  *   <li>republish: PUBLISH_FAILED → PENDING antes do publish confirmado. Se casar 0 documentos, outro
  *       caminho já agiu (o worker ou outro republish) e nada é publicado, o que evita um segundo envio
  *       ao destinatário (T-03-22);</li>
@@ -116,11 +118,35 @@ public class NotificationRepublisher {
     }
 
     /**
+     * Evidência de que o worker reivindicou a notificação, ou seja, de que a mensagem chegou ao broker.
+     *
+     * <p>Pela tabela de {@link NotificationStatus}, sair de PENDING ou de PUBLISH_FAILED para um status
+     * que não seja um desses dois só acontece pelo claim do worker (→ PROCESSING); todo status posterior
+     * (SENT, RETRYING, FAILED, DEAD_LETTERED) passa antes por PROCESSING. PENDING e PUBLISH_FAILED, ao
+     * contrário, podem ser gravados pela própria API (republish, varredura de publicações sem confirm)
+     * sem que mensagem alguma tenha chegado, então não provam nada.
+     *
+     * @param status status atual relido do documento; nulo quando o documento não existe
+     * @return {@code true} só para status não nulo e diferente de PENDING e de PUBLISH_FAILED
+     */
+    public static boolean wasClaimedByWorker(NotificationStatus status) {
+        return status != null
+                && status != NotificationStatus.PENDING
+                && status != NotificationStatus.PUBLISH_FAILED;
+    }
+
+    /**
      * Publica a notificação com confirm. Sem confirm, faz PENDING → PUBLISH_FAILED condicional.
      *
-     * @return vazio se o broker confirmou, ou se o update condicional casou 0 documentos (o worker já
-     *         reivindicou, então a mensagem chegou); o {@link PublishResult} da falha se o documento
-     *         ficou PUBLISH_FAILED
+     * <p>Se o update condicional casar 0 documentos, isso não basta para concluir que o worker reivindicou
+     * a notificação: a varredura de publicações sem confirm ({@link #markUnconfirmedAsPublishFailed}) ou
+     * outro republish podem ter mudado o status antes. O documento é relido, e só um status com
+     * {@link #wasClaimedByWorker evidência de claim} segue como publicado. PUBLISH_FAILED, PENDING ou
+     * documento ausente contam como falha.
+     *
+     * @return vazio se o broker confirmou, ou se o update condicional casou 0 documentos e a releitura
+     *         mostra o claim do worker (a mensagem chegou); o {@link PublishResult} da falha nos demais
+     *         casos sem confirm
      */
     public Optional<PublishResult> publishOrMarkFailed(NotificationDocument doc) {
         PublishResult result = publisher.publish(
@@ -132,9 +158,16 @@ public class NotificationRepublisher {
         if (markPublishFailed(doc.id(), result)) {
             return Optional.of(result);
         }
-        log.info("Publicação da notificação {} sem confirm ({}), mas o worker já a reivindicou; seguindo como publicada",
-                doc.id(), result.errorCode());
-        return Optional.empty();
+        NotificationDocument current = mongoTemplate.findById(doc.id(), NotificationDocument.class);
+        NotificationStatus status = current != null ? current.status() : null;
+        if (wasClaimedByWorker(status)) {
+            log.info("Publicação da notificação {} sem confirm ({}), mas o worker já a reivindicou (status {});"
+                    + " seguindo como publicada", doc.id(), result.errorCode(), status);
+            return Optional.empty();
+        }
+        log.warn("Publicação da notificação {} sem confirm ({}) e sem evidência de claim do worker (status {});"
+                + " tratada como falha", doc.id(), result.errorCode(), status != null ? status : "ausente");
+        return Optional.of(result);
     }
 
     /**

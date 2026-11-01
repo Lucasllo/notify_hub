@@ -9,8 +9,11 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.web.ErrorResponseException;
 
 /**
- * O broker não confirmou a publicação e a notificação ficou PUBLISH_FAILED: 503 com
- * {@code Retry-After} (D-04). O corpo cita só o id e o código do erro, nunca a mensagem interna.
+ * O broker não confirmou a publicação e não há evidência de que o worker tenha reivindicado a
+ * notificação: 503 com {@code Retry-After} (D-04). O documento fica PUBLISH_FAILED ou, se o MongoDB
+ * falhou na marcação, PENDING até a varredura de publicações sem confirm levá-lo a PUBLISH_FAILED. Por
+ * isso o detail não afirma o status gravado. O corpo cita só o id e o código do erro, nunca a mensagem
+ * interna.
  */
 public class PublishFailedException extends ErrorResponseException {
 
@@ -28,8 +31,8 @@ public class PublishFailedException extends ErrorResponseException {
         ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.SERVICE_UNAVAILABLE);
         problem.setType(ProblemTypes.PUBLISH_FAILED);
         problem.setTitle("Publicação não confirmada");
-        problem.setDetail("A notificação " + notificationId + " foi registrada como PUBLISH_FAILED porque o broker"
-                + " não confirmou a publicação (" + result.errorCode() + "). Tente novamente mais tarde.");
+        problem.setDetail("O broker não confirmou a publicação da notificação " + notificationId
+                + " (" + result.errorCode() + "). Tente novamente mais tarde.");
         problem.setProperty("notificationId", notificationId);
         return problem;
     }
