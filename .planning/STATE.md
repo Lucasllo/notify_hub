@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 03
 current_phase_name: Reprocessamento, API operacional e testes de integração
 status: executing
-stopped_at: Completed 03-10-PLAN.md
-last_updated: "2026-11-01T00:28:11.482Z"
+stopped_at: Completed 03-09-PLAN.md
+last_updated: "2026-11-01T00:52:41.614Z"
 last_activity: 2026-10-31
 last_activity_desc: Phase 03 execution started
-state_head: 3a175f092fa25652a87127b39287605292c05981
+state_head: 6234b416124a890d9ab463011fa0936d9578f2b1
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 25
-  completed_plans: 24
+  completed_plans: 25
   percent: 50
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-10-13)
 ## Current Position
 
 Phase: 03 (Reprocessamento, API operacional e testes de integração) — EXECUTING
-Plan: 3 of 10
+Plan: 4 of 10
 Status: Ready to execute
 Last activity: 2026-10-31 — Phase 03 execution started
 
@@ -81,6 +81,7 @@ Progress: [█████░░░░░] 50%
 | Phase 03 P07 | 18min | 2 tasks | 8 files |
 | Phase 03 P08 | 24min | 2 tasks | 8 files |
 | Phase 03 P10 | 16min | 2 tasks | 7 files |
+| Phase 03 P09 | 21min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -142,6 +143,10 @@ Recent decisions affecting current work:
 - [Phase 03]: 03-07: chave da demo demo-admin-key só no profile demo (${NOTIFY_ADMIN_API_KEY:demo-admin-key}); profile base vazio e fail closed
 - [Phase 03]: 03-08: PENDING sem claim e sem confirm vira PUBLISH_FAILED (PUBLISH_UNCONFIRMED) por varredura agendada na API (updateMulti cercado por PENDING + updatedAt < corte + claimedAt nulo); corte padrão 2m, validado em >= 3x confirm-timeout no startup
 - [Phase 03]: 03-10: update PENDING → PUBLISH_FAILED que casa 0 é relido; só wasClaimedByWorker (não nulo, fora de PENDING/PUBLISH_FAILED) segue como publicado, o resto vira 503/FAILED; DataAccessException na marcação ou releitura gera ERROR com id+código e é relançada; details dos 503 não afirmam o status gravado
+- [Phase 03]: 03-09: todo 202 de replay com Idempotency-Key se apoia num confirm próprio do broker ou em wasClaimedByWorker; PENDING sozinho nunca basta
+- [Phase 03]: 03-09: replay de PENDING com a janela vencida (updatedAt + 2x confirm-timeout) republica com fence status PENDING + updatedAt lido, só tocando updatedAt
+- [Phase 03]: 03-09: dentro da janela, o replay espera (polling de 100ms) o documento sair de PENDING ou ter o updatedAt trocado; no fim da janela republica com fence (WR-02)
+- [Phase 03]: 03-09: laço do replay limitado a 3 rodadas; esgotado, publica sem fence e responde pelo próprio confirm
 
 ### Pending Todos
 
@@ -173,6 +178,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-01T00:28:11.173Z
-Stopped at: Completed 03-10-PLAN.md
+Last session: 2026-11-01T00:52:41.156Z
+Stopped at: Completed 03-09-PLAN.md
 Resume file: None
