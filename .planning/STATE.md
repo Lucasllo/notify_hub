@@ -3,16 +3,16 @@ gsd_state_version: "1.0"
 current_phase: 04
 current_phase_name: Observabilidade, demo e documentação
 status: executing
-stopped_at: Completed 04-01-PLAN.md
-last_updated: "2026-11-01T21:45:07.570Z"
+stopped_at: Completed 04-02-PLAN.md
+last_updated: "2026-11-01T22:42:07.754Z"
 last_activity: 2026-11-01
 last_activity_desc: Phase 04 execution started
-state_head: 2b3ef61dc23af7c2a749b5acd4cdcf57848b82a7
+state_head: 5447cc0f9d458ac2840532aead107b40d0c68845
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 30
-  completed_plans: 26
+  completed_plans: 27
   percent: 75
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-11-01)
 ## Current Position
 
 Phase: 04 (Observabilidade, demo e documentação) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-11-01 — Phase 04 execution started
 
@@ -84,6 +84,7 @@ Progress: [████████░░] 75%
 | Phase 03 P10 | 16min | 2 tasks | 7 files |
 | Phase 03 P09 | 21min | 2 tasks | 5 files |
 | Phase 04 P01 | 22 min | 3 tasks | 10 files |
+| Phase 04 P02 | 6 min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -152,6 +153,8 @@ Recent decisions affecting current work:
 - [Phase 04]: Imagens da API e do worker: build multi-stage com os 4 POMs, cache notify-m2 e só o exec.jar no runtime; usuário app (uid 999), java como PID 1
 - [Phase 04]: Queries PromQL em scripts do Git Bash usam MSYS_NO_PATHCONV=1 (o seletor uri com barra vira caminho do Windows)
 - [Phase 04]: Smokes com jars locais (Fases 1 e 2) param os containers api/worker e sobem só rabbitmq e mongo pelo compose
+- [Phase 04]: 04-02: contrato notify.publish.outcomes{outcome,reason} fixado com 7 séries pré-registradas (confirmed/none|claimed, publish_failed/nack|returned|timeout|broker_unavailable|unconfirmed)
+- [Phase 04]: 04-02: falha do MongoDB em publishOrMarkFailed não conta; a varredura conta o documento depois como publish_failed/unconfirmed. Reprocessamento da DLQ fica fora do contador
 
 ### Pending Todos
 
@@ -183,6 +186,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-01T21:44:52.876Z
-Stopped at: Completed 04-01-PLAN.md
+Last session: 2026-11-01T22:42:07.416Z
+Stopped at: Completed 04-02-PLAN.md
 Resume file: None

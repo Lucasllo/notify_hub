@@ -69,7 +69,7 @@
 ### Observabilidade (OBS)
 
 - [x] **OBS-01**: O worker publica contadores Micrometer de enviadas, falhas e retries por canal (tags de baixa cardinalidade, pré-registrados) e um timer de latência de envio
-- [ ] **OBS-02**: Prometheus coleta métricas da API, do worker e do RabbitMQ (`rabbitmq_prometheus`)
+- [x] **OBS-02**: Prometheus coleta métricas da API, do worker e do RabbitMQ (`rabbitmq_prometheus`)
 - [ ] **OBS-03**: O Grafana sobe com datasource e dashboard provisionados: throughput, resultados, retries por nível, profundidade das DLQs, latência p95 e estado do circuit breaker
 
 ### Testes (TST)
@@ -164,7 +164,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ADM-03 | Phase 3 | Complete |
 | ADM-04 | Phase 3 | Complete |
 | OBS-01 | Phase 2 | Complete |
-| OBS-02 | Phase 4 | Pending |
+| OBS-02 | Phase 4 | Complete |
 | OBS-03 | Phase 4 | Pending |
 | TST-01 | Phase 2 | Complete |
 | TST-02 | Phase 3 | Complete |
