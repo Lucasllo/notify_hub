@@ -11,9 +11,12 @@ import dev.notifyhub.common.domain.NotificationStatus;
 import dev.notifyhub.common.domain.RecipientRules;
 import dev.notifyhub.common.persistence.NotificationDocument;
 import dev.notifyhub.common.persistence.NotificationDocument.Fields;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
@@ -40,6 +43,9 @@ public class NotificationService {
 
     /** Janela de publicação de um PENDING: {@code updatedAt} + este fator × {@code confirm-timeout}. */
     static final int PUBLISH_WINDOW_FACTOR = 2;
+
+    /** Intervalo de releitura do replay que espera a evidência de um PENDING recente (WR-02). */
+    static final Duration REPLAY_POLL_INTERVAL = Duration.ofMillis(100);
 
     private final MongoTemplate mongoTemplate;
     private final NotificationRepublisher republisher;
@@ -73,7 +79,9 @@ public class NotificationService {
      * ou evidência de claim: o documento já reivindicado pelo worker responde com o status <b>atual</b>,
      * sem publicar de novo (D-07); PUBLISH_FAILED (D-08) e PENDING sem confirm (janela de publicação
      * vencida, Gap 1) são republicados pelo mesmo serviço do {@code republish-failed}, com fence pelo
-     * status lido, e respondem 202 PENDING ou 503 com {@code Retry-After} (ver {@code replay}).
+     * status lido, e respondem 202 PENDING ou 503 com {@code Retry-After}; PENDING ainda dentro da janela
+     * espera a evidência antes de responder, para o perdedor de uma corrida nunca confirmar antes do
+     * vencedor (WR-02; ver {@code replay}).
      * Com outro hash, {@link IdempotencyKeyReusedException} (422), antes de qualquer leitura extra, sem
      * criar documento nem publicar.
      *
@@ -145,8 +153,10 @@ public class NotificationService {
      * <p>Laço sobre o documento corrente, limitado a {@link #MAX_REPLAY_ROUNDS} rodadas. Em cada uma:
      * <ol>
      *   <li>reivindicado pelo worker → 202 com o status atual, sem publicar (D-07);</li>
-     *   <li>PENDING dentro da {@link #publishWindowEnd janela de publicação} → 202 com o status atual
-     *       (comportamento do 03-04);</li>
+     *   <li>PENDING dentro da {@link #publishWindowEnd janela de publicação} → {@link #awaitPublishWindow
+     *       espera a evidência} (WR-02). Se o documento mudou (status ou {@code updatedAt}), ele vira o
+     *       corrente e o laço passa à próxima rodada; se continua igual no fim da janela, segue para o
+     *       republish cercado desta mesma rodada;</li>
      *   <li>PUBLISH_FAILED (D-08) ou PENDING com a janela vencida → {@link NotificationRepublisher#republish}
      *       cercado pelo status lido, o mesmo serviço do {@code republish-failed}. Republicada → 202 PENDING;
      *       publish sem confirm → 503 com {@code Retry-After}; fence perdido → relê e decide na rodada
@@ -164,7 +174,14 @@ public class NotificationService {
                 return replayed(current, current.status());
             }
             if (current.status() == NotificationStatus.PENDING && Instant.now().isBefore(publishWindowEnd(current))) {
-                return replayed(current, current.status());
+                // WR-02: quem publicou esse PENDING ainda pode estar esperando o confirm
+                NotificationDocument latest = awaitPublishWindow(current);
+                if (latest.status() != current.status() || !Objects.equals(latest.updatedAt(), current.updatedAt())) {
+                    // reivindicado, PUBLISH_FAILED (D-08) ou tocado por outro replay: decide na próxima rodada
+                    current = latest;
+                    continue;
+                }
+                // ainda PENDING no fim da janela: segue para o republish cercado desta rodada
             }
             NotificationRepublisher.RepublishOutcome outcome = republisher.republish(current);
             switch (outcome.kind()) {
@@ -186,6 +203,43 @@ public class NotificationService {
             throw new PublishFailedException(id, props.retryAfter(), result);
         });
         return replayed(current, NotificationStatus.PENDING);
+    }
+
+    /**
+     * WR-02: espera a evidência de um PENDING ainda dentro da {@link #publishWindowEnd janela de
+     * publicação}. Relê o documento a cada {@link #REPLAY_POLL_INTERVAL} (ou no tempo restante, se for
+     * menor) e devolve na hora o relido que saiu de PENDING ou teve o {@code updatedAt} trocado. No fim da
+     * janela devolve o último documento lido; com a janela já vencida, devolve {@code doc} sem reler.
+     *
+     * <p><b>Por quê:</b> o vencedor de uma corrida com a mesma chave nova só responde depois do confirm
+     * (no máximo {@code confirm-timeout}). Sem esperar, o perdedor responderia 202 antes disso, e o publish
+     * do vencedor ainda poderia falhar. <b>Custo:</b> a requisição espera no máximo 2 ×
+     * {@code confirm-timeout}, numa thread virtual do Tomcat, e só no replay de um PENDING recente.
+     * <b>Contrato:</b> o D-07 não muda (202 com o status atual e {@code Idempotent-Replayed: true}), só
+     * passa a sair depois da evidência.
+     *
+     * <p>Interrompida, a espera restaura o flag de interrupção e devolve o último documento lido.
+     */
+    private NotificationDocument awaitPublishWindow(NotificationDocument doc) {
+        Instant end = publishWindowEnd(doc);
+        NotificationDocument latest = doc;
+        try {
+            while (true) {
+                long remainingMillis = Duration.between(Instant.now(), end).toMillis();
+                if (remainingMillis <= 0) {
+                    return latest;
+                }
+                TimeUnit.MILLISECONDS.sleep(Math.min(REPLAY_POLL_INTERVAL.toMillis(), remainingMillis));
+                latest = reread(doc.id());
+                if (latest.status() != NotificationStatus.PENDING
+                        || !Objects.equals(latest.updatedAt(), doc.updatedAt())) {
+                    return latest;
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return latest;
+        }
     }
 
     /** 202 de replay (D-07). Log sem a chave nem o destinatário: só o id e o status (T-03-40). */
