@@ -70,7 +70,7 @@
 
 - [x] **OBS-01**: O worker publica contadores Micrometer de enviadas, falhas e retries por canal (tags de baixa cardinalidade, pré-registrados) e um timer de latência de envio
 - [x] **OBS-02**: Prometheus coleta métricas da API, do worker e do RabbitMQ (`rabbitmq_prometheus`)
-- [ ] **OBS-03**: O Grafana sobe com datasource e dashboard provisionados: throughput, resultados, retries por nível, profundidade das DLQs, latência p95 e estado do circuit breaker
+- [x] **OBS-03**: O Grafana sobe com datasource e dashboard provisionados: throughput, resultados, retries por nível, profundidade das DLQs, latência p95 e estado do circuit breaker
 
 ### Testes (TST)
 
@@ -82,7 +82,7 @@
 ### Demo e benchmark (DEM)
 
 - [ ] **DEM-01**: API e worker têm Dockerfiles multi-stage e sobem junto com a infra num único `docker compose up --build`
-- [ ] **DEM-02**: Um script k6 dispara 1000 notificações (mix de canais e destinatários mágicos) e imprime um resumo das métricas e dos status ao final
+- [x] **DEM-02**: Um script k6 dispara 1000 notificações (mix de canais e destinatários mágicos) e imprime um resumo das métricas e dos status ao final
 - [ ] **DEM-03**: Um benchmark compara virtual threads e threads de plataforma, alternando só o tipo de thread com concorrência alta e igual, latência bloqueante simulada, aquecimento e várias execuções. Os resultados vão para o README
 
 ### Documentação (DOC)
@@ -165,13 +165,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ADM-04 | Phase 3 | Complete |
 | OBS-01 | Phase 2 | Complete |
 | OBS-02 | Phase 4 | Complete |
-| OBS-03 | Phase 4 | Pending |
+| OBS-03 | Phase 4 | Complete |
 | TST-01 | Phase 2 | Complete |
 | TST-02 | Phase 3 | Complete |
 | TST-03 | Phase 3 | Complete |
 | TST-04 | Phase 3 | Complete |
 | DEM-01 | Phase 4 | Pending |
-| DEM-02 | Phase 4 | Pending |
+| DEM-02 | Phase 4 | Complete |
 | DEM-03 | Phase 4 | Pending |
 | DOC-01 | Phase 4 | Pending |
 | DOC-02 | Phase 4 | Pending |

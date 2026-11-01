@@ -151,7 +151,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. O README mostra os resultados do benchmark virtual threads vs threads de plataforma (só o tipo de thread varia, mesma concorrência alta, latência bloqueante simulada, aquecimento e várias execuções), com o método para reproduzi-lo
   5. O README e toda a documentação estão em pt-BR, com diagramas Mermaid (arquitetura, topologia, ciclo de vida do status), passo a passo da demo, justificativa dos índices compostos com `explain()` e os trade-offs (sem outbox, at-least-once com possível duplicata após crash, Spring Boot 3.5 fora do suporte OSS, sem jitter)
 
-**Plans**: 2/5 plans executed
+**Plans**: 3/5 plans executed
 **Wave 1**
 
 - [x] 04-01-PLAN.md — Dockerfiles multi-stage, compose com api/worker/prometheus, scrape de API, worker e RabbitMQ (por fila), `/actuator/prometheus` na API e smoke da fase (DEM-01, OBS-02)
@@ -159,7 +159,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 04-03-PLAN.md — Grafana provisionado (dashboard "Notify Hub", 5 rows, anônimo Viewer) e k6 com 1000 notificações, mix mágico e resumo (OBS-03, DEM-02)
+- [x] 04-03-PLAN.md — Grafana provisionado (dashboard "Notify Hub", 5 rows, anônimo Viewer) e k6 com 1000 notificações, mix mágico e resumo (OBS-03, DEM-02)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -181,4 +181,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Entrega ponta a ponta no caminho feliz | 7/7 | Complete    | 2026-10-13 |
 | 2. Falhas, retry com backoff e resiliência | 8/8 | Complete    | 2026-10-21 |
 | 3. Reprocessamento, API operacional e testes de integração | 10/10 | Complete    | 2026-11-01 |
-| 4. Observabilidade, demo e documentação | 2/5 | In Progress|  |
+| 4. Observabilidade, demo e documentação | 3/5 | In Progress|  |
