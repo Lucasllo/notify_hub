@@ -123,7 +123,7 @@ class NotificationRepublisherTest {
 
         RepublishOutcome outcome = republisher.republish(publishFailed("n-1"));
 
-        assertThat(outcome.kind()).isEqualTo(RepublishOutcome.Kind.NOT_PUBLISH_FAILED);
+        assertThat(outcome.kind()).isEqualTo(RepublishOutcome.Kind.FENCE_LOST);
         verify(publisher, never()).publish(any(), any());
     }
 

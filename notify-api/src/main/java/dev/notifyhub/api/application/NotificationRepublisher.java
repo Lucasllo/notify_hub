@@ -89,8 +89,11 @@ public class NotificationRepublisher {
         public enum Kind {
             /** PUBLISH_FAILED → PENDING e publish confirmado. */
             REPUBLISHED,
-            /** O documento já não estava PUBLISH_FAILED: nada foi publicado. */
-            NOT_PUBLISH_FAILED,
+            /**
+             * O documento saiu do estado lido (o worker, outro republish ou a varredura agiu antes):
+             * nada foi escrito nem publicado.
+             */
+            FENCE_LOST,
             /** Publish sem confirm: o documento voltou a PUBLISH_FAILED. */
             FAILED
         }
@@ -99,8 +102,8 @@ public class NotificationRepublisher {
             return new RepublishOutcome(Kind.REPUBLISHED, null);
         }
 
-        static RepublishOutcome notPublishFailed() {
-            return new RepublishOutcome(Kind.NOT_PUBLISH_FAILED, null);
+        static RepublishOutcome fenceLost() {
+            return new RepublishOutcome(Kind.FENCE_LOST, null);
         }
 
         static RepublishOutcome failed(PublishResult failure) {
@@ -199,7 +202,7 @@ public class NotificationRepublisher {
         if (update.getModifiedCount() == 0) {
             // T-03-22: outro caminho já tirou a notificação de PUBLISH_FAILED; publicar geraria um segundo envio
             log.info("Notificação {} já não estava PUBLISH_FAILED; nada republicado", doc.id());
-            return RepublishOutcome.notPublishFailed();
+            return RepublishOutcome.fenceLost();
         }
         Optional<PublishResult> failure = publishOrMarkFailed(doc);
         if (failure.isPresent()) {
