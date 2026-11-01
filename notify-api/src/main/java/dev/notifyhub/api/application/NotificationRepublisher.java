@@ -51,6 +51,12 @@ import org.springframework.stereotype.Service;
  * <p>O {@code lastError.message} de PUBLISH_FAILED é uma mensagem fixa derivada do código, nunca o
  * texto livre do broker (reply text, motivo do nack ou mensagem de exceção), que é não confiável e
  * apareceria no {@code GET /notifications/{id}} (T-02-01, T-03-21).
+ *
+ * <p>Os desfechos são contados em {@link PublishMetrics} ({@code notify.publish.outcomes}, D-02) só aqui:
+ * cada {@link #publishOrMarkFailed} que termina conta uma vez (confirmado, confirmado pelo claim do worker
+ * ou PUBLISH_FAILED pelo motivo do {@link PublishResult.Outcome}), e a varredura conta uma unidade por
+ * documento marcado. Falha do MongoDB não conta, e o reprocessamento da DLQ, que publica direto pelo
+ * {@link NotificationPublisher}, fica fora por desenho.
  */
 @Service
 public class NotificationRepublisher {
@@ -172,11 +178,14 @@ public class NotificationRepublisher {
         NotificationStatus status;
         try {
             if (markPublishFailed(doc.id(), result)) {
+                metrics.failed(result.outcome());
                 return Optional.of(result);
             }
             NotificationDocument current = mongoTemplate.findById(doc.id(), NotificationDocument.class);
             status = current != null ? current.status() : null;
         } catch (DataAccessException e) {
+            // D-02: nada é contado aqui, porque o resultado não foi gravado; se o documento ficar PENDING, a
+            // varredura o conta depois como publish_failed/unconfirmed
             // T-03-33: o órfão fica rastreável pelo id. T-02-01: nunca a mensagem da exceção nem o destinatário
             log.error("Publicação da notificação {} sem confirm ({}) e MongoDB indisponível ao marcar PUBLISH_FAILED"
                     + " ou reler o documento ({}); ele pode ter ficado PENDING sem mensagem no broker, e a varredura de"
@@ -187,10 +196,12 @@ public class NotificationRepublisher {
         if (wasClaimedByWorker(status)) {
             log.info("Publicação da notificação {} sem confirm ({}), mas o worker já a reivindicou (status {});"
                     + " seguindo como publicada", doc.id(), result.errorCode(), status);
+            metrics.confirmedByClaim();
             return Optional.empty();
         }
         log.warn("Publicação da notificação {} sem confirm ({}) e sem evidência de claim do worker (status {});"
                 + " tratada como falha", doc.id(), result.errorCode(), status != null ? status : "ausente");
+        metrics.failed(result.outcome());
         return Optional.of(result);
     }
 
@@ -314,7 +325,9 @@ public class NotificationRepublisher {
                                 new LastError(PUBLISH_UNCONFIRMED, fixedMessage(PUBLISH_UNCONFIRMED), null, now))
                         .set(Fields.UPDATED_AT, now),
                 NotificationDocument.class);
-        return update.getModifiedCount();
+        long marked = update.getModifiedCount();
+        metrics.unconfirmed(marked);
+        return marked;
     }
 
     /**
