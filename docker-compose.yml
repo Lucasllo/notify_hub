@@ -127,6 +127,24 @@ services:
     depends_on:
       - prometheus
 
+  k6:
+    # Carga da demo: docker compose --profile bench run --rm k6 (1000 notificações e o resumo).
+    # O profile bench deixa o k6 fora de um "docker compose up" comum
+    image: grafana/k6:2.3.0
+    profiles: ["bench"]
+    environment:
+      API_URL: "http://api:8080"
+    volumes:
+      - ./k6:/scripts:ro
+    # O caminho do script fica aqui, e não na linha de comando: o Git Bash converteria um
+    # /scripts/demo.js digitado para C:/Program Files/Git/scripts/demo.js
+    command: ["run", "/scripts/demo.js"]
+    depends_on:
+      api:
+        condition: service_healthy
+      worker:
+        condition: service_healthy
+
 volumes:
   rabbitmq-data:
   mongo-data:
