@@ -1,18 +1,18 @@
 ---
 gsd_state_version: "1.0"
 current_phase: 03
-current_phase_name: reprocessamento-api-operacional-e-testes-de-integra-o
+current_phase_name: Reprocessamento, API operacional e testes de integração
 status: executing
-stopped_at: Completed 03-07-PLAN.md
-last_updated: "2026-10-31T19:13:01.996Z"
+stopped_at: Completed 03-08-PLAN.md
+last_updated: "2026-11-01T00:08:42.821Z"
 last_activity: 2026-10-31
 last_activity_desc: Phase 03 execution started
-state_head: 699fbf69b22172e73f81c14a7076e32632e00fbd
+state_head: 3493a97875fdab1037c6f72b08bb73d77a59632c
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 25
-  completed_plans: 22
+  completed_plans: 23
   percent: 50
 ---
 
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-10-13)
 
 ## Current Position
 
-Phase: 03 (reprocessamento-api-operacional-e-testes-de-integra-o) — READY TO EXECUTE
-Plan: 7 of 7
+Phase: 03 (Reprocessamento, API operacional e testes de integração) — EXECUTING
+Plan: 2 of 10
 Status: Ready to execute
 Last activity: 2026-10-31 — Phase 03 execution started
 
@@ -79,6 +79,7 @@ Progress: [█████░░░░░] 50%
 | Phase 03 P05 | 20min | 2 tasks | 11 files |
 | Phase 03 P06 | 167min | 2 tasks | 9 files |
 | Phase 03 P07 | 18min | 2 tasks | 8 files |
+| Phase 03 P08 | 24min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -138,6 +139,7 @@ Recent decisions affecting current work:
 - [Phase 03]: 03-06: GET /notifications/stats por um único $group status+channel; EnumMap canal->status com 21 zeros na ordem dos enums (contrato D-12); linha desconhecida ignorada com WARN; índice status_createdAt também serve o republish-failed
 - [Phase 03]: 03-07: Swagger UI do springdoc 2.8.17 aberto (/swagger-ui/index.html, /v3/api-docs); esquema adminApiKey (X-API-Key) só nas operações /admin/**, proteção real segue no interceptor; respostas reais por @ApiResponse com override-with-generic-response false e erros como application/problem+json
 - [Phase 03]: 03-07: chave da demo demo-admin-key só no profile demo (${NOTIFY_ADMIN_API_KEY:demo-admin-key}); profile base vazio e fail closed
+- [Phase 03]: 03-08: PENDING sem claim e sem confirm vira PUBLISH_FAILED (PUBLISH_UNCONFIRMED) por varredura agendada na API (updateMulti cercado por PENDING + updatedAt < corte + claimedAt nulo); corte padrão 2m, validado em >= 3x confirm-timeout no startup
 
 ### Pending Todos
 
@@ -169,6 +171,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-10-31T18:07:13.780Z
-Stopped at: Completed 03-07-PLAN.md
+Last session: 2026-11-01T00:08:42.183Z
+Stopped at: Completed 03-08-PLAN.md
 Resume file: None
