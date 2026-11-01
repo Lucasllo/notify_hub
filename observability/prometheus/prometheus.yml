@@ -1,0 +1,32 @@
+# Prometheus do Notify Hub. Os alvos usam os nomes de serviço da rede do compose.
+global:
+  # Coleta de 5s (D-05): o dashboard usa janela de 15m e refresh de 5s
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  # API: métricas HTTP (taxa e p95 do POST /notifications) e de publish
+  - job_name: api
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["api:8080"]
+
+  # Worker: entregas, recusas, circuit breaker e bulkhead (Resilience4j)
+  - job_name: worker
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["worker:8081"]
+
+  # RabbitMQ, endpoint padrão do rabbitmq_prometheus: agregados do nó, sem rótulo queue
+  - job_name: rabbitmq
+    static_configs:
+      - targets: ["rabbitmq:15692"]
+
+  # RabbitMQ por fila: só o endpoint detalhado traz o rótulo queue (filas de canal,
+  # de delay e DLQs). O /metrics padrão agrega tudo num número só (Armadilha 1)
+  - job_name: rabbitmq-queues
+    metrics_path: /metrics/detailed
+    params:
+      family: [queue_coarse_metrics]
+    static_configs:
+      - targets: ["rabbitmq:15692"]

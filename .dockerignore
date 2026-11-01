@@ -1,0 +1,19 @@
+# Contexto de build dos Dockerfiles da API e do worker (contexto = raiz do repositório).
+# Só os POMs e o src dos módulos precisam entrar: o resto deixaria o contexto enorme
+# (histórico do git, saídas do Maven, planejamento) e vazaria arquivos para a imagem de build.
+.git
+.gsd
+.planning
+.claude
+.github
+.idea
+.vscode
+**/target
+target
+docs
+k6
+observability
+scripts
+*.log
+*.iml
+README.md

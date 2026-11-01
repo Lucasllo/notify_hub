@@ -35,6 +35,44 @@ services:
       retries: 6
       start_period: 20s
 
+  worker:
+    # Build multi-stage com o Maven dentro do container (sem JDK no host); contexto na raiz
+    build:
+      context: .
+      dockerfile: notify-worker/Dockerfile
+    environment:
+      # Profile demo: escada 1s/5s/25s, destinatários mágicos ligados e CB aberto por 500ms
+      SPRING_PROFILES_ACTIVE: demo
+      MONGODB_URI: mongodb://mongo:27017/notify
+      RABBITMQ_HOST: rabbitmq
+      # Liga /actuator/health/readiness, usado pelo healthcheck abaixo
+      MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"
+      # Credenciais: notify/notify já é o padrão de RABBITMQ_USER/RABBITMQ_PASS nos dois apps
+      # e bate com o RABBITMQ_DEFAULT_USER/PASS do serviço rabbitmq, então não há ENV extra
+    ports:
+      - "127.0.0.1:8081:8081"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      # A readiness só fica UP depois dos ApplicationRunners: índices, seed dos templates
+      # e start dos listeners. Antes disso o worker ainda não consome nada
+      test: ["CMD", "curl", "-fsS", "http://localhost:8081/actuator/health/readiness"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 40s
+
+  prometheus:
+    image: prom/prometheus:v3.13.4
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "127.0.0.1:9090:9090"
+    # Sem depends_on: alvo fora do ar só aparece como up=0 até subir
+
 volumes:
   rabbitmq-data:
   mongo-data:
