@@ -741,17 +741,20 @@ O mapeamento `PublishResult.Outcome` → `reason` usa os 4 valores de falha do e
 | A9 | Regras de aspas do Mermaid no GitHub | Padrão 7 | Diagrama não renderiza; testar no preview do GitHub |
 | A10 | No compose (rede Linux), a vazão será maior que no spike do host | Padrão 6 | Só muda a calibração de N |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Tags finais do contador de publish (D-02, custoso).**
+1. **Tags finais do contador de publish (D-02, custoso).** — RESOLVED pelo 04-02, Task 1 (contrato) e Task 2 (pontos de contagem).
    - What we know: os desfechos que o código distingue (5 do enum + varredura + ramo "claimed").
    - What's unclear: se o ramo "claimed" merece série própria ou conta como `confirmed/none`.
    - Recommendation: série própria (`confirmed/claimed`), 7 séries no total; o planner fixa no PLAN.
-2. **Valores de C da varredura e latência do benchmark.**
+   - Resolução: o ramo "claimed" ganha série própria. O 04-02 fixa o contrato na tabela "Contrato da métrica": `notify.publish.outcomes` (no Prometheus, `notify_publish_outcomes_total`), sempre com as tags `outcome` e `reason`, e exatamente 7 séries pré-registradas: confirmed/none, confirmed/claimed, publish_failed/nack, publish_failed/returned, publish_failed/timeout, publish_failed/broker_unavailable e publish_failed/unconfirmed. `broker_unavailable` entra porque o código já distingue esse desfecho. O `PublishMetricsTest` trava o contrato com `hasSize(7)` e as chaves exatas {outcome, reason}.
+2. **Valores de C da varredura e latência do benchmark.** — RESOLVED pelo 04-04, Task 1 (valores fixos + calibração com regra de decisão) e Task 2 (varredura).
    - What we know: o teto é C ≤ ~650 (channel_max); no spike, a vazão ficou limitada por I/O bem abaixo do teórico.
    - Recommendation: uma tarefa curta de calibração dentro do compose (uma rodada por modo com C = 200) antes das rodadas oficiais; fixar N para a janela medida durar ≥ 20s.
-3. **Readiness do worker no healthcheck.**
+   - Resolução: os valores fixos estão no plano. C oficial = 200 por canal (`BENCH_C`, com bulkhead = C e `maxPoolSize` 200 via `BENCH_POOL`). A latência do adapter é fixa em 100ms (`BENCH_LATENCIA`, com latency-min = latency-max). A varredura usa C ∈ {50, 500} (Task 2, item 4), e a guarda C > 650 falha o script (Task 1). Só N e W dependem da máquina, e a execução decide os dois por regra mecânica, sem escolha livre: `run-bench.sh --calibrar` (Task 1) roda uma rodada por modo com C = 200 e N_CAL = 6000 e imprime `CALIBRACAO maior_msgs=<x> sugestao_n=<max(30000, ceil(x*30/1000)*1000)> sugestao_w=<sugestao_n/5>`. Isso dá cerca de 30s de janela medida no modo mais rápido (≥ 20s com folga). O executor grava esses valores como padrões `BENCH_N`/`BENCH_W` antes das rodadas oficiais. Se `espera_pool_max` ficar acima de 0 de forma consistente, o `BENCH_POOL` padrão sobe igual nos dois modos. Os valores calibrados e qualquer ajuste de pool ficam registrados no SUMMARY.
+3. **Readiness do worker no healthcheck.** — RESOLVED pelo 04-01, Task 1 (worker) e Task 2 (API).
    - Recommendation: tentar `/actuator/health/readiness` com probes ligadas por ENV; se não funcionar no primeiro `up`, usar `/actuator/health`.
+   - Resolução: os serviços `worker` (Task 1) e `api` (Task 2) usam o healthcheck `curl -fsS http://localhost:<porta>/actuator/health/readiness` com `MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED: "true"`, `interval: 5s`, `retries: 24` e `start_period: 40s`. A regra de fallback é fixa: se o endpoint der 404 com as probes ligadas, troque por `/actuator/health` e registre no SUMMARY. O verify da Task 1 (`docker compose up --wait` saudável + `Listeners iniciados` no log do worker) mostra na execução qual ramo vale.
 
 ## Environment Availability
 
