@@ -1,44 +1,44 @@
 ---
 gsd_state_version: "1.0"
-current_phase: 03
-current_phase_name: Reprocessamento, API operacional e testes de integração
-status: executing
-stopped_at: Completed 03-09-PLAN.md
-last_updated: "2026-11-01T00:52:41.614Z"
-last_activity: 2026-10-31
-last_activity_desc: Phase 03 execution started
-state_head: 6234b416124a890d9ab463011fa0936d9578f2b1
+current_phase: 4
+current_phase_name: Observabilidade, demo e documentação
+status: planning
+stopped_at: Phase 03 complete, ready to plan Phase 4
+last_updated: "2026-11-01T16:49:26.503Z"
+last_activity: 2026-11-01
+last_activity_desc: Phase 03 complete, transitioned to Phase 4
+state_head: c4765b9cb3353b6bb84db5edb69feffd003c00fe
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 25
   completed_plans: 25
-  percent: 50
+  percent: 75
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-10-13)
+See: .planning/PROJECT.md (updated 2026-11-01)
 
 **Core value:** Uma notificação aceita pela API nunca se perde em silêncio: é entregue, passa por retries com backoff exponencial ou termina na DLQ com histórico completo, de onde pode ser reprocessada, tudo observável e demonstrável com `docker compose up` + script.
-**Current focus:** Phase 03 — Reprocessamento, API operacional e testes de integração
+**Current focus:** Phase 4 — Observabilidade, demo e documentação
 
 ## Current Position
 
-Phase: 03 (Reprocessamento, API operacional e testes de integração) — EXECUTING
-Plan: 4 of 10
-Status: Ready to execute
-Last activity: 2026-10-31 — Phase 03 execution started
+Phase: 4 — Observabilidade, demo e documentação
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-11-01 — Phase 03 complete, transitioned to Phase 4
 
-Progress: [█████░░░░░] 50%
+Progress: [████████░░] 75%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 15
+- Total plans completed: 25
 - Average duration: -
 - Total execution time: 0 hours
 
@@ -48,6 +48,7 @@ Progress: [█████░░░░░] 50%
 |-------|-------|-------|----------|
 | 01 | 7 | - | - |
 | 02 | 8 | - | - |
+| 03 | 10 | - | - |
 
 **Recent Trend:**
 
@@ -155,10 +156,10 @@ None yet.
 ### Blockers/Concerns
 
 - [Phase 2]: Mudar argumentos de fila exige `docker compose down -v`; definir argumentos num único lugar em `notify-common`
-- [Phase 2]: Fábricas de listener customizadas precisam passar pelo configurer do Boot, ou o executor de virtual threads se perde sem aviso
-- [Phase 2]: Pesquisa necessária: dimensionamento de CB/bulkhead vs concorrência e escada de delay; `CallNotPermitted` consome nível?; comportamento DLX/`x-death` no RabbitMQ 4.3
-- [Phase 2]: Decidir ack mode (AUTO com espera do confirm dentro do listener vs MANUAL) no discuss-phase
-- [Phase 2]: Mensagem rejeitada para a DLQ deixa a notificação em PROCESSING (lacuna conhecida do smoke 01-06, fecha com FAILED/DEAD_LETTERED)
+- [Phase 2]: profile demo fixa `wait-duration-in-open-state` 500ms; o benchmark da Fase 4 precisa sobrescrever a chave direto se rodar com demo
+- [Phase 3]: Dockerfiles da Fase 4 devem copiar `*-exec.jar` (o jar sem classifier é dependência do `notify-it`)
+- [Phase 3]: README (DOC-03) precisa registrar os riscos aceitos do `03-SECURITY.md`: sondagem de `Idempotency-Key` (T-03-18), `recipient` na listagem (T-03-25), stats sem cache (T-03-28), API pública sem rate limit (T-03-39) e a `demo-admin-key` versionada (T-03-30)
+- [Phase 3]: WR-05 (cópia extra na fila no replay de PENDING confirmado e ainda não reivindicado; o claim do worker descarta) e WR-07 (replay loga "PENDING" com o documento ainda PUBLISH_FAILED) aceitos na UAT; citar como limitação conhecida
 - [Phase 4]: Benchmark VT precisa de spike de desenho (alvo, varredura de concorrência, executor k6, JFR)
 
 ### Quick Tasks Completed
@@ -178,6 +179,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-01T00:52:41.156Z
-Stopped at: Completed 03-09-PLAN.md
+Last session: 2026-11-01T16:50:09.000Z
+Stopped at: Phase 03 complete, ready to plan Phase 4
 Resume file: None

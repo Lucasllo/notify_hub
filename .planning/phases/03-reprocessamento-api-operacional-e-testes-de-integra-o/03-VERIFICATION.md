@@ -1,9 +1,10 @@
 ---
 phase: 03-reprocessamento-api-operacional-e-testes-de-integra-o
 verified: 2026-11-01T01:10:58Z
-status: human_needed
+status: passed
 score: 80/83 must-haves verified
 covered_files:
+
   - .planning/REQUIREMENTS.md
   - .planning/phases/02-falhas-retry-com-backoff-e-resili-ncia/deferred-items.md
   - .planning/phases/03-reprocessamento-api-operacional-e-testes-de-integra-o/03-01-PLAN.md
@@ -88,6 +89,7 @@ covered_files:
   - pom.xml
   - scripts/smoke-fase1.sh
   - scripts/smoke-lib.sh
+
 covered_digest: "v1:sha256:aec94e16c2e452c9a23a357252945ae92b7f1eb93652711142c544b9a3331224"
 behavior_unverified: 1
 overrides_applied: 0
@@ -99,15 +101,18 @@ re_verification:
   gaps_remaining: []
   regressions: []
 behavior_unverified_items:
+
   - truth: "03-03 (verification: backstop): se o processo da API cai no meio de um reprocess, toda entrega obtida por basicGet e ainda sem ack volta para a DLQ quando o canal fecha, e nenhum documento fica PENDING sem mensagem por causa da queda"
     test: "Com notificações DEAD_LETTERED na DLQ de e-mail, chamar POST /admin/dlq/email/reprocess?max=100 e matar a JVM da API (kill -9) no meio da chamada"
     expected: "A DLQ volta a ter as mensagens não confirmadas (0 sem ack depois que a conexão fecha); um documento resetado sem publish confirmado fica PENDING com REPROCESSED e é retomado pelo próximo reprocess até SENT, ou, depois de 2m, a varredura do 03-08 o leva a PUBLISH_FAILED (PUBLISH_UNCONFIRMED)"
     why_human: "Truth backstop (não inferível): depende do requeue do broker quando o canal fecha. Presença e wiring não provam isso, e nenhum teste mata a JVM no meio da chamada"
 coincidental_reliance_items:
+
   - truth: "Edge TST-02 (concurrency): cada IT começa com as 15 filas purgadas e notifications vazia, por isso as contagens exatas da DLQ não herdam mensagens de outro teste"
     reason: incidental-ordering
     harden: "O resetState() espera só readyCount; uma entrega do worker ainda sem ack pode publicar um token ou uma cópia na DLQ depois do purge (IN-07, ainda aberto). Incluir unackedCount == 0 na espera"
 human_verification:
+
   - test: "Com a infra no ar e a API com --spring.profiles.active=demo, abrir http://localhost:8080/swagger-ui/index.html, clicar em Authorize, informar demo-admin-key e executar POST /admin/dlq/{canal}/reprocess com canal=email e max=1"
     expected: "Três tags (Notificações, Consultas, Administração) com resumos em pt-BR; cadeado só nas duas operações admin; 200 com {requested, reprocessed, skipped, discarded} com a chave e 401 Problem Details sem ela"
     why_human: "Legibilidade da doc e fluxo do botão Authorize não são verificáveis por asserção de JSON (human-check do 03-07). Ver IN-01: as descrições têm blocos de ~20 espaços"
@@ -143,6 +148,7 @@ Nota de processo: a fase está marcada `Mode: mvp`, mas o Goal não está no for
 - **Mongo fora depois de um publish sem confirm:** gera log ERROR com o id e relança a exceção. Os details dos dois 503 (POST e lote) estão verdadeiros.
 
 Execuções minhas:
+
 - `./mvnw -pl notify-api -am test` com `UnconfirmedPublishSweeperTest`, `NotificationServiceTest`, `NotificationRepublisherTest` e `NotificationApiFlowTest`: exit 0 (3 + 21 + 16 + 11).
 - `./mvnw -pl notify-it -am verify -Dit.test=UnconfirmedPublishRecoveryIT,IdempotencyIT,UnroutablePublishIT`: BUILD SUCCESS, 11 ITs, 0 falhas, contra `rabbitmq:4.3.6-management` e `mongo:8.0.32` (Docker 29.8.0).
 
@@ -319,6 +325,7 @@ Nenhum. Todos os achados novos estão em arquivos alterados desde a verificaçã
 ### Decisões sugeridas ao desenvolvedor (não bloqueiam a fase)
 
 Os warnings WR-05..WR-08 não derrubam nenhuma verdade, mas são baratos de corrigir antes da demo de carga da Fase 4, onde o backlog do worker torna o WR-05 provável:
+
 - WR-05 + WR-06: `publishConfirmedAt` cercado depois do ack e um deadline único por replay (409 com `Retry-After` quando estoura). Isso elimina a cópia extra e a espera de 10s com o worker atrasado;
 - WR-07: republish cercado no fim do laço quando o documento corrente é PUBLISH_FAILED;
 - WR-08: 503 `publish-outcome-unknown` com `notificationId` em vez do 500 genérico.
