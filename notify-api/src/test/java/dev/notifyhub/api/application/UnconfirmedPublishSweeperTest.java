@@ -41,8 +41,18 @@ class UnconfirmedPublishSweeperTest {
 
     private final MongoTemplate mongo = mock(MongoTemplate.class);
     private final NotificationPublisher publisher = mock(NotificationPublisher.class);
-    private final NotificationRepublisher republisher = new NotificationRepublisher(mongo, publisher, PUBLISH,
-            new PublishMetrics(new SimpleMeterRegistry()));
+    private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    private final PublishMetrics metrics = new PublishMetrics(registry);
+    private final NotificationRepublisher republisher = new NotificationRepublisher(mongo, publisher, PUBLISH, metrics);
+
+    /** Valor de {@code notify.publish.outcomes{outcome=publish_failed, reason=unconfirmed}} (D-02). */
+    private double unconfirmedCount() {
+        return registry.get(PublishMetrics.OUTCOMES)
+                .tag("outcome", "publish_failed")
+                .tag("reason", "unconfirmed")
+                .counter()
+                .count();
+    }
 
     private UnconfirmedPublishSweeper sweeper(Duration after) {
         return new UnconfirmedPublishSweeper(republisher, new UnconfirmedSweepProperties(after, Duration.ofSeconds(30)),
@@ -83,6 +93,9 @@ class UnconfirmedPublishSweeperTest {
         assertThat(lastError.message()).isEqualTo("Publicação não confirmada pelo broker (PUBLISH_UNCONFIRMED)");
         assertThat(lastError.failureClass()).isNull();
         assertThat(set.get("updatedAt")).isInstanceOf(Instant.class);
+
+        // D-02: uma unidade de publish_failed/unconfirmed por documento marcado
+        assertThat(unconfirmedCount()).isEqualTo(2.0);
     }
 
     @Test
@@ -94,6 +107,7 @@ class UnconfirmedPublishSweeperTest {
         long[] marked = new long[1];
         assertThatCode(() -> marked[0] = sweeper.sweep()).doesNotThrowAnyException();
         assertThat(marked[0]).isZero();
+        assertThat(unconfirmedCount()).isZero();
     }
 
     @Test

@@ -121,6 +121,99 @@ class NotificationRepublisherTest {
         assertOnlyPublishOutcome("confirmed/none", 1.0);
     }
 
+    @Test
+    void nackWithPublishFailedWrittenCountsPublishFailedNack() {
+        when(publisher.publish(any(), any())).thenReturn(PublishResult.nacked("simulated nack"));
+        updateMatches(1);
+
+        assertThat(republisher.publishOrMarkFailed(withStatus("n-1", NotificationStatus.PENDING))).isPresent();
+
+        assertOnlyPublishOutcome("publish_failed/nack", 1.0);
+    }
+
+    @Test
+    void timeoutWithZeroMatchAndTheWorkerClaimCountsConfirmedClaimed() {
+        when(publisher.publish(any(), any())).thenReturn(PublishResult.timeout());
+        updateMatches(0);
+        when(mongo.findById("n-1", NotificationDocument.class))
+                .thenReturn(withStatus("n-1", NotificationStatus.PROCESSING));
+
+        assertThat(republisher.publishOrMarkFailed(withStatus("n-1", NotificationStatus.PENDING))).isEmpty();
+
+        assertOnlyPublishOutcome("confirmed/claimed", 1.0);
+    }
+
+    @Test
+    void returnedWithZeroMatchAndTheDocumentPublishFailedCountsPublishFailedReturned() {
+        when(publisher.publish(any(), any())).thenReturn(PublishResult.unroutable("NO_ROUTE"));
+        updateMatches(0);
+        when(mongo.findById("n-1", NotificationDocument.class)).thenReturn(publishFailed("n-1"));
+
+        assertThat(republisher.publishOrMarkFailed(withStatus("n-1", NotificationStatus.PENDING))).isPresent();
+
+        assertOnlyPublishOutcome("publish_failed/returned", 1.0);
+    }
+
+    @Test
+    void brokerUnavailableWithZeroMatchAndTheDocumentMissingCountsPublishFailedBrokerUnavailable() {
+        when(publisher.publish(any(), any())).thenReturn(PublishResult.brokerUnavailable("connection refused"));
+        updateMatches(0);
+        when(mongo.findById("n-1", NotificationDocument.class)).thenReturn(null);
+
+        assertThat(republisher.publishOrMarkFailed(withStatus("n-1", NotificationStatus.PENDING))).isPresent();
+
+        assertOnlyPublishOutcome("publish_failed/broker_unavailable", 1.0);
+    }
+
+    @Test
+    void mongoDownWhileMarkingPublishFailedCountsNothing() {
+        DataAccessResourceFailureException mongoDown = new DataAccessResourceFailureException("conexão caiu");
+        when(publisher.publish(any(), any())).thenReturn(PublishResult.nacked("simulated nack"));
+        when(mongo.updateFirst(any(Query.class), any(Update.class), eq(NotificationDocument.class)))
+                .thenThrow(mongoDown);
+
+        assertThatThrownBy(() -> republisher.publishOrMarkFailed(withStatus("n-1", NotificationStatus.PENDING)))
+                .isSameAs(mongoDown);
+
+        // o resultado não foi gravado; se o documento ficou PENDING, a varredura conta depois como unconfirmed
+        assertThat(publishOutcomes()).hasSize(7);
+        assertThat(publishOutcomes().values().stream().mapToDouble(Double::doubleValue).sum()).isZero();
+    }
+
+    @Test
+    void mongoDownWhileRereadingTheDocumentCountsNothing() {
+        DataAccessResourceFailureException mongoDown = new DataAccessResourceFailureException("conexão caiu");
+        when(publisher.publish(any(), any())).thenReturn(PublishResult.timeout());
+        updateMatches(0);
+        when(mongo.findById("n-1", NotificationDocument.class)).thenThrow(mongoDown);
+
+        assertThatThrownBy(() -> republisher.publishOrMarkFailed(withStatus("n-1", NotificationStatus.PENDING)))
+                .isSameAs(mongoDown);
+
+        assertThat(publishOutcomes().values().stream().mapToDouble(Double::doubleValue).sum()).isZero();
+    }
+
+    @Test
+    void sweepCountsPublishFailedUnconfirmedPerMarkedDocument() {
+        when(mongo.updateMulti(any(Query.class), any(Update.class), eq(NotificationDocument.class)))
+                .thenReturn(matched(3));
+
+        assertThat(republisher.markUnconfirmedAsPublishFailed(Instant.now())).isEqualTo(3);
+
+        assertOnlyPublishOutcome("publish_failed/unconfirmed", 3.0);
+    }
+
+    @Test
+    void sweepThatMarksNothingCountsNothing() {
+        when(mongo.updateMulti(any(Query.class), any(Update.class), eq(NotificationDocument.class)))
+                .thenReturn(matched(0));
+
+        assertThat(republisher.markUnconfirmedAsPublishFailed(Instant.now())).isZero();
+
+        assertThat(publishOutcomes()).hasSize(7);
+        assertThat(publishOutcomes().values().stream().mapToDouble(Double::doubleValue).sum()).isZero();
+    }
+
     // ---------------------------------------------------------------- republish
 
     @Test
