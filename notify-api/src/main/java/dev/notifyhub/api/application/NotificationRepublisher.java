@@ -166,6 +166,7 @@ public class NotificationRepublisher {
                 new NotificationMessage(doc.id(), doc.channel(), doc.templateCode(), doc.createdAt()),
                 props.confirmTimeout());
         if (result.ok()) {
+            metrics.confirmed();
             return Optional.empty();
         }
         NotificationStatus status;
