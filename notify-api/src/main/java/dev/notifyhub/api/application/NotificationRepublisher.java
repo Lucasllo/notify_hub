@@ -7,6 +7,7 @@ import com.mongodb.client.result.UpdateResult;
 import dev.notifyhub.api.messaging.NotificationPublisher;
 import dev.notifyhub.api.messaging.PublishProperties;
 import dev.notifyhub.api.messaging.PublishResult;
+import dev.notifyhub.api.metrics.PublishMetrics;
 import dev.notifyhub.common.domain.NotificationStatus;
 import dev.notifyhub.common.messaging.NotificationMessage;
 import dev.notifyhub.common.persistence.LastError;
@@ -71,12 +72,14 @@ public class NotificationRepublisher {
     private final MongoTemplate mongoTemplate;
     private final NotificationPublisher publisher;
     private final PublishProperties props;
+    private final PublishMetrics metrics;
 
     public NotificationRepublisher(MongoTemplate mongoTemplate, NotificationPublisher publisher,
-                                   PublishProperties props) {
+                                   PublishProperties props, PublishMetrics metrics) {
         this.mongoTemplate = mongoTemplate;
         this.publisher = publisher;
         this.props = props;
+        this.metrics = metrics;
     }
 
     /**

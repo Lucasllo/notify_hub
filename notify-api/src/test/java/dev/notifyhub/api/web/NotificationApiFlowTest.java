@@ -22,6 +22,7 @@ import dev.notifyhub.api.application.NotificationService;
 import dev.notifyhub.api.application.RequestHasher;
 import dev.notifyhub.api.messaging.NotificationPublisher;
 import dev.notifyhub.api.messaging.PublishProperties;
+import dev.notifyhub.api.metrics.PublishMetrics;
 import dev.notifyhub.api.web.dto.CreateNotificationRequest;
 import dev.notifyhub.common.domain.Channel;
 import dev.notifyhub.common.domain.NotificationStatus;
@@ -77,6 +78,10 @@ class NotificationApiFlowTest {
 
     @MockitoBean
     private RabbitTemplate rabbitTemplate;
+
+    /** A fatia do {@code @WebMvcTest} não tem {@code MeterRegistry}; o contador real é testado à parte. */
+    @MockitoBean
+    private PublishMetrics publishMetrics;
 
     private void brokerAnswers(boolean ack, String reason) {
         doAnswer(invocation -> {

@@ -19,15 +19,19 @@ import dev.notifyhub.api.application.NotificationRepublisher.RepublishOutcome;
 import dev.notifyhub.api.messaging.NotificationPublisher;
 import dev.notifyhub.api.messaging.PublishProperties;
 import dev.notifyhub.api.messaging.PublishResult;
+import dev.notifyhub.api.metrics.PublishMetrics;
 import dev.notifyhub.common.domain.Channel;
 import dev.notifyhub.common.domain.NotificationStatus;
 import dev.notifyhub.common.messaging.NotificationMessage;
 import dev.notifyhub.common.persistence.LastError;
 import dev.notifyhub.common.persistence.NotificationDocument;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import org.bson.Document;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,8 +54,10 @@ class NotificationRepublisherTest {
 
     private final MongoTemplate mongo = mock(MongoTemplate.class);
     private final NotificationPublisher publisher = mock(NotificationPublisher.class);
+    private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    private final PublishMetrics metrics = new PublishMetrics(registry);
     private final NotificationRepublisher republisher = new NotificationRepublisher(mongo, publisher,
-            new PublishProperties(Duration.ofSeconds(5), Duration.ofSeconds(5)));
+            new PublishProperties(Duration.ofSeconds(5), Duration.ofSeconds(5)), metrics);
 
     /** Eventos de log do {@link NotificationRepublisher}, independentes do layout (não há logback-test.xml). */
     private final ListAppender<ILoggingEvent> republisherLog = new ListAppender<>();
@@ -85,6 +91,34 @@ class NotificationRepublisherTest {
 
     private static UpdateResult matched(long modified) {
         return UpdateResult.acknowledged(modified, modified, null);
+    }
+
+    /** Valor de cada série de {@code notify.publish.outcomes}, indexado por "outcome/reason" (D-02). */
+    private Map<String, Double> publishOutcomes() {
+        return registry.find(PublishMetrics.OUTCOMES).counters().stream().collect(Collectors.toMap(
+                c -> c.getId().getTag("outcome") + "/" + c.getId().getTag("reason"), Counter::count));
+    }
+
+    /** Só a série {@code key} vale {@code expected}; as outras 6 continuam em 0. */
+    private void assertOnlyPublishOutcome(String key, double expected) {
+        Map<String, Double> values = publishOutcomes();
+        assertThat(values).hasSize(7).containsEntry(key, expected);
+        values.forEach((k, v) -> {
+            if (!k.equals(key)) {
+                assertThat(v).as(k).isZero();
+            }
+        });
+    }
+
+    // ---------------------------------------------------------------- publishOrMarkFailed e o contador (D-02)
+
+    @Test
+    void ackCountsConfirmed() {
+        when(publisher.publish(any(), any())).thenReturn(PublishResult.acked());
+
+        assertThat(republisher.publishOrMarkFailed(withStatus("n-1", NotificationStatus.PENDING))).isEmpty();
+
+        assertOnlyPublishOutcome("confirmed/none", 1.0);
     }
 
     // ---------------------------------------------------------------- republish

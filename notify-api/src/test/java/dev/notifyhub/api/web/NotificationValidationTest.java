@@ -17,6 +17,7 @@ import dev.notifyhub.api.application.NotificationRepublisher;
 import dev.notifyhub.api.application.NotificationService;
 import dev.notifyhub.api.messaging.NotificationPublisher;
 import dev.notifyhub.api.messaging.PublishProperties;
+import dev.notifyhub.api.metrics.PublishMetrics;
 import dev.notifyhub.common.persistence.NotificationDocument;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -58,6 +59,10 @@ class NotificationValidationTest {
 
     @MockitoBean
     private RabbitTemplate rabbitTemplate;
+
+    /** A fatia do {@code @WebMvcTest} não tem {@code MeterRegistry}; o contador real é testado à parte. */
+    @MockitoBean
+    private PublishMetrics publishMetrics;
 
     private static Map<String, Object> body(Object channel, Object recipient, Object templateCode, Object variables) {
         Map<String, Object> body = new LinkedHashMap<>();

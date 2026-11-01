@@ -13,9 +13,11 @@ import static org.mockito.Mockito.when;
 import com.mongodb.client.result.UpdateResult;
 import dev.notifyhub.api.messaging.NotificationPublisher;
 import dev.notifyhub.api.messaging.PublishProperties;
+import dev.notifyhub.api.metrics.PublishMetrics;
 import dev.notifyhub.common.domain.NotificationStatus;
 import dev.notifyhub.common.persistence.LastError;
 import dev.notifyhub.common.persistence.NotificationDocument;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.time.Instant;
 import org.bson.Document;
@@ -39,7 +41,8 @@ class UnconfirmedPublishSweeperTest {
 
     private final MongoTemplate mongo = mock(MongoTemplate.class);
     private final NotificationPublisher publisher = mock(NotificationPublisher.class);
-    private final NotificationRepublisher republisher = new NotificationRepublisher(mongo, publisher, PUBLISH);
+    private final NotificationRepublisher republisher = new NotificationRepublisher(mongo, publisher, PUBLISH,
+            new PublishMetrics(new SimpleMeterRegistry()));
 
     private UnconfirmedPublishSweeper sweeper(Duration after) {
         return new UnconfirmedPublishSweeper(republisher, new UnconfirmedSweepProperties(after, Duration.ofSeconds(30)),

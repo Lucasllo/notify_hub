@@ -21,12 +21,14 @@ import com.mongodb.client.result.UpdateResult;
 import dev.notifyhub.api.messaging.NotificationPublisher;
 import dev.notifyhub.api.messaging.PublishProperties;
 import dev.notifyhub.api.messaging.PublishResult;
+import dev.notifyhub.api.metrics.PublishMetrics;
 import dev.notifyhub.api.web.dto.CreateNotificationRequest;
 import dev.notifyhub.api.web.dto.CreateNotificationResponse;
 import dev.notifyhub.common.domain.Channel;
 import dev.notifyhub.common.domain.NotificationStatus;
 import dev.notifyhub.common.persistence.LastError;
 import dev.notifyhub.common.persistence.NotificationDocument;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -58,7 +60,7 @@ class NotificationServiceTest {
     private final NotificationPublisher publisher = mock(NotificationPublisher.class);
     private final PublishProperties props = new PublishProperties(Duration.ofSeconds(5), Duration.ofSeconds(5));
     private final NotificationService service = new NotificationService(mongo,
-            new NotificationRepublisher(mongo, publisher, props), props);
+            new NotificationRepublisher(mongo, publisher, props, new PublishMetrics(new SimpleMeterRegistry())), props);
 
     /** Eventos de log do {@link NotificationRepublisher}, independentes do layout (não há logback-test.xml). */
     private final ListAppender<ILoggingEvent> republisherLog = new ListAppender<>();
@@ -454,7 +456,8 @@ class NotificationServiceTest {
         // janela de 100ms: 2 × confirm-timeout de 50ms
         PublishProperties shortWindow = new PublishProperties(Duration.ofMillis(50), Duration.ofSeconds(5));
         NotificationService shortWindowService = new NotificationService(mongo,
-                new NotificationRepublisher(mongo, publisher, shortWindow), shortWindow);
+                new NotificationRepublisher(mongo, publisher, shortWindow, new PublishMetrics(new SimpleMeterRegistry())),
+                shortWindow);
         NotificationDocument existing = replayOfFreshPending();
         when(mongo.findById(existing.id(), NotificationDocument.class)).thenReturn(existing);
         updateMatches(1);
