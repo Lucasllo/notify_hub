@@ -102,6 +102,31 @@ services:
       - "127.0.0.1:9090:9090"
     # Sem depends_on: alvo fora do ar só aparece como up=0 até subir
 
+  grafana:
+    # 12.4 de propósito: o Grafana 13 troca o formato padrão pelo schema v2 e o provisionamento
+    # de dashboards clássicos por arquivo tem quebras relatadas
+    image: grafana/grafana:12.4.12
+    environment:
+      # Acesso anônimo só como Viewer: o avaliador abre http://localhost:3000 sem login e cai direto
+      # no dashboard Notify Hub, sem poder editar. admin/admin vale só nesta máquina (porta presa em
+      # 127.0.0.1); é um risco aceito e registrado nos trade-offs
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/notify-hub.json
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      # Sem telemetria nem checagem de atualização (nada sai da máquina)
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      # Datasource e provider provisionados; o JSON versionado é a fonte da verdade do dashboard
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - prometheus
+
 volumes:
   rabbitmq-data:
   mongo-data:

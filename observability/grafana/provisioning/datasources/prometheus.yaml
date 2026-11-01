@@ -1,0 +1,18 @@
+# Datasource Prometheus do Notify Hub, provisionado na subida do Grafana.
+# O uid fixo é o que o dashboard referencia em todo painel e target
+# ({"type": "prometheus", "uid": "prometheus"}); um uid gerado ao acaso deixaria o
+# dashboard provisionado com "datasource not found".
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      # Igual ao scrape_interval do prometheus.yml. É a base do $__rate_interval: sem ele o
+      # Grafana assume um scrape de 15s e as janelas de rate() ficam maiores do que precisam
+      timeInterval: 5s

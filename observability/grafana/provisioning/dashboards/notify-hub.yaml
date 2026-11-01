@@ -1,0 +1,12 @@
+# Provider de dashboards por arquivo. Somente leitura: edições pela UI não são salvas,
+# porque a fonte da verdade é o JSON versionado em observability/grafana/dashboards.
+apiVersion: 1
+
+providers:
+  - name: notify-hub
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 10
+    options:
+      path: /var/lib/grafana/dashboards
