@@ -1,9 +1,9 @@
 ---
-status: complete
+status: diagnosed
 phase: 04-observabilidade-demo-e-documenta-o
 source: [04-VERIFICATION.md]
 started: 2026-11-02T00:40:00Z
-updated: 2026-11-02T00:50:06Z
+updated: 2026-11-02T00:54:01Z
 ---
 
 ## Current Test
@@ -14,7 +14,9 @@ updated: 2026-11-02T00:50:06Z
 
 ### 1. Capturar e versionar as screenshots docs/img/dashboard-k6.png e docs/img/rabbitmq-filas.png
 expected: Dashboard Notify Hub durante `docker compose --profile bench run --rm k6` (CB, recusas, retries, DLQ visíveis) e aba Queues and Streams do RabbitMQ (filas de delay e DLQs); as duas imagens existem em docs/img/ e renderizam no README e no docs/demo.md
-result: pass
+result: issue
+reported: "2" (opção escolhida depois de constatar que docs/img/ só tem .gitkeep: as screenshots ainda não foram capturadas)
+severity: major
 
 ### 2. Dashboard no Grafana durante uma rodada do k6
 expected: http://localhost:3000 abre sem login; as 5 rows renderizam com dados; state timeline do CB em verde/vermelho/amarelo; recusas circuit_open, retries por nível e DLQs crescendo aparecem; nenhum painel "No data". Conferir também "Taxa de sucesso" num stack recém-subido (pode mostrar NaN antes do primeiro desfecho, IN-03)
@@ -43,10 +45,30 @@ result: pass
 ## Summary
 
 total: 7
-passed: 7
-issues: 0
+passed: 6
+issues: 1
 pending: 0
 skipped: 0
 blocked: 0
 
 ## Gaps
+
+- gap_id: G-04-1
+  truth: "docs/img/dashboard-k6.png e docs/img/rabbitmq-filas.png existem, versionadas, e renderizam no README (linha 81) e no docs/demo.md (linhas 72 e 86)"
+  status: failed
+  reason: "User reported: screenshots ainda não capturadas (opção 2); o teste 1 tinha sido marcado pass por engano"
+  severity: major
+  test: 1
+  root_cause: "Captura deixada de propósito para o checkpoint humano (D-10, 04-05); docs/img/ só contém .gitkeep (git ls-files) e as três referências de imagem apontam para arquivos inexistentes"
+  artifacts:
+    - path: "docs/img/"
+      issue: "Só .gitkeep; faltam dashboard-k6.png e rabbitmq-filas.png"
+    - path: "README.md:81"
+      issue: "Imagem quebrada (docs/img/dashboard-k6.png)"
+    - path: "docs/demo.md:72,86"
+      issue: "Imagens quebradas (img/dashboard-k6.png, img/rabbitmq-filas.png)"
+  missing:
+    - "Com o stack no ar (docker compose up --build), rodar docker compose --profile bench run --rm k6 e capturar o dashboard Notify Hub no Grafana (CB, recusas, retries, DLQ visíveis) como docs/img/dashboard-k6.png"
+    - "Capturar a aba Queues and Streams do RabbitMQ (http://localhost:15672, filas de delay e DLQs) como docs/img/rabbitmq-filas.png"
+    - "Versionar as duas imagens e reexecutar /gsd-verify-work 04"
+  debug_session: ""
