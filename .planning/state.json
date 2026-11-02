@@ -21,13 +21,13 @@
     {
       "number": "4",
       "name": "Observabilidade, demo e documentação",
-      "status": "pending"
+      "status": "complete"
     }
   ],
   "next": {
-    "command": "/gsd:progress --next",
-    "label": "Advance to the next step (plan phase 4)",
-    "reason": "Phase 4 of 4 — needs a plan"
+    "command": "/gsd:new-milestone",
+    "label": "Start a new milestone",
+    "reason": "All phases complete — start a new milestone"
   },
-  "updated_at": "2026-11-01T16:49:26.688Z"
+  "updated_at": "2026-11-02T13:44:07.330Z"
 }

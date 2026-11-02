@@ -29,14 +29,15 @@ Uma notificação aceita pela API nunca se perde em silêncio. Ela é entregue (
 - ✓ `notify-api`: `Idempotency-Key` no POST (replay, 422 em reuso com corpo diferente, corrida resolvida por índice único parcial) — Fase 3
 - ✓ `notify-api`: `POST /admin/notifications/republish-failed` e varredura agendada de PENDING sem confirm → PUBLISH_FAILED — Fase 3
 - ✓ `notify-api`: `GET /notifications/stats` e Swagger UI (springdoc 2.8.17) — Fase 3
+- ✓ MongoDB: coleção `notifications` com histórico de tentativas embutido e coleção `templates` (Mustache, seed na inicialização); índices compostos justificados com `explain()` em docs/modelagem — Fases 1–4
+- ✓ Benchmark virtual threads x threads de plataforma (k6 + JFR), publicado como empate de vazão com diferença em threads e memória — Fase 4
+- ✓ Prometheus e Grafana no docker compose, com datasource e dashboard provisionados — Fase 4
+- ✓ Demo reproduzível: `docker compose up --build` + k6 com 1000 notificações e resumo por status; clone limpo provado — Fase 4
+- ✓ Toda a documentação (README, demo, arquitetura, trade-offs, modelagem, benchmark) em pt-BR, com diagramas Mermaid e screenshots — Fase 4
 
 ### Active
 
-- [ ] MongoDB: coleção `notifications` com histórico de tentativas embutido e coleção `templates` (Mustache, seed na inicialização); índices compostos justificados no README
-- [ ] Benchmark simples (k6 ou script) comparando virtual threads com threads de plataforma, com resultados no README
-- [ ] Prometheus e Grafana no docker compose, com dashboard provisionado
-- [ ] Demo reproduzível: `docker compose up` + script que dispara 1000 notificações e mostra as métricas
-- [ ] Toda a documentação (README e afins) em português do Brasil
+(nenhum: todos os requisitos da v1 foram entregues)
 
 ### Out of Scope
 
@@ -69,18 +70,19 @@ Uma notificação aceita pela API nunca se perde em silêncio. Ela é entregue (
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | Retry com filas de delay fixas por nível (TTL + DLX) | Didático, visível no painel e sem head-of-line blocking | ✓ Topologia entregue na Fase 1 (escada exercitada na Fase 2) |
-| Templates Mustache no MongoDB com seed | Sintaxe conhecida, validação de variáveis, sem CRUD extra | — Pending |
+| Templates Mustache no MongoDB com seed | Sintaxe conhecida, validação de variáveis, sem CRUD extra | ✓ Good — Fases 1–2 (variável faltando → MISSING_VARIABLE, falha permanente) |
 | Maven multi-módulo com `notify-common` | Compartilha DTOs, eventos e constantes de topologia entre API e worker | ✓ Good — Fase 1 |
 | API salva PENDING e publica com publisher confirms (sem outbox) | Simples para o prazo; limitação documentada | ✓ Good — Fase 1 (503 + PUBLISH_FAILED provados no smoke) |
 | Reprocessamento da DLQ na API, por canal + limite, com API key | Controle operacional mínimo e seguro o suficiente para a demo | ✓ Good — Fase 3 (basic.get + ack só após confirm; SHA-256 + `isEqual`, fail closed) |
 | Falhas transitórias vs permanentes | Retry só onde faz sentido; permanentes não gastam tentativas | ✓ Good — Fase 2 |
-| Prometheus + Grafana no compose | Visual forte para a demo do portfólio | — Pending |
+| Prometheus + Grafana no compose | Visual forte para a demo do portfólio | ✓ Good — Fase 4 (Grafana 12.4.12 provisionado, dashboard com 5 rows, screenshots no README) |
 | Backoff de fator 5 (5s/25s/125s) com profile demo curto | Exponencial de verdade; demo e testes rápidos | ✓ Filas 5s/25s/125s e 1s/5s/25s no profile demo — Fase 1 |
 | `Idempotency-Key` no POST na v1 | Torna seguro o retry do cliente após 503 | ✓ Good — Fase 3 (replay só responde 202 com confirm próprio ou evidência de claim) |
 | Estados terminais FAILED (permanente) e DEAD_LETTERED (retries esgotados) | Clareza na demo e no histórico | ✓ Good — Fase 2 |
 | Publish falho → 503 + PUBLISH_FAILED + republish admin | Fecha a lacuna da ausência de outbox | ✓ Good — Fase 3 (mais a varredura de PENDING sem confirm) |
-| Spring Boot 3.5.16 (fim do suporte OSS em 06/2026) | Restrição 3.x; migração para 4.x registrada como evolução | — Pending |
+| Spring Boot 3.5.16 (fim do suporte OSS em 06/2026) | Restrição 3.x; migração para 4.x registrada como evolução | ✓ Registrado em docs/trade-offs.md — Fase 4 |
 | ITs com dois contextos Spring na mesma JVM (módulo `notify-it`) e Testcontainers com as tags do compose | Prova o fluxo ponta a ponta sem mocks; mesmo broker da demo | ✓ Good — Fase 3 |
+| Benchmark VT x plataforma publicado como empate (744.4 x 786.2 msg/s, intervalos sobrepostos) | Só afirmar o que foi medido; o ganho real aparece em threads de plataforma e memória | ✓ Good — Fase 4 |
 | Contador de tentativas pela aplicação (header + Mongo), sem `x-death` | `x-death` mudou de comportamento no RabbitMQ 3.13+/4.x | ✓ Header `notify-retry-count` validado por `RetryHeaders` — Fase 1 |
 
 ## Evolution
@@ -101,4 +103,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-01 after Phase 3*
+*Last updated: 2026-11-02 after Phase 4*

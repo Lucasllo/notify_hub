@@ -19,10 +19,10 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-11-01)
+See: .planning/PROJECT.md (updated 2026-11-02)
 
 **Core value:** Uma notificação aceita pela API nunca se perde em silêncio: é entregue, passa por retries com backoff exponencial ou termina na DLQ com histórico completo, de onde pode ser reprocessada, tudo observável e demonstrável com `docker compose up` + script.
-**Current focus:** Phase 04 — Observabilidade, demo e documentação
+**Current focus:** Milestone v1 completo — todas as 4 fases concluídas; próximo passo é auditar e fechar o milestone
 
 ## Current Position
 
@@ -162,8 +162,9 @@ Recent decisions affecting current work:
 - [Phase 04]: 04-03: dashboard Notify Hub escrito à mão, uid fixo, datasource uid prometheus em todo painel; Grafana 12.4.12 anônimo Viewer
 - [Phase 04]: 04-04: benchmark publicado como empate de vazão (virtual 744.4 x plataforma 786.2 msg/s, intervalos sobrepostos); diferença em threads de plataforma (40 x 636 em C=200, 1536 em C=500) e memória
 - [Phase 04]: 04-04: benchmark em projeto compose separado notify-bench com override só de ENV; carga concorrente de outro container declarada no docs/benchmark.md
+- [Phase 04]: UAT 7/7 e reverificação passed (38/38); fix efa89d3 no painel do CB (color mode fixed/text)
 - [Phase 04]: 04-05: clone limpo provado em projeto compose separado (notify-clean) com smoke-fase4 OK; volumes do notify-hub preservados
-- [Phase 04]: 04-05: docs públicos em pt-BR (README, demo, arquitetura, trade-offs com 12 itens, modelagem com explain real); screenshots docs/img/*.png pendentes do human-check
+- [Phase 04]: 04-05: docs públicos em pt-BR (README, demo, arquitetura, trade-offs com 12 itens, modelagem com explain real); screenshots docs/img/*.png versionadas em 68cbb38 (G-04-1 fechado)
 
 ### Pending Todos
 
@@ -172,11 +173,9 @@ None yet.
 ### Blockers/Concerns
 
 - [Phase 2]: Mudar argumentos de fila exige `docker compose down -v`; definir argumentos num único lugar em `notify-common`
-- [Phase 2]: profile demo fixa `wait-duration-in-open-state` 500ms; o benchmark da Fase 4 precisa sobrescrever a chave direto se rodar com demo
-- [Phase 3]: Dockerfiles da Fase 4 devem copiar `*-exec.jar` (o jar sem classifier é dependência do `notify-it`)
-- [Phase 3]: README (DOC-03) precisa registrar os riscos aceitos do `03-SECURITY.md`: sondagem de `Idempotency-Key` (T-03-18), `recipient` na listagem (T-03-25), stats sem cache (T-03-28), API pública sem rate limit (T-03-39) e a `demo-admin-key` versionada (T-03-30)
 - [Phase 3]: WR-05 (cópia extra na fila no replay de PENDING confirmado e ainda não reivindicado; o claim do worker descarta) e WR-07 (replay loga "PENDING" com o documento ainda PUBLISH_FAILED) aceitos na UAT; citar como limitação conhecida
-- [Phase 4]: Benchmark VT precisa de spike de desenho (alvo, varredura de concorrência, executor k6, JFR)
+- [Phase 4]: docs/demo.md:67 diz que o painel do CB mostra só o webhook (mostra os 3 canais) e docs/demo.md:57 diz "quatro rows" (são 5) — correções de uma linha
+- [Phase 4]: Warnings abertos da revisão de código: WR-01 (semântica de publish_failed/unconfirmed), WR-03 (resumo do k6 pode declarar "drenado" cedo), WR-04 (curl.exe -d no PowerShell 5.1), IN-03 (Taxa de sucesso NaN no stack novo), IN-05 (README cita admin/admin para editar, dashboard é só leitura)
 
 ### Quick Tasks Completed
 
@@ -195,6 +194,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-02T00:11:20.431Z
-Stopped at: Phase 04 complete — all phases complete
+Last session: 2026-11-02T13:50:00Z
+Stopped at: Phase 04 complete — milestone v1 pronto para auditoria
 Resume file: None
