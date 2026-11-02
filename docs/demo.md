@@ -64,7 +64,7 @@ O dashboard tem quatro rows. Durante o k6, de cima para baixo:
   - "DLQs" cresce e para de crescer quando a rodada termina. Ela só desce com um reprocessamento.
   - "Filas principais" deve ficar perto de zero: o worker acompanha a carga.
 - **Resiliência.**
-  - "Circuit breaker por canal" mostra o estado do CB do webhook. No profile demo o CB fica aberto só 500ms antes de passar para meio aberto, e o Prometheus coleta a cada 5s, então o estado OPEN quase nunca cai numa amostra. O que aparece é o vaivém entre CLOSED e HALF_OPEN.
+  - "Circuit breaker por canal" mostra o estado do CB do webhook. No profile demo o CB fica aberto só 500ms antes de passar para meio aberto, e o Prometheus coleta a cada 5s, então o estado OPEN quase nunca cai numa amostra. O que aparece é o vaivém entre CLOSED e HALF_OPEN enquanto o k6 roda. Quando o tráfego para, o CB que estava meio aberto continua amarelo (Half-open): o Resilience4j só decide entre fechar e reabrir depois de 3 chamadas de teste, e sem tráfego elas não chegam. Isso é esperado: na próxima rodada, as primeiras chamadas decidem se o CB fecha ou volta a abrir.
   - Por isso o painel "Recusas por segundo" fica ao lado: cada recusa `circuit_open` é uma tentativa barrada com o CB aberto. É ali que a abertura aparece com clareza.
   - "Bulkhead em uso" mostra as chamadas simultâneas por canal.
 - **API e JVM.** POST por status HTTP, p95 do POST e o painel "Resultado do publish", em que todo POST aceito aparece como `confirmed` (o 202 só sai depois do confirm do broker). Threads, heap e o pool do MongoDB completam a row.

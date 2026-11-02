@@ -322,7 +322,7 @@
       "gridPos": { "h": 8, "w": 10, "x": 0, "y": 28 },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "thresholds" },
+          "color": { "mode": "fixed", "fixedColor": "text" },
           "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null } ] },
           "mappings": [
             {
