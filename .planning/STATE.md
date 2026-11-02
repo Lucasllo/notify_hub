@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-11-02)
 Phase: 04
 Plan: Not started
 Status: All phases complete
-Last activity: 2026-11-02 — Phase 04 complete
+Last activity: 2026-11-02 - Completed quick task 261102-ez1: corrigir docs/demo.md:67 (painel do CB mostra os 3 canais) e docs/demo.md:57 (5 rows)
 
 Progress: [██████████] 100%
 
@@ -174,7 +174,6 @@ None yet.
 
 - [Phase 2]: Mudar argumentos de fila exige `docker compose down -v`; definir argumentos num único lugar em `notify-common`
 - [Phase 3]: WR-05 (cópia extra na fila no replay de PENDING confirmado e ainda não reivindicado; o claim do worker descarta) e WR-07 (replay loga "PENDING" com o documento ainda PUBLISH_FAILED) aceitos na UAT; citar como limitação conhecida
-- [Phase 4]: docs/demo.md:67 diz que o painel do CB mostra só o webhook (mostra os 3 canais) e docs/demo.md:57 diz "quatro rows" (são 5) — correções de uma linha
 - [Phase 4]: Warnings abertos da revisão de código: WR-01 (semântica de publish_failed/unconfirmed), WR-03 (resumo do k6 pode declarar "drenado" cedo), WR-04 (curl.exe -d no PowerShell 5.1), IN-03 (Taxa de sucesso NaN no stack novo), IN-05 (README cita admin/admin para editar, dashboard é só leitura)
 
 ### Quick Tasks Completed
@@ -183,6 +182,7 @@ None yet.
 |---|-------------|------|--------|-----------|
 | 261020-tm3 | Corrigir WR-05/T-02-01 (lastError de REPUBLISH_FAILED com motivo enumerado e truncado), WR-09 (fence tolera RuntimeException) e WR-07 (destinatários mágicos só no profile demo) | 2026-10-28 | 07b5fb1 | [261020-tm3-corrigir-wr-05-t-02-01-lasterror-de-repu](./quick/261020-tm3-corrigir-wr-05-t-02-01-lasterror-de-repu/) |
 | 261029-u95 | Fechar a Fase 2 no ROADMAP.md e no STATE.md (UAT 3/3 aprovado em 2026-10-21) | 2026-10-29 | 871d97f | [261029-u95-fechar-a-fase-2-no-roadmap-md-e-no-state](./quick/261029-u95-fechar-a-fase-2-no-roadmap-md-e-no-state/) |
+| 261102-ez1 | corrigir docs/demo.md:67 (painel do CB mostra os 3 canais) e docs/demo.md:57 (5 rows) | 2026-11-02 | 27b1a34 | [261102-ez1-corrigir-docs-demo-md-67-painel-do-cb-mo](./quick/261102-ez1-corrigir-docs-demo-md-67-painel-do-cb-mo/) |
 
 ## Deferred Items
 
