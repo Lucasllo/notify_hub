@@ -2,17 +2,17 @@
 gsd_state_version: "1.0"
 current_phase: 04
 current_phase_name: Observabilidade, demo e documentação
-status: executing
-stopped_at: Completed 04-04-PLAN.md
-last_updated: "2026-11-01T23:54:22.784Z"
+status: verifying
+stopped_at: Completed 04-05-PLAN.md
+last_updated: "2026-11-02T00:11:32.010Z"
 last_activity: 2026-11-01
 last_activity_desc: Phase 04 execution started
-state_head: 116296b7b0a93039a58f0ff08259d56aed7bc859
+state_head: 085638b924c764e15192622e6690e2f7d62d4a64
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 30
-  completed_plans: 29
+  completed_plans: 30
   percent: 75
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-11-01)
 
 Phase: 04 (Observabilidade, demo e documentação) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-11-01 — Phase 04 execution started
 
 Progress: [████████░░] 75%
@@ -87,6 +87,7 @@ Progress: [████████░░] 75%
 | Phase 04 P02 | 6 min | 2 tasks | 8 files |
 | Phase 04 P03 | 12min | 3 tasks | 8 files |
 | Phase 04 P04 | 51min | 3 tasks | 5 files |
+| Phase 04 P05 | 14min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -161,6 +162,8 @@ Recent decisions affecting current work:
 - [Phase 04]: 04-03: dashboard Notify Hub escrito à mão, uid fixo, datasource uid prometheus em todo painel; Grafana 12.4.12 anônimo Viewer
 - [Phase 04]: 04-04: benchmark publicado como empate de vazão (virtual 744.4 x plataforma 786.2 msg/s, intervalos sobrepostos); diferença em threads de plataforma (40 x 636 em C=200, 1536 em C=500) e memória
 - [Phase 04]: 04-04: benchmark em projeto compose separado notify-bench com override só de ENV; carga concorrente de outro container declarada no docs/benchmark.md
+- [Phase 04]: 04-05: clone limpo provado em projeto compose separado (notify-clean) com smoke-fase4 OK; volumes do notify-hub preservados
+- [Phase 04]: 04-05: docs públicos em pt-BR (README, demo, arquitetura, trade-offs com 12 itens, modelagem com explain real); screenshots docs/img/*.png pendentes do human-check
 
 ### Pending Todos
 
@@ -192,6 +195,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-11-01T23:54:22.434Z
-Stopped at: Completed 04-04-PLAN.md
+Last session: 2026-11-02T00:11:20.431Z
+Stopped at: Completed 04-05-PLAN.md
 Resume file: None

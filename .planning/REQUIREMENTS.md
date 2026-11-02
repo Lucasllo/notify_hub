@@ -81,16 +81,16 @@
 
 ### Demo e benchmark (DEM)
 
-- [ ] **DEM-01**: API e worker têm Dockerfiles multi-stage e sobem junto com a infra num único `docker compose up --build`
+- [x] **DEM-01**: API e worker têm Dockerfiles multi-stage e sobem junto com a infra num único `docker compose up --build`
 - [x] **DEM-02**: Um script k6 dispara 1000 notificações (mix de canais e destinatários mágicos) e imprime um resumo das métricas e dos status ao final
 - [x] **DEM-03**: Um benchmark compara virtual threads e threads de plataforma, alternando só o tipo de thread com concorrência alta e igual, latência bloqueante simulada, aquecimento e várias execuções. Os resultados vão para o README
 
 ### Documentação (DOC)
 
-- [ ] **DOC-01**: O README em pt-BR traz visão geral, diagramas Mermaid (arquitetura, topologia, ciclo de vida do status) e passo a passo da demo
-- [ ] **DOC-02**: O README justifica os índices compostos (regra ESR, com `explain()`) e o modelo de documentos
-- [ ] **DOC-03**: O README documenta os trade-offs: sem outbox, at-least-once com possível duplicata após crash, Spring Boot 3.5 fora do suporte OSS e sem jitter
-- [ ] **DOC-04**: Toda a documentação do projeto está em português do Brasil
+- [x] **DOC-01**: O README em pt-BR traz visão geral, diagramas Mermaid (arquitetura, topologia, ciclo de vida do status) e passo a passo da demo
+- [x] **DOC-02**: O README justifica os índices compostos (regra ESR, com `explain()`) e o modelo de documentos
+- [x] **DOC-03**: O README documenta os trade-offs: sem outbox, at-least-once com possível duplicata após crash, Spring Boot 3.5 fora do suporte OSS e sem jitter
+- [x] **DOC-04**: Toda a documentação do projeto está em português do Brasil
 
 ## v2 Requirements
 
@@ -170,13 +170,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TST-02 | Phase 3 | Complete |
 | TST-03 | Phase 3 | Complete |
 | TST-04 | Phase 3 | Complete |
-| DEM-01 | Phase 4 | Pending |
+| DEM-01 | Phase 4 | Complete |
 | DEM-02 | Phase 4 | Complete |
 | DEM-03 | Phase 4 | Complete |
-| DOC-01 | Phase 4 | Pending |
-| DOC-02 | Phase 4 | Pending |
-| DOC-03 | Phase 4 | Pending |
-| DOC-04 | Phase 4 | Pending |
+| DOC-01 | Phase 4 | Complete |
+| DOC-02 | Phase 4 | Complete |
+| DOC-03 | Phase 4 | Complete |
+| DOC-04 | Phase 4 | Complete |
 
 **Coverage:**
 
