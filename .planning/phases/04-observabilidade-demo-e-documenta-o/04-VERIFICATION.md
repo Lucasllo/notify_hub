@@ -1,7 +1,7 @@
 ---
 phase: 04-observabilidade-demo-e-documenta-o
-verified: 2026-11-02T00:35:00Z
-status: human_needed
+verified: 2026-11-02T14:10:00Z
+status: passed
 score: 38/38 must-haves verified (5/5 critérios do roadmap + 33/33 truths dos planos)
 covered_files:
   - .dockerignore
@@ -22,6 +22,8 @@ covered_files:
   - docs/arquitetura.md
   - docs/benchmark.md
   - docs/demo.md
+  - docs/img/dashboard-k6.png
+  - docs/img/rabbitmq-filas.png
   - docs/modelagem-mongo.md
   - docs/trade-offs.md
   - k6/bench-backlog.js
@@ -48,43 +50,40 @@ covered_files:
   - scripts/smoke-fase1.sh
   - scripts/smoke-fase2.sh
   - scripts/smoke-fase4.sh
-covered_digest: "v1:sha256:0943286ecfc7535fe327dd00456241b94765275d127714e5bbcfddb4495d1123"
+covered_digest: "v1:sha256:f58cc739b0989d337f146502cfd1eb8ecf88e69893b89033cd399985f5e4c6f8"
 behavior_unverified: 0
 overrides_applied: 0
-human_verification:
-  - test: "Capturar docs/img/dashboard-k6.png (dashboard Notify Hub durante `docker compose --profile bench run --rm k6`, com CB/recusas/retries/DLQ visíveis) e docs/img/rabbitmq-filas.png (aba Queues and Streams com filas de delay e DLQs) e versionar os dois"
-    expected: "As duas imagens existem em docs/img/ e renderizam no README (linha 81) e no docs/demo.md (linhas 72 e 86)"
-    why_human: "Hoje docs/img/ só tem .gitkeep (git ls-files), então a vitrine mostra imagem quebrada no GitHub. A captura foi deixada de propósito para o checkpoint humano (D-10)"
-  - test: "Abrir http://localhost:3000 sem login e acompanhar o dashboard durante uma rodada do k6"
-    expected: "As 5 rows renderizam com dados; a state timeline do CB usa verde/vermelho/amarelo; recusas circuit_open, ondas de retry por nível e DLQs crescendo aparecem; nenhum painel fica 'No data'. Conferir também o stat 'Taxa de sucesso' num stack recém-subido (pode mostrar NaN antes do primeiro desfecho, IN-03), o que contradiz o 'nunca mostrar No data' do README"
-    why_human: "Aparência, cores e legibilidade dos painéis não são verificáveis por API; as 21 expressões foram validadas no Prometheus, mas não a renderização"
-  - test: "Abrir README.md e docs/arquitetura.md no GitHub (depois do push)"
-    expected: "Os 3 diagramas Mermaid (flowchart de arquitetura, flowchart da topologia com arestas pontilhadas e stateDiagram-v2 com 16 transições) renderizam sem erro"
-    why_human: "Não há renderizador Mermaid no ambiente de verificação"
-  - test: "Leitura de um minuto do topo do README como recrutador"
-    expected: "Pitch, o que demonstra e como rodar ficam claros sem rolar demais"
-    why_human: "Tom e clareza são julgamento humano (D-09)"
-  - test: "Conferir que toda afirmação de docs/benchmark.md e do README sobre o benchmark bate com target/bench/resumo.txt e resultados.csv (proibição de transparência, nível judgment)"
-    expected: "Nenhuma conclusão além do medido. O verificador recalculou: medianas 744.4/786.2 msg/s, RSS 718/844 MiB, diferença de 41.8 msg/s (~5%), +126/+347 MiB, as 10 rodadas da tabela iguais ao CSV, 7 eventos JFR em basicAck; leitura de empate coerente com a dispersão. Veredito do LLM não é autoritativo"
-    why_human: "Proibições de nível judgment exigem resolução humana explícita (ADR-550 D4)"
-  - test: "Resolver as proibições de nível judgment marcadas como unresolved/flagged nos planos: privacidade (04-03 k6 demo, 04-04 backlog), transparência do benchmark (04-04) e garantias da documentação (04-05)"
-    expected: "Humano confirma: só example.com, fail.test, +55119.../+5511... e +5500... nos scripts e docs; nenhuma afirmação de exactly-once/'nunca duplica'/'entrega garantida' sem a ressalva at-least-once; profile demo declarado como não pronto para produção (docs/trade-offs.md, parágrafo de abertura)"
-    why_human: "Veredito do LLM (nenhuma violação encontrada por grep e leitura) é não autoritativo; a decisão final é humana"
-  - test: "(Recomendado) Clonar o repositório numa máquina ou VM sem cache do BuildKit e rodar `docker compose up --build` e `docker compose --profile bench run --rm k6`"
-    expected: "Sobe tudo sem JDK nem passo manual e o k6 imprime o resumo com novas=1000"
-    why_human: "O clone limpo do executor foi local e compartilhou o cache `id=notify-m2` do BuildKit e as imagens base; não foi possível reproduzir sem mutar o estado da máquina"
+re_verification:
+  previous_status: human_needed
+  previous_score: 38/38
+  gaps_closed:
+    - "G-04-1: docs/img/dashboard-k6.png e docs/img/rabbitmq-filas.png existem, versionadas, e renderizam no README (linha 81) e no docs/demo.md (linhas 72 e 86) — 68cbb38"
+    - "7 itens de verificação humana do relatório anterior confirmados na UAT (04-UAT.md, status complete, 7/7 pass)"
+  gaps_remaining: []
+  regressions: []
 ---
 
 # Phase 4: Observabilidade, demo e documentação — Verification Report
 
 **Phase Goal:** Quem avalia o projeto roda um único `docker compose up --build` e o script k6, vê 1000 notificações fluindo no Grafana (retries, DLQs, circuit breaker) e lê no README em pt-BR a arquitetura, os trade-offs e os números do benchmark de virtual threads
-**Verified:** 2026-11-02T00:35:00Z
-**Status:** human_needed
-**Re-verification:** No — verificação inicial
+**Verified:** 2026-11-02T14:10:00Z
+**Status:** passed
+**Re-verification:** Sim — o relatório anterior (2026-11-02T00:35:00Z, `human_needed`, 38/38) ficou desatualizado porque os commits efa89d3 e 68cbb38 mexeram em arquivos cobertos, e a UAT humana foi concluída depois dele.
 
-Nota de processo: a fase está marcada `Mode: mvp`, mas o Goal não está no formato de user story (`user-story.validate` → `false`). Segui o mesmo caminho das verificações anteriores (Fase 3): goal-backward padrão, sem a tabela "User Flow Coverage".
+Nota de processo: a fase está marcada `Mode: mvp`, mas o Goal não está no formato de user story. Segui o mesmo caminho das verificações anteriores: goal-backward padrão, sem a tabela "User Flow Coverage".
 
-Evidência própria do verificador (não narrativa dos SUMMARYs): sondagem só leitura do stack `notify-hub` no ar (Prometheus, Grafana, API, RabbitMQ, Mongo), execução das 21 expressões do dashboard no Prometheus, execução do `scripts/explain-indices.js` (só leitura), recálculo das medianas a partir de `target/bench/resultados.csv`, `./mvnw -pl notify-api -am -Dtest=PublishMetricsTest,NotificationRepublisherTest test` (13 + 25 testes, 0 falhas) e `gsd-tools verify.artifacts`/`verify.key-links` (28/28 artefatos, 16/16 links).
+## Escopo da reverificação
+
+`git diff --stat ad2754e HEAD -- . ':!.planning'` mostra que, desde o fim da execução da fase, só 4 arquivos fora de `.planning/` mudaram:
+
+| Arquivo | Commit | Mudança |
+|---------|--------|---------|
+| `observability/grafana/dashboards/notify-hub.json` | efa89d3 | Painel "Circuit breaker por canal" (id 15): `color.mode` de `thresholds` para `fixed` + `fixedColor: text`, para o Grafana 12.4 não trocar o valor pelo rótulo da faixa ("-∞+") antes dos value mappings |
+| `docs/demo.md` | efa89d3 | Parágrafo do CB ganhou a explicação do Half-open que persiste sem tráfego |
+| `docs/img/dashboard-k6.png` | 68cbb38 | Nova (PNG 1920x2653) |
+| `docs/img/rabbitmq-filas.png` | 68cbb38 | Nova (PNG 1106x473) |
+
+Os demais 42 arquivos cobertos não têm diff desde a verificação anterior, então as evidências dela continuam válidas para eles (checagem de regressão: sem alteração). Os 4 arquivos alterados receberam verificação completa abaixo.
 
 ## Goal Achievement
 
@@ -92,11 +91,11 @@ Evidência própria do verificador (não narrativa dos SUMMARYs): sondagem só l
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | Num clone limpo, um único `docker compose up --build` sobe API, worker, RabbitMQ, MongoDB, Prometheus e Grafana sem passo manual nem JDK local | ✓ VERIFIED | `docker-compose.yml` tem os 6 serviços + k6 (profile bench); api/worker com `build:` em Dockerfiles multi-stage `FROM maven:3.9-eclipse-temurin-21 AS build` → `eclipse-temurin:21-jre`; healthchecks de readiness e `depends_on: service_healthy`; todos os arquivos necessários estão no git (`git ls-files`), e o build só usa POMs + `src` (nada fora do contexto). Stack atual no ar: 6 containers, api/worker/rabbitmq/mongo `healthy`. Clone limpo local (`notify-clean`) relatado pelo executor e pelo orquestrador; reprodução numa máquina sem cache fica como item humano recomendado |
-| 2 | O Grafana abre com datasource e dashboard provisionados, mostrando throughput, resultados por canal, retries por nível, profundidade das DLQs, p95 e estado do CB, alimentados pelo Prometheus coletando API, worker e RabbitMQ | ✓ VERIFIED | `GET /api/dashboards/home` anônimo → `Notify Hub`, uid `notify-hub`, `canEdit:false`, refresh 5s, `now-15m`; 5 rows na ordem do D-01; datasource uid `prometheus`, `http://prometheus:9090`, `timeInterval: 5s`; proxy do Grafana responde `success`. Prometheus `up`=1 para `api`, `worker`, `rabbitmq`, `rabbitmq-queues`. As 21 expressões rodaram no Prometheus: 21× `success`, todas com séries não vazias, 0 sem datasource. Mapeamento da state timeline: 0 verde, 1 vermelho, 2 amarelo. Renderização visual → item humano |
-| 3 | O k6 dispara 1000 notificações com mix de canais e destinatários mágicos, o dashboard reflete a carga e ao final o script imprime resumo de métricas e contagens por status | ✓ VERIFIED | `k6/demo.js`: `shared-iterations`, 50 VUs, 1000 iterações, mix determinístico de 3 canais × 3 templates × destinatários mágicos, thresholds `http_req_failed<0.01` e `checks>0.99`, resumo por status e canal via `/notifications/stats`. `target/smoke/k6.log`: `novas=1000`, `PENDING=0 PROCESSING=0 RETRYING=0`, contagens por canal, checks 1000/1000, `http_req_failed` 0%. Prometheus ao vivo (mesma vida do container): `notify_publish_outcomes_total{confirmed,none}`=1001, 7 séries; `circuit_open`=3905; retries por nível 1351/1253/1109; DLQs 241/217/697; CB `open` atingiu 1 nos 3 canais nas últimas 3h |
-| 4 | O README mostra os resultados do benchmark VT x plataforma (só o tipo de thread varia, concorrência alta igual, latência bloqueante, aquecimento, várias execuções) com o método para reproduzi-lo | ✓ VERIFIED | README seção "Benchmark" com medianas 744.4/786.2 msg/s, threads 40/636, memória 718/844 MiB, leitura de empate e link para `docs/benchmark.md` (método, ambiente, todas as rodadas, JFR, limitações, "Como reproduzir", saída bruta verbatim). Recalculado do CSV: medianas e RSS batem; `resumo.txt` colado idêntico. `docker-compose.bench.yml` só muda `VIRTUAL_THREADS` entre modos; o pico de 636 = 3×200+36 prova que a concorrência foi aplicada; `execucao.exit`=0 e `BENCH: OK` |
-| 5 | README e toda a documentação em pt-BR, com Mermaid (arquitetura, topologia, ciclo de vida), passo a passo da demo, índices com `explain()` e trade-offs (sem outbox, at-least-once, Boot 3.5 fora do OSS, sem jitter) | ✓ VERIFIED | Estrutura "README vitrine + docs/" escolhida pelo usuário na discussão (D-07, DISCUSSION-LOG: "README vitrine + docs/ ✓" contra "README único e longo"). README: Mermaid de arquitetura + links. `docs/arquitetura.md`: topologia em flowchart e `stateDiagram-v2` com as 16 transições idênticas à tabela de `NotificationStatus`. `docs/demo.md`: roteiro de 8 passos. `docs/modelagem-mongo.md`: 5 índices com ESR iguais ao `MongoIndexInitializer`; saída do explain reexecutada pelo verificador e idêntica, linha a linha, à colada. `docs/trade-offs.md`: tabela de 12 itens incluindo os 4 obrigatórios + próximos passos. Grep sem fases, D-xx, WR/CR, gap closures; única menção a `.planning/` é a linha final do README |
+| 1 | Num clone limpo, um único `docker compose up --build` sobe API, worker, RabbitMQ, MongoDB, Prometheus e Grafana sem passo manual nem JDK local | ✓ VERIFIED | Sem diff em `docker-compose.yml`, Dockerfiles e `.dockerignore` desde a verificação anterior (compose com 6 serviços + k6 em profile bench, multi-stage `maven:3.9-eclipse-temurin-21` → `eclipse-temurin:21-jre`, healthchecks + `service_healthy`). O item humano "clone numa máquina sem cache do BuildKit" foi confirmado na UAT (teste 7: pass, k6 com `novas=1000`) |
+| 2 | O Grafana abre com datasource e dashboard provisionados, mostrando throughput, resultados por canal, retries por nível, profundidade das DLQs, p95 e estado do CB, alimentados pelo Prometheus coletando API, worker e RabbitMQ | ✓ VERIFIED | Dashboard revalidado depois de efa89d3: `JSON.parse` OK, título `Notify Hub`, uid `notify-hub`, 24 painéis, 5 rows (Visão geral, Entrega por canal, Retry e DLQ, Resiliência, API e JVM), 21 targets, 0 sem datasource `prometheus`. Painel do CB: `state-timeline`, `mergeValues: true`, mappings 0→Fechado/verde, 1→Aberto/vermelho, 2→Half-open/amarelo intactos, expr inalterada. A screenshot versionada `docs/img/dashboard-k6.png` mostra as 5 rows com dados e a state timeline com os rótulos "Fechado", "Half-open" e "Aberto" nas cores certas (a correção funciona). UAT teste 2: pass |
+| 3 | O k6 dispara 1000 notificações com mix de canais e destinatários mágicos, o dashboard reflete a carga e ao final o script imprime resumo de métricas e contagens por status | ✓ VERIFIED | `k6/demo.js` sem diff (shared-iterations, 50 VUs, 1000 iterações, thresholds, resumo via `/notifications/stats`). Screenshot: "Aceitas na janela" 1K, ondas em retries por nível, DLQs crescendo, recusas `circuit_open`, publish `confirmed`. `docs/img/rabbitmq-filas.png` mostra as 15 filas (principais, `retry.1s/5s/25s`, `.dlq`) com mensagens nas DLQs. UAT testes 1, 2 e 7: pass |
+| 4 | O README mostra os resultados do benchmark VT x plataforma com o método para reproduzi-lo | ✓ VERIFIED | README e `docs/benchmark.md` sem diff. Números já recalculados do CSV no relatório anterior (744.4/786.2 msg/s, 718/844 MiB). UAT teste 5 (afirmações batem com o medido): pass |
+| 5 | README e toda a documentação em pt-BR, com Mermaid, passo a passo da demo, índices com `explain()` e trade-offs | ✓ VERIFIED | Docs sem diff exceto um parágrafo de `docs/demo.md` (pt-BR, coerente com a config: `permitted-number-of-calls-in-half-open-state: 3` em `notify-worker/src/main/resources/application.yml:105` e `wait-duration-in-open-state: 500ms` no `application-demo.yml`). As 3 referências de imagem agora resolvem: `README.md:81` → `docs/img/dashboard-k6.png`, `docs/demo.md:72` → `img/dashboard-k6.png`, `docs/demo.md:86` → `img/rabbitmq-filas.png`, as duas em `git ls-files`. UAT testes 3 (Mermaid no GitHub) e 4 (leitura do README): pass |
 
 **Score:** 5/5 critérios do roadmap; 33/33 truths dos planos (0 presentes sem comportamento verificado)
 
@@ -104,118 +103,104 @@ Evidência própria do verificador (não narrativa dos SUMMARYs): sondagem só l
 
 | Plano | Truths | Status | Notas |
 |-------|--------|--------|-------|
-| 04-01 | 7 | ✓ 7/7 | Ao vivo: `up`=1 nos 4 jobs; `rabbitmq_detailed_queue_messages` com rótulo `queue` (18 filas); `/actuator/prometheus` 200 com 69 linhas `http_server_requests_seconds_bucket ... uri="/notifications"`; exposição `health,info,prometheus`; uid 999 e PID 1 = `java -XX:MaxRAMPercentage=75 -jar /app/app.jar` nos dois containers, `/app` só com `app.jar`; todas as portas em `127.0.0.1`. Smokes 1/2: lógica `compose stop api worker` + `up rabbitmq mongo` conferida no código, não reexecutados (parariam a demo); `./mvnw verify` verde pelo gate do orquestrador |
-| 04-02 | 6 | ✓ 6/6 | `PublishMetrics` pré-registra 7 séries; switch exaustivo de `PublishResult.Outcome`; chamadas em `NotificationRepublisher` linhas 175/181/199/204/329; `NotificationPublisher` e `DlqReprocessService` sem diff desde o início da fase. Comportamento coberto por testes executados pelo verificador (PublishMetricsTest 13/13, NotificationRepublisherTest 25/25), incluindo Mongo fora → nenhum incremento |
-| 04-03 | 7 | ✓ 7/7 | Ver critérios 2 e 3. `application-demo.yml` do worker sem diff (CB 500ms) |
-| 04-04 | 6 | ✓ 6/6 | Override só de ENV, projeto `-p notify-bench`, backlog validado (0 PUBLISH_FAILED, `run-bench.sh:177-181`), aquecimento W descartado em `drain-stats.js`, 5 rodadas intercaladas, sanidade do modo com `falhou` (`run-bench.sh:344-345`), `docs/benchmark.md` com as seções exigidas |
-| 04-05 | 7 | ✓ 7/7 | Ver critérios 1 e 5. Links das screenshots prontos, imagens pendentes (D-10, item humano) |
+| 04-01 | 7 | ✓ 7/7 | Sem diff nos artefatos; evidência anterior mantida |
+| 04-02 | 6 | ✓ 6/6 | Sem diff; testes PublishMetricsTest 13/13 e NotificationRepublisherTest 25/25 da verificação anterior continuam válidos para o mesmo código |
+| 04-03 | 7 | ✓ 7/7 | Dashboard revalidado depois de efa89d3 (ver critério 2) |
+| 04-04 | 6 | ✓ 6/6 | Sem diff |
+| 04-05 | 7 | ✓ 7/7 | Screenshots agora versionadas; links resolvem |
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `notify-worker/Dockerfile`, `notify-api/Dockerfile` | Multi-stage, `*-exec.jar`, usuário app | ✓ VERIFIED | Conteúdo e containers ao vivo conferidos |
-| `.dockerignore` | Exclui .git/.planning/.gsd/target | ✓ VERIFIED | |
-| `docker-compose.yml` | api, worker, prometheus, grafana, k6 (bench), loopback | ✓ VERIFIED | |
-| `observability/prometheus/prometheus.yml` | 4 jobs, 5s, `/metrics/detailed` + `queue_coarse_metrics` | ✓ VERIFIED | |
-| `notify-api/src/main/resources/application.yml`, `notify-api/pom.xml` | Prometheus + histograma HTTP | ✓ VERIFIED | |
-| `PublishMetrics.java` (+ teste) | 7 séries fechadas | ✓ VERIFIED | WR-01 afeta a semântica de `unconfirmed`, não o contrato do plano |
-| `observability/grafana/**` | Datasource, provider read-only, dashboard 5 rows | ✓ VERIFIED | |
-| `k6/demo.js`, `k6/bench-backlog.js` | 1000 POSTs / backlog W+N | ✓ VERIFIED | |
-| `scripts/smoke-fase4.sh` | 12 etapas, `SMOKE FASE 4: OK` | ✓ VERIFIED | |
-| `docker-compose.bench.yml`, `scripts/bench/*` | Protocolo do benchmark | ✓ VERIFIED | |
-| `README.md`, `docs/*.md`, `scripts/explain-indices.js` | Documentação pt-BR | ✓ VERIFIED | `docs/img/` só com `.gitkeep` (por desenho) |
-
-`gsd-tools verify.artifacts`: 28/28 aprovados nos 5 planos.
+| `notify-worker/Dockerfile`, `notify-api/Dockerfile`, `.dockerignore`, `docker-compose.yml` | Build multi-stage, stack completo | ✓ VERIFIED | Sem diff |
+| `observability/prometheus/prometheus.yml`, `observability/grafana/provisioning/**` | 4 jobs, datasource, provider read-only | ✓ VERIFIED | Sem diff |
+| `observability/grafana/dashboards/notify-hub.json` | Dashboard 5 rows, 21 targets | ✓ VERIFIED | JSON válido depois de efa89d3; só a cor do painel 15 mudou |
+| `PublishMetrics.java` (+ testes), `NotificationRepublisher.java`, `application.yml`, `pom.xml` da API | Contador de publish, Prometheus | ✓ VERIFIED | Sem diff |
+| `k6/demo.js`, `k6/bench-backlog.js`, `scripts/**`, `docker-compose.bench.yml` | Demo e benchmark | ✓ VERIFIED | Sem diff |
+| `README.md`, `docs/*.md`, `scripts/explain-indices.js` | Documentação pt-BR | ✓ VERIFIED | `docs/demo.md` com um parágrafo novo, ver achados menores |
+| `docs/img/dashboard-k6.png` | Dashboard durante o k6 | ✓ VERIFIED | PNG 1920x2653, conteúdo conferido visualmente: 5 rows com dados, CB com Fechado/Half-open/Aberto |
+| `docs/img/rabbitmq-filas.png` | Filas de delay e DLQs | ✓ VERIFIED | PNG 1106x473, 15 filas classic com features TTL/DLX/DLK, DLQs com 91/84/265 mensagens |
 
 ### Key Link Verification
 
-`gsd-tools verify.key-links`: 16/16 WIRED. Conferidos à mão: dashboard → datasource uid `prometheus` (todos os painéis e targets); compose → `GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH` (home anônima é o Notify Hub); dashboard → `notify_publish_outcomes_total` (7 séries ao vivo); `run-bench.sh` → `docker-compose.bench.yml` e `drain-stats.js`; README → medianas de `docs/benchmark.md`; `docs/arquitetura.md` → transições de `NotificationStatus` (16/16); `docs/modelagem-mongo.md` → saída de `explain-indices.js` (idêntica na reexecução).
+Links da verificação anterior (16/16 WIRED) sem regressão, porque os arquivos de origem e destino não mudaram, com duas exceções reconferidas:
+
+| From | To | Via | Status |
+|------|----|-----|--------|
+| Painel 15 do dashboard | datasource uid `prometheus` | `datasource` do painel e do target | ✓ WIRED |
+| `README.md:81`, `docs/demo.md:72,86` | `docs/img/*.png` | Markdown image links | ✓ WIRED (antes quebrado, G-04-1) |
 
 ### Data-Flow Trace (Level 4)
 
 | Artifact | Data | Source | Produz dado real | Status |
 |----------|------|--------|------------------|--------|
-| Dashboard Notify Hub (21 targets) | séries PromQL | Prometheus ← api/worker/rabbitmq | Sim: as 21 queries devolvem séries não vazias | ✓ FLOWING |
-| Painel "Resultado do publish" | `notify_publish_outcomes_total` | `PublishMetrics` ← `NotificationRepublisher` | Sim: confirmed/none=1001 depois do k6 | ✓ FLOWING |
-| Resumo do k6 | `/notifications/stats` | `$group` no Mongo | Sim: `novas=1000` e contagens por canal | ✓ FLOWING |
-| README/benchmark.md | números | `target/bench/resumo.txt` / CSV | Sim: recalculado | ✓ FLOWING |
+| Dashboard Notify Hub (21 targets) | séries PromQL | Prometheus ← api/worker/rabbitmq | Sim: queries sem mudança desde a execução no Prometheus (21/21 com séries); screenshot mostra todos os painéis com dados | ✓ FLOWING |
+| Painel do CB | `resilience4j_circuitbreaker_state` | worker (instâncias email, sms, webhook) | Sim: screenshot mostra as 3 séries | ✓ FLOWING |
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
 |----------|---------|--------|--------|
-| Prometheus coleta os 4 alvos | `curl :9090/api/v1/query?query=up` | 4 séries com valor 1 | ✓ PASS |
-| Grafana home anônima | `curl :3000/api/dashboards/home` | Notify Hub, canEdit=false, 5 rows, 21 targets | ✓ PASS |
-| Expressões do dashboard válidas | script node que executa cada expr no Prometheus | exprs 21, bad 0, noDatasource 0 | ✓ PASS |
-| Contador de publish | PublishMetricsTest + NotificationRepublisherTest | 13/13 e 25/25 | ✓ PASS |
-| Explain dos índices | `docker compose exec -T mongo mongosh ... explain-indices.js` | 9 linhas EXPLAIN idênticas às do doc, nenhum SORT | ✓ PASS |
-| Endpoints do README | curl Swagger, RabbitMQ, Prometheus ready, Grafana health | 200 em todos | ✓ PASS |
-| Containers não root | `docker compose exec api/worker id -u` + `/proc/1/cmdline` | 999, java como PID 1 | ✓ PASS |
-| k6 + smoke completo | não reexecutado (mutaria o estado) | evidência: `target/smoke/k6.log` + contadores ao vivo | ? SKIP (evidência indireta forte) |
-| Benchmark | proibido pelo orquestrador | evidência: `target/bench/*` | ? SKIP |
+| Dashboard é JSON válido e consistente | `node -e JSON.parse(...)` + contagem de rows/targets/datasource | válido, 5 rows, 21 targets, 0 sem datasource | ✓ PASS |
+| Imagens versionadas e válidas | `git ls-files docs/img` + `file docs/img/*.png` | 2 PNGs válidos + `.gitkeep` | ✓ PASS |
+| Grafana ao vivo com o painel corrigido | `curl :3000/api/dashboards/uid/notify-hub` | stack desligado nesta máquina | ? SKIP (coberto pela screenshot e pela UAT teste 2) |
 
 ### Probe Execution
 
-Step 7c: não aplicável — a fase não declara `scripts/*/tests/probe-*.sh`. Os smokes (`scripts/smoke-fase4.sh`) não foram reexecutados porque sobem/derrubam containers e disparam carga.
+Step 7c: não se aplica. A fase não declara `scripts/*/tests/probe-*.sh`.
 
 ### Requirements Coverage
 
 | Requirement | Source Plan | Description | Status | Evidence |
 |-------------|-------------|-------------|--------|----------|
-| OBS-02 | 04-01, 04-02 | Prometheus coleta API, worker e RabbitMQ | ✓ SATISFIED | 4 jobs com up=1, métricas por fila, contador de publish |
-| OBS-03 | 04-03 | Grafana provisionado com throughput, resultados, retries, DLQs, p95, CB | ✓ SATISFIED | Critério 2 |
-| DEM-01 | 04-01, 04-05 | Dockerfiles multi-stage e um único `docker compose up --build` | ✓ SATISFIED | Critério 1 |
+| OBS-02 | 04-01, 04-02 | Prometheus coleta API, worker e RabbitMQ | ✓ SATISFIED | Sem regressão |
+| OBS-03 | 04-03 | Grafana provisionado com throughput, resultados, retries, DLQs, p95, CB | ✓ SATISFIED | Critério 2, painel do CB corrigido e confirmado |
+| DEM-01 | 04-01, 04-05 | Dockerfiles multi-stage e um único `docker compose up --build` | ✓ SATISFIED | Critério 1, UAT teste 7 |
 | DEM-02 | 04-03 | k6 com 1000 notificações e resumo | ✓ SATISFIED | Critério 3 |
-| DEM-03 | 04-04 | Benchmark VT x plataforma, resultados no README | ✓ SATISFIED | Critério 4 |
-| DOC-01 | 04-05 | Visão geral, Mermaid (arquitetura, topologia, ciclo de vida), passo a passo | ✓ SATISFIED | README + `docs/arquitetura.md` + `docs/demo.md` (estrutura D-07 escolhida pelo usuário) |
-| DOC-02 | 04-05 | Índices com ESR e `explain()`, modelo de documentos | ✓ SATISFIED | `docs/modelagem-mongo.md`, explain reproduzido |
-| DOC-03 | 04-05 | Trade-offs obrigatórios | ✓ SATISFIED | `docs/trade-offs.md` |
-| DOC-04 | 04-05 | Toda a documentação em pt-BR | ✓ SATISFIED | README e 5 docs em pt-BR |
+| DEM-03 | 04-04 | Benchmark VT x plataforma, resultados no README | ✓ SATISFIED | Critério 4, UAT teste 5 |
+| DOC-01 | 04-05 | Visão geral, Mermaid, passo a passo | ✓ SATISFIED | UAT teste 3; screenshots presentes |
+| DOC-02 | 04-05 | Índices com ESR e `explain()` | ✓ SATISFIED | Sem regressão |
+| DOC-03 | 04-05 | Trade-offs obrigatórios | ✓ SATISFIED | Sem regressão |
+| DOC-04 | 04-05 | Toda a documentação em pt-BR | ✓ SATISFIED | Parágrafo novo em pt-BR |
 
-Nenhum requisito órfão: os 9 IDs do REQUIREMENTS.md mapeados para a Fase 4 aparecem nos `requirements` dos planos.
+Os 9 IDs aparecem nos `requirements` dos planos e estão marcados `Complete` para a Phase 4 no REQUIREMENTS.md. Nenhum requisito órfão.
+
+### Prohibitions (nível judgment)
+
+| Plano | Proibição | Status |
+|-------|-----------|--------|
+| 04-03 | Sem dados de contato reais no k6/demo | Resolvida por humano (UAT teste 6: pass) |
+| 04-04 | Sem números/conclusões fora do protocolo | Resolvida por humano (UAT testes 5 e 6: pass) |
+| 04-04 | Sem dados reais no backlog | Resolvida por humano (UAT teste 6: pass) |
+| 04-05 | Sem garantias acima do implementado | Resolvida por humano (UAT teste 6: pass) |
+
+Nenhuma proibição de nível test. O parágrafo novo de `docs/demo.md` não traz dados de contato nem garantias novas.
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
 |------|------|---------|----------|--------|
-| (todos os 37 arquivos alterados) | — | TBD/FIXME/XXX/TODO/HACK | — | Nenhum marcador encontrado |
-| `README.md` / `docs/demo.md` | 81 / 72, 86 | Imagens linkadas inexistentes (WR-02) | ⚠️ Warning | Imagem quebrada na vitrine até a captura humana (D-10) |
-| `NotificationRepublisher.java` | 316-330 | `publish_failed/unconfirmed` também conta publishes confirmados quando o worker fica >2 min sem reivindicar (WR-01) | ⚠️ Warning | Painel "Resultado do publish" engana durante queda do worker; não afeta a demo nominal nem o contrato do plano |
-| `k6/demo.js` | 123-150 | Resumo por delta global pode declarar "drenado" cedo se uma rodada anterior interrompida ainda estiver drenando (WR-03) | ⚠️ Warning | Caso de borda; o smoke poderia passar com rodada não drenada. Fluxo nominal correto |
-| `docs/demo.md` | 5, 104-106 | `curl.exe -d '{"..."}'` quebra no Windows PowerShell 5.1 (WR-04) | ⚠️ Warning | Passo 6 do roteiro falha para quem usa PowerShell 5.1 |
-| `docs/demo.md` | 57 | "O dashboard tem quatro rows", mas lista e o dashboard têm 5 | ⚠️ Warning | Inconsistência no roteiro (correção de uma palavra) |
-| `observability/grafana/dashboards/notify-hub.json` | 143 | "Taxa de sucesso" = 0/0 = NaN num stack novo (IN-03) | ℹ️ Info | Contradiz "nunca mostrar No data" do README até o primeiro desfecho |
-| `README.md` / `docs/demo.md` | 74 / 25 | "admin/admin para editar", mas o dashboard é read-only (IN-05) | ℹ️ Info | Só "Save as" |
-| Volume local do Mongo | — | 4 documentos PROCESSING abandonados (2026-10-12/13, de antes da recuperação por lease) | ℹ️ Info | Só nesta máquina; o k6 já desconta pela linha de base; não existe num clone limpo |
-| Volume local do RabbitMQ | — | 18 filas (inclui `retry.125s` deixadas pelo smoke 1 no perfil padrão, IN-11) contra as 15 documentadas | ℹ️ Info | Só nesta máquina; some com `down -v` |
+| `docs/demo.md`, `notify-hub.json` | — | TBD/FIXME/XXX/TODO/HACK | — | Nenhum marcador |
+| `docs/demo.md` | 67 | Texto diz que "Circuit breaker por canal" mostra "o estado do CB do webhook", mas a query do painel (`max by (name) (resilience4j_circuitbreaker_state{state="open"}) + 2 * max by (name) (...{state="half_open"})`) não filtra por `name` e mostra os 3 canais. A screenshot e a `description` do painel ("Estado do circuit breaker ... de cada canal") confirmam: email, sms e webhook | ⚠️ Warning (menor) | Inconsistência no texto do roteiro; não afeta o dashboard nem a truth. Correção sugerida: "mostra o estado do CB de cada canal (email, sms e webhook)" |
+| `docs/demo.md` | 57 | "O dashboard tem quatro rows", mas o dashboard e a lista logo abaixo têm 5 (já apontado no relatório anterior, ainda não corrigido) | ⚠️ Warning (menor) | Correção de uma palavra |
+| `docs/demo.md` | 5, 104-106 | `curl.exe -d '{"..."}'` quebra no Windows PowerShell 5.1 (WR-04, carregado) | ⚠️ Warning | Usabilidade do roteiro |
+| `NotificationRepublisher.java` | 316-330 | Semântica de `publish_failed/unconfirmed` (WR-01, carregado) | ⚠️ Warning | Fora do fluxo nominal da demo |
+| `k6/demo.js` | 123-150 | Delta global pode declarar "drenado" cedo após rodada interrompida (WR-03, carregado) | ⚠️ Warning | Caso de borda |
+| `notify-hub.json` | 143 | "Taxa de sucesso" = NaN num stack novo (IN-03, carregado) | ℹ️ Info | Até o primeiro desfecho |
+| `README.md` / `docs/demo.md` | 74 / 25 | "admin/admin para editar" com dashboard read-only (IN-05, carregado) | ℹ️ Info | Só "Save as" |
 
-Os 4 warnings do 04-REVIEW foram avaliados contra os must-haves: nenhum invalida uma truth. WR-01 é semântica do rótulo (o plano fixou exatamente esse comportamento), WR-02 é a captura humana prevista, WR-03 é caso de borda fora do fluxo nominal e WR-04 é usabilidade do roteiro no PowerShell 5.1.
-
-### Prohibitions (nível judgment)
-
-| Plano | Proibição | Veredito do LLM (não autoritativo) | Status |
-|-------|-----------|------------------------------------|--------|
-| 04-03 | Sem dados de contato reais no k6/demo | Só `example.com`, `fail.test`, `+55119…` e `+5500…` | unverified-prohibition — human review recommended |
-| 04-04 | Sem números/conclusões fora do protocolo | Todos os números batem com CSV/resumo; empate declarado | unverified-prohibition — human review recommended |
-| 04-04 | Sem dados reais no backlog | `bench{i}@example.com`, `+5511{9…}`, `https://example.com/bench/{i}` | unverified-prohibition — human review recommended |
-| 04-05 | Sem garantias acima do implementado | at-least-once explícito no README e trade-offs; "exactly-once" só citado como não oferecido; profile demo declarado não pronto para produção | unverified-prohibition — human review recommended |
+O WR-02 (imagens quebradas) do relatório anterior foi resolvido por 68cbb38. Nenhum dos warnings invalida uma truth.
 
 ### Human Verification Required
 
-1. **Screenshots** — capturar e versionar `docs/img/dashboard-k6.png` e `docs/img/rabbitmq-filas.png`. Esperado: renderizam no README e no `docs/demo.md`. Por que humano: captura visual prevista no checkpoint D-10; hoje a vitrine tem imagem quebrada.
-2. **Dashboard durante o k6** — abrir http://localhost:3000 e acompanhar uma rodada. Esperado: 5 rows com dados, cores do CB corretas, recusas/retries/DLQs reagindo; conferir o NaN da "Taxa de sucesso" num stack novo. Por que humano: renderização não é verificável por API.
-3. **Mermaid no GitHub** — README e `docs/arquitetura.md`. Esperado: 3 diagramas renderizam. Por que humano: sem renderizador no ambiente.
-4. **Leitura do topo do README como recrutador.** Por que humano: tom e clareza.
-5. **Benchmark x medianas** — confirmar a leitura de empate e os números (o verificador já recalculou tudo e não achou divergência). Por que humano: proibição de transparência de nível judgment.
-6. **Proibições judgment** — confirmar os 4 vereditos da tabela acima.
-7. **(Recomendado) Clone numa máquina sem cache do BuildKit** — `docker compose up --build` + k6. Por que humano: o clone limpo do executor compartilhou o cache local.
+Nenhum item pendente. Os 7 itens do relatório anterior foram confirmados pelo usuário na UAT (`04-UAT.md`, status `complete`, 7/7 pass, 0 issues; G-04-1 resolvido por 68cbb38). A correção de efa89d3 (cor do painel do CB) foi feita antes da captura das screenshots e da conclusão da UAT, e a screenshot versionada mostra o painel renderizando os estados corretamente, então não precisa de nova checagem visual.
 
 ### Gaps Summary
 
-Nenhum gap bloqueante. Os 5 critérios do roadmap e as 33 truths dos planos têm evidência no código e no stack em execução: compose com build multi-stage, Prometheus coletando os 4 alvos, Grafana anônimo com as 21 expressões válidas e com dados, k6 com 1000 notificações e resumo, benchmark com números reproduzíveis a partir do CSV, e documentação pt-BR com Mermaid, explain real e trade-offs. O status é `human_needed` por causa dos itens visuais e de julgamento (screenshots, renderização do dashboard e do Mermaid, leitura do README e as proibições de nível judgment). Recomenda-se corrigir antes do ship os warnings baratos: "quatro rows" → "cinco rows" em `docs/demo.md`, a nota de PowerShell 5.1 (WR-04) e, se quiser, a guarda de linha de base instável no k6 (WR-03) e o rótulo de `unconfirmed` (WR-01).
+Nenhum gap. Os 5 critérios do roadmap e as 33 truths dos planos continuam com evidência. Só 4 arquivos mudaram desde a verificação anterior: o dashboard continua JSON válido e consistente (só a cor do painel do CB mudou, e os value mappings continuam definindo texto e cor), o parágrafo novo do `docs/demo.md` bate com a config do Resilience4j, e as duas screenshots existem e resolvem os 3 links. A UAT humana fechou todos os itens visuais e de julgamento. Achados menores que não bloqueiam e podem ser corrigidos num `/gsd-quick`: `docs/demo.md:67` diz "o estado do CB do webhook", mas o painel mostra os 3 canais, e `docs/demo.md:57` ainda diz "quatro rows" em vez de cinco.
 
 ---
 
-_Verified: 2026-11-02T00:35:00Z_
+_Verified: 2026-11-02T14:10:00Z_
 _Verifier: Claude (gsd-verifier)_
