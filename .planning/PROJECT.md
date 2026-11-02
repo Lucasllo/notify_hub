@@ -37,7 +37,7 @@ Uma notificação aceita pela API nunca se perde em silêncio. Ela é entregue (
 
 ### Active
 
-(nenhum: todos os requisitos da v1 foram entregues)
+(nenhum: todos os requisitos da v1 foram entregues; os da próxima versão serão definidos em `/gsd-new-milestone`)
 
 ### Out of Scope
 
@@ -48,11 +48,28 @@ Uma notificação aceita pela API nunca se perde em silêncio. Ela é entregue (
 - Plugin `rabbitmq_delayed_message_exchange`: o requisito é TTL + dead-letter, nativo do RabbitMQ
 - Autenticação e autorização completas: apenas API key simples nos endpoints admin
 
+## Current State
+
+**v1 MVP entregue em 2026-11-02** (4 fases, 30 planos, 51/51 requisitos). Arquivo em `.planning/milestones/v1-ROADMAP.md`, requisitos em `v1-REQUIREMENTS.md` e auditoria em `v1-MILESTONE-AUDIT.md`.
+
+- Quatro módulos Maven (`notify-common`, `notify-api`, `notify-worker`, `notify-it`): ~6,2k linhas Java de produção e ~11,5k de testes, com unitários sem Docker e ITs Failsafe com Testcontainers
+- Stack: Java 21, Spring Boot 3.5.16, Spring AMQP 3.2, Spring Data MongoDB 4.5, Resilience4j 2.4.0, Micrometer, RabbitMQ 4.3.6, MongoDB 8.0.32, Prometheus 3.13 LTS, Grafana 12.4, k6 2.3
+- Demo: `docker compose up --build` + `k6/demo.js` (1000 notificações), com o dashboard "Notify Hub" provisionado
+- Dívida conhecida (não bloqueante): WR-08 da Fase 3 (500 genérico sem `notificationId` com Mongo fora depois de publish sem confirm), latência do replay até ~35s (WR-06), exemplos `curl.exe` quebrados no PowerShell 5.1, Javadoc de `RecipientRules` desatualizado, verificações de fase com digest `stale` no fechamento
+
+## Next Milestone Goals
+
+Ainda não definidos; serão levantados em `/gsd-new-milestone`. Os candidatos já registrados em REQUIREMENTS v2 são:
+
+- Operação: correlation ID em HTTP/AMQP/MDC (OPS-01), roteiro "mate o worker" com graceful shutdown (OPS-02), peek da DLQ (OPS-03) e reprocessamento por ID (OPS-04)
+- Evolução: outbox transacional (EVO-01), migração para Spring Boot 4.x (EVO-02) e jitter no backoff (EVO-03)
+- Limpeza da dívida técnica da auditoria v1
+
 ## Context
 
 - Projeto de portfólio para demonstrar competência backend: mensageria, NoSQL, resiliência, concorrência moderna (Java 21) e observabilidade.
-- Escopo pequeno/moderado, cerca de 1 semana de trabalho.
-- Greenfield: diretório vazio, sem código prévio.
+- Escopo pequeno/moderado, cerca de 1 semana de trabalho (a v1 levou 24 dias de calendário).
+- Começou greenfield; a v1 está entregue e o projeto agora é brownfield.
 - Quem avaliar o projeto deve conseguir rodar a demo sem configuração manual. A topologia aparece no painel do RabbitMQ (filas de retry por nível ficam visíveis) e as métricas aparecem no Grafana.
 - Backoff com filas de delay fixas por nível foi escolhido por ser didático e por evitar o head-of-line blocking de TTL por mensagem numa fila única.
 
@@ -103,4 +120,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-11-02 after Phase 4*
+*Last updated: 2026-11-02 after v1 milestone*

@@ -1,18 +1,18 @@
 ---
 gsd_state_version: "1.0"
-current_phase: 04
-status: completed
+status: Awaiting next milestone
 stopped_at: Phase 04 complete — all phases complete
-last_updated: "2026-11-02T13:44:07.256Z"
+last_updated: "2026-11-02T15:13:39.575Z"
 last_activity: 2026-11-02
-last_activity_desc: Phase 04 complete
-state_head: 285da6e4d3e8ad2cc6415510c3c0e8a77378c531
+last_activity_desc: Milestone v1 completed and archived
+state_head: 7ae84d100aab8f2595b11dbf3bb263a059972437
 progress:
   total_phases: 4
   completed_phases: 4
   total_plans: 30
   completed_plans: 30
   percent: 100
+current_phase: 04
 ---
 
 # Project State
@@ -22,16 +22,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-11-02)
 
 **Core value:** Uma notificação aceita pela API nunca se perde em silêncio: é entregue, passa por retries com backoff exponencial ou termina na DLQ com histórico completo, de onde pode ser reprocessada, tudo observável e demonstrável com `docker compose up` + script.
-**Current focus:** Milestone v1 completo — todas as 4 fases concluídas; próximo passo é auditar e fechar o milestone
+**Current focus:** Planejando o próximo milestone (v1 MVP entregue e arquivado em 2026-11-02)
 
 ## Current Position
 
-Phase: 04
-Plan: Not started
-Status: All phases complete
-Last activity: 2026-11-02 - Completed quick task 261102-ez1: corrigir docs/demo.md:67 (painel do CB mostra os 3 canais) e docs/demo.md:57 (5 rows)
-
-Progress: [██████████] 100%
+Phase: Milestone v1 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-11-02 — Milestone v1 completed and archived
 
 ## Performance Metrics
 
@@ -180,9 +178,6 @@ None yet.
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
-| 261020-tm3 | Corrigir WR-05/T-02-01 (lastError de REPUBLISH_FAILED com motivo enumerado e truncado), WR-09 (fence tolera RuntimeException) e WR-07 (destinatários mágicos só no profile demo) | 2026-10-28 | 07b5fb1 | [261020-tm3-corrigir-wr-05-t-02-01-lasterror-de-repu](./quick/261020-tm3-corrigir-wr-05-t-02-01-lasterror-de-repu/) |
-| 261029-u95 | Fechar a Fase 2 no ROADMAP.md e no STATE.md (UAT 3/3 aprovado em 2026-10-21) | 2026-10-29 | 871d97f | [261029-u95-fechar-a-fase-2-no-roadmap-md-e-no-state](./quick/261029-u95-fechar-a-fase-2-no-roadmap-md-e-no-state/) |
-| 261102-ez1 | corrigir docs/demo.md:67 (painel do CB mostra os 3 canais) e docs/demo.md:57 (5 rows) | 2026-11-02 | 27b1a34 | [261102-ez1-corrigir-docs-demo-md-67-painel-do-cb-mo](./quick/261102-ez1-corrigir-docs-demo-md-67-painel-do-cb-mo/) |
 
 ## Deferred Items
 
@@ -190,10 +185,16 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 | Category | Item | Status | Deferred At | Milestone |
 |----------|------|--------|-------------|-----------|
-| *(none)* | | | | |
+| deferred_items | 01/deferred-items.md: MustacheAutoConfiguration ativado no worker pelo jmustache no classpath (exclude já aplicado em notify-worker application.yml) | acknowledged | 2026-11-02 | v1 |
+| deferred_items | 02/deferred-items.md: Javadoc de RecipientRules cita o SMS mágico antigo +5500000000001 | acknowledged | 2026-11-02 | v1 |
+| verification_override | Fases 1-4: VERIFICATION.md com covered_digest stale no fechamento (nenhuma falha; aceito pelo usuário) | override_closeout | 2026-11-02 | v1 |
 
 ## Session Continuity
 
 Last session: 2026-11-02T13:50:00Z
 Stopped at: Phase 04 complete — milestone v1 pronto para auditoria
 Resume file: None
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone
